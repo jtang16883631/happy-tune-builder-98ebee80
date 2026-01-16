@@ -92,7 +92,8 @@ const Scan = () => {
 
   const [scanRows, setScanRows] = useState<ScanRow[]>([createEmptyRow()]);
   const [activeRowIndex, setActiveRowIndex] = useState(0);
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const ndcInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const qtyInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const hasRole = roles.length > 0;
@@ -294,13 +295,8 @@ const Scan = () => {
       }
       return prev;
     });
-
-    setTimeout(() => {
-      if (inputRefs.current[rowIndex + 1]) {
-        inputRefs.current[rowIndex + 1]?.focus();
-        setActiveRowIndex(rowIndex + 1);
-      }
-    }, 100);
+    
+    // Don't auto-focus next row's NDC here - we want to focus QTY first
   }, [fdaLookup, getCostItemByNDC, selectedTemplate, scanRows]);
 
   // Handle field change - recalculate Extended when QTY or Unit Cost changes
@@ -337,9 +333,9 @@ const Scan = () => {
     });
   };
 
-  // Handle Enter key or barcode scan completion
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number) => {
-    if (e.key === 'Enter') {
+  // Handle NDC input Enter/Tab key - jump to QTY after lookup
+  const handleNdcKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number) => {
+    if (e.key === 'Enter' || e.key === 'Tab') {
       e.preventDefault();
       
       // Check if previous row (if exists and has data) passes validation
@@ -356,7 +352,43 @@ const Scan = () => {
       }
       
       const ndc = scanRows[rowIndex].scannedNdc || scanRows[rowIndex].ndc;
-      lookupNDC(ndc, rowIndex);
+      if (ndc && ndc.length >= 10) {
+        lookupNDC(ndc, rowIndex);
+        // After lookup, focus on QTY field
+        setTimeout(() => {
+          qtyInputRefs.current[rowIndex]?.focus();
+        }, 150);
+      }
+    }
+  };
+
+  // Handle QTY input Enter key - validate current row and jump to next row's NDC
+  const handleQtyKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      
+      // Validate current row before moving to next
+      const currentRow = scanRows[rowIndex];
+      const { valid, errors } = validateRow(currentRow);
+      
+      if (!valid) {
+        toast.error('请先完成当前行的必填项', {
+          description: `缺少: ${errors.join(', ')}`,
+          duration: 5000,
+        });
+        return; // Block moving to next row
+      }
+      
+      // Add new row if this is the last row
+      if (rowIndex === scanRows.length - 1) {
+        setScanRows(prev => [...prev, createEmptyRow()]);
+      }
+      
+      // Move to next row's NDC field
+      setTimeout(() => {
+        ndcInputRefs.current[rowIndex + 1]?.focus();
+        setActiveRowIndex(rowIndex + 1);
+      }, 100);
     }
   };
 
@@ -388,7 +420,7 @@ const Scan = () => {
     setScanRows(prev => [...prev, createEmptyRow()]);
     setTimeout(() => {
       const lastIndex = scanRows.length;
-      inputRefs.current[lastIndex]?.focus();
+      ndcInputRefs.current[lastIndex]?.focus();
       setActiveRowIndex(lastIndex);
     }, 100);
   };
@@ -591,10 +623,23 @@ const Scan = () => {
                               ? `$${Number(value).toFixed(2)}`
                               : (value?.toString() || '');
                             
+                            // Determine ref and keydown handler based on field type
+                            const getRef = () => {
+                              if (col.isNdcInput) return (el: HTMLInputElement | null) => ndcInputRefs.current[index] = el;
+                              if (col.key === 'qty') return (el: HTMLInputElement | null) => qtyInputRefs.current[index] = el;
+                              return undefined;
+                            };
+                            
+                            const getKeyDownHandler = () => {
+                              if (col.isNdcInput) return (e: React.KeyboardEvent<HTMLInputElement>) => handleNdcKeyDown(e, index);
+                              if (col.key === 'qty') return (e: React.KeyboardEvent<HTMLInputElement>) => handleQtyKeyDown(e, index);
+                              return undefined;
+                            };
+                            
                             return (
                               <TableCell key={col.key} className="p-1">
                                 <Input
-                                  ref={col.isNdcInput ? (el => inputRefs.current[index] = el) : undefined}
+                                  ref={getRef()}
                                   value={col.type === 'currency' ? (value !== null && value !== undefined ? Number(value).toFixed(2) : '') : (value?.toString() || '')}
                                   onChange={(e) => {
                                     const newValue = col.type === 'number' || col.type === 'currency'
@@ -602,7 +647,7 @@ const Scan = () => {
                                       : e.target.value;
                                     handleFieldChange(col.key as keyof ScanRow, newValue, index);
                                   }}
-                                  onKeyDown={col.isNdcInput ? (e) => handleKeyDown(e, index) : undefined}
+                                  onKeyDown={getKeyDownHandler()}
                                   onFocus={() => setActiveRowIndex(index)}
                                   type={col.type === 'number' || col.type === 'currency' ? 'number' : 'text'}
                                   step={col.type === 'currency' ? '0.01' : undefined}
