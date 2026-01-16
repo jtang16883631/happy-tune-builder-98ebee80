@@ -734,14 +734,8 @@ const Scan = () => {
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div className="flex-1">
-            <h1 className="text-2xl font-bold tracking-tight">{selectedTemplate.name}</h1>
-            <p className="text-muted-foreground text-sm">
-              {selectedTemplate.facility_name} • {formatDate(selectedTemplate.inv_date)}
-            </p>
-          </div>
           
-          {/* Section Selector */}
+          {/* Section Selector - moved to left */}
           <div className="flex items-center gap-2">
             <span className="text-sm text-muted-foreground">Section:</span>
             <DropdownMenu>
@@ -757,7 +751,7 @@ const Scan = () => {
                   <ChevronDown className="h-4 w-4 ml-2 shrink-0" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-[280px] max-h-[300px] overflow-y-auto">
+              <DropdownMenuContent align="start" className="w-[280px] max-h-[300px] overflow-y-auto">
                 {sections.length === 0 ? (
                   <div className="p-2 text-sm text-muted-foreground text-center">
                     No sections available
@@ -793,6 +787,13 @@ const Scan = () => {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          </div>
+          
+          <div className="flex-1">
+            <h1 className="text-2xl font-bold tracking-tight">{selectedTemplate.name}</h1>
+            <p className="text-muted-foreground text-sm">
+              {selectedTemplate.facility_name} • {formatDate(selectedTemplate.inv_date)}
+            </p>
           </div>
         </div>
 
