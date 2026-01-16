@@ -1,8 +1,8 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, Users, ScanBarcode, FolderOpen, Pill, LayoutDashboard, CalendarDays, Clock } from 'lucide-react';
+import { LogOut, Users, ScanBarcode, FolderOpen, Pill, LayoutDashboard, CalendarDays, Clock, PanelLeftClose, PanelLeft } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 
@@ -24,6 +24,7 @@ const navItems = [
 export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
   const { user, roles, isManager, signOut } = useAuth();
   const location = useLocation();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const getInitials = (name?: string | null) => {
     if (!name) return 'U';
@@ -42,7 +43,12 @@ export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
   return (
     <div className="min-h-screen flex bg-background">
       {/* Left Sidebar */}
-      <aside className="w-56 bg-[hsl(215,50%,23%)] text-white flex flex-col fixed h-screen">
+      <aside 
+        className={cn(
+          "bg-[hsl(215,50%,23%)] text-white flex flex-col fixed h-screen transition-all duration-300",
+          sidebarCollapsed ? "w-0 overflow-hidden" : "w-56"
+        )}
+      >
         {/* Logo */}
         <div className="p-4 border-b border-white/10">
           <Link to="/" className="flex items-center gap-3">
@@ -107,8 +113,30 @@ export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
       </aside>
 
       {/* Main Content */}
-      <div className="flex-1 ml-56">
-        <main className={cn("p-6", fullWidth ? "" : "max-w-7xl mx-auto")}>{children}</main>
+      <div className={cn(
+        "flex-1 transition-all duration-300",
+        sidebarCollapsed ? "ml-0" : "ml-56"
+      )}>
+        {/* Toggle Button */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          className={cn(
+            "fixed top-4 z-50 h-9 w-9 transition-all duration-300",
+            sidebarCollapsed 
+              ? "left-4 bg-[hsl(215,50%,23%)] text-white hover:bg-[hsl(215,50%,30%)]" 
+              : "left-[14.5rem] text-muted-foreground hover:text-foreground hover:bg-muted"
+          )}
+        >
+          {sidebarCollapsed ? (
+            <PanelLeft className="h-5 w-5" />
+          ) : (
+            <PanelLeftClose className="h-5 w-5" />
+          )}
+        </Button>
+        
+        <main className={cn("p-6 pt-16", fullWidth ? "" : "max-w-7xl mx-auto")}>{children}</main>
       </div>
     </div>
   );
