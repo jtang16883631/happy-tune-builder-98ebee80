@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      data_templates: {
+        Row: {
+          cost_file_name: string | null
+          created_at: string | null
+          facility_name: string | null
+          id: string
+          inv_date: string | null
+          inv_number: string | null
+          job_ticket_file_name: string | null
+          name: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          cost_file_name?: string | null
+          created_at?: string | null
+          facility_name?: string | null
+          id?: string
+          inv_date?: string | null
+          inv_number?: string | null
+          job_ticket_file_name?: string | null
+          name: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          cost_file_name?: string | null
+          created_at?: string | null
+          facility_name?: string | null
+          id?: string
+          inv_date?: string | null
+          inv_number?: string | null
+          job_ticket_file_name?: string | null
+          name?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       drugs: {
         Row: {
           created_at: string
@@ -82,6 +121,138 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      template_cost_items: {
+        Row: {
+          billing_date: string | null
+          created_at: string | null
+          dose: string | null
+          generic: string | null
+          id: string
+          manufacturer: string | null
+          material: string | null
+          material_description: string | null
+          ndc: string | null
+          size: string | null
+          source: string | null
+          strength: string | null
+          template_id: string
+          unit_price: number | null
+        }
+        Insert: {
+          billing_date?: string | null
+          created_at?: string | null
+          dose?: string | null
+          generic?: string | null
+          id?: string
+          manufacturer?: string | null
+          material?: string | null
+          material_description?: string | null
+          ndc?: string | null
+          size?: string | null
+          source?: string | null
+          strength?: string | null
+          template_id: string
+          unit_price?: number | null
+        }
+        Update: {
+          billing_date?: string | null
+          created_at?: string | null
+          dose?: string | null
+          generic?: string | null
+          id?: string
+          manufacturer?: string | null
+          material?: string | null
+          material_description?: string | null
+          ndc?: string | null
+          size?: string | null
+          source?: string | null
+          strength?: string | null
+          template_id?: string
+          unit_price?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "template_cost_items_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "data_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      template_scan_records: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          ndc: string
+          price: number | null
+          source: string | null
+          template_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          ndc: string
+          price?: number | null
+          source?: string | null
+          template_id: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          ndc?: string
+          price?: number | null
+          source?: string | null
+          template_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "template_scan_records_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "data_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      template_sections: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          full_section: string | null
+          id: string
+          sect: string
+          template_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          full_section?: string | null
+          id?: string
+          sect: string
+          template_id: string
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          full_section?: string | null
+          id?: string
+          sect?: string
+          template_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "template_sections_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "data_templates"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {

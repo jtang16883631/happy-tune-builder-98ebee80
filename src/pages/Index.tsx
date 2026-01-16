@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { useDataTemplates, DataTemplate } from '@/hooks/useDataTemplates';
+import { useCloudTemplates, CloudTemplate, CloudSection } from '@/hooks/useCloudTemplates';
 import { 
   Upload, Loader2, CalendarDays, Trash2, RefreshCw, FileSpreadsheet, 
   CheckCircle, XCircle, FolderOpen, ChevronDown, ChevronRight 
@@ -47,26 +47,20 @@ const Index = () => {
   const { isLoading: authLoading, roles } = useAuth();
   const { toast } = useToast();
   const bulkInputRef = useRef<HTMLInputElement>(null);
-  const updateInputRef = useRef<HTMLInputElement>(null);
 
   const {
+    templates,
     isLoading: dbLoading,
     isReady,
-    extractTemplateName,
     importTemplate,
-    updateTemplateCost,
-    getTemplates,
-    getTemplateSections,
-    getCostItemCount,
-    deleteTemplates,
-    getTemplateCount,
-  } = useDataTemplates();
+    deleteTemplate,
+    getSections,
+    refetch,
+  } = useCloudTemplates();
 
-  const [templates, setTemplates] = useState<DataTemplate[]>([]);
-  const [selectedTemplates, setSelectedTemplates] = useState<Set<number>>(new Set());
-  const [expandedTemplate, setExpandedTemplate] = useState<number | null>(null);
-  const [templateSections, setTemplateSections] = useState<{ [key: number]: any[] }>({});
-  const [updateTemplateId, setUpdateTemplateId] = useState<number | null>(null);
+  const [selectedTemplates, setSelectedTemplates] = useState<Set<string>>(new Set());
+  const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
+  const [templateSections, setTemplateSections] = useState<{ [key: string]: CloudSection[] }>({});
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const [importProgress, setImportProgress] = useState<ImportProgress>({
@@ -77,13 +71,6 @@ const Index = () => {
     failed: 0,
     errors: [],
   });
-
-  // Load templates when ready
-  useEffect(() => {
-    if (isReady) {
-      setTemplates(getTemplates());
-    }
-  }, [isReady, getTemplates]);
 
   const hasRole = roles.length > 0;
 
@@ -96,7 +83,6 @@ const Index = () => {
           const workbook = XLSX.read(data, { type: 'array' });
           const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
           const jsonData = XLSX.utils.sheet_to_json(firstSheet, { defval: null });
-          // Also get raw 2D array for scanning cells
           const rawData = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' }) as any[][];
           resolve({ rows: jsonData, rawData });
         } catch (error) {
@@ -108,32 +94,27 @@ const Index = () => {
     });
   };
 
-  // Extract the invoice number from filename (7-9 digits)
   const extractInvNumber = (fileName: string): string | null => {
     const match = fileName.match(/\b(\d{7,9})\b/);
     return match ? match[1] : null;
   };
 
-  // Check if file is a job ticket
   const isTicketFile = (fileName: string): boolean => {
     const s = fileName.toLowerCase();
     return s.includes('jobticket') || s.includes('jobtickettemplate') || s.startsWith('jc ');
   };
 
-  // Check if file is a cost data file
   const isCostFile = (fileName: string): boolean => {
     const s = fileName.toLowerCase();
     return s.includes('cost data');
   };
 
-  // Group files by the invoice number in the filename
   const groupFiles = (files: FileList): FileGroup[] => {
     const costFiles: { [inv: string]: File } = {};
     const jobTicketFiles: { [inv: string]: File } = {};
 
     Array.from(files).forEach(file => {
       const inv = extractInvNumber(file.name);
-      
       if (!inv) return;
 
       if (isCostFile(file.name)) {
@@ -143,12 +124,11 @@ const Index = () => {
       }
     });
 
-    // Match pairs by invoice number
     const groups: FileGroup[] = [];
     for (const inv of Object.keys(costFiles)) {
       if (jobTicketFiles[inv]) {
         groups.push({
-          name: inv, // Will be replaced with proper name after parsing
+          name: inv,
           costFile: costFiles[inv],
           jobTicketFile: jobTicketFiles[inv],
         });
@@ -198,7 +178,6 @@ const Index = () => {
         const result = await importTemplate(
           group.name,
           costData.rows,
-          jobTicketData.rows,
           jobTicketData.rawData,
           group.costFile!.name,
           group.jobTicketFile!.name
@@ -225,7 +204,6 @@ const Index = () => {
     }
 
     setImportProgress(prev => ({ ...prev, status: 'complete' }));
-    setTemplates(getTemplates());
 
     toast({
       title: 'Import complete',
@@ -237,39 +215,11 @@ const Index = () => {
     }
   };
 
-  const handleUpdateCost = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || updateTemplateId === null) return;
-
-    try {
-      toast({ title: 'Parsing cost data...' });
-      const costData = await parseExcelFile(file);
-
-      const result = await updateTemplateCost(updateTemplateId, costData.rows, file.name);
-
-      if (result.success) {
-        toast({
-          title: 'Cost data updated',
-          description: `${result.updated} items updated.`,
-        });
-        setTemplates(getTemplates());
-      } else {
-        toast({ title: 'Update failed', description: result.error, variant: 'destructive' });
-      }
-    } catch (err: any) {
-      toast({ title: 'Update failed', description: err.message, variant: 'destructive' });
-    }
-
-    setUpdateTemplateId(null);
-    if (updateInputRef.current) {
-      updateInputRef.current.value = '';
-    }
-  };
-
   const handleDeleteSelected = async () => {
-    await deleteTemplates(Array.from(selectedTemplates));
+    for (const templateId of Array.from(selectedTemplates)) {
+      await deleteTemplate(templateId);
+    }
     setSelectedTemplates(new Set());
-    setTemplates(getTemplates());
     setShowDeleteDialog(false);
     toast({ title: 'Templates deleted' });
   };
@@ -282,7 +232,7 @@ const Index = () => {
     }
   };
 
-  const toggleSelect = (id: number) => {
+  const toggleSelect = (id: string) => {
     const newSet = new Set(selectedTemplates);
     if (newSet.has(id)) {
       newSet.delete(id);
@@ -292,13 +242,13 @@ const Index = () => {
     setSelectedTemplates(newSet);
   };
 
-  const toggleExpand = (id: number) => {
+  const toggleExpand = async (id: string) => {
     if (expandedTemplate === id) {
       setExpandedTemplate(null);
     } else {
       setExpandedTemplate(id);
       if (!templateSections[id]) {
-        const sections = getTemplateSections(id);
+        const sections = await getSections(id);
         setTemplateSections(prev => ({ ...prev, [id]: sections }));
       }
     }
@@ -307,7 +257,6 @@ const Index = () => {
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-';
     try {
-      // Handle various date formats
       const date = new Date(dateStr);
       if (isNaN(date.getTime())) return dateStr;
       return date.toLocaleDateString();
@@ -335,7 +284,7 @@ const Index = () => {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Data Template</h1>
             <p className="text-muted-foreground mt-1">
-              {templates.length} templates • Sorted by inventory date
+              {templates.length} templates • Synced to cloud
             </p>
           </div>
           {hasRole && (
@@ -348,37 +297,15 @@ const Index = () => {
                 className="hidden"
                 multiple
               />
-              <input
-                ref={updateInputRef}
-                type="file"
-                accept=".xlsx,.xlsm,.xls,.csv"
-                onChange={handleUpdateCost}
-                className="hidden"
-              />
 
               {selectedTemplates.size > 0 && (
-                <>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      if (selectedTemplates.size === 1) {
-                        setUpdateTemplateId(Array.from(selectedTemplates)[0]);
-                        updateInputRef.current?.click();
-                      }
-                    }}
-                    disabled={selectedTemplates.size !== 1}
-                  >
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Update Cost
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    onClick={() => setShowDeleteDialog(true)}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete ({selectedTemplates.size})
-                  </Button>
-                </>
+                <Button
+                  variant="destructive"
+                  onClick={() => setShowDeleteDialog(true)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete ({selectedTemplates.size})
+                </Button>
               )}
 
               <Button onClick={() => bulkInputRef.current?.click()}>
@@ -503,7 +430,7 @@ const Index = () => {
                           <div className="flex-1">
                             <div className="font-medium">{template.name}</div>
                             <div className="text-sm text-muted-foreground">
-                              Inv. Date: {formatDate(template.inv_date)} • {getCostItemCount(template.id)} cost items
+                              {template.facility_name} • Inv. Date: {formatDate(template.inv_date)}
                             </div>
                           </div>
                         </CollapsibleTrigger>

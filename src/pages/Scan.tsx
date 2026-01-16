@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useDataTemplates, DataTemplate, TemplateCostItem } from '@/hooks/useDataTemplates';
+import { useCloudTemplates, CloudTemplate } from '@/hooks/useCloudTemplates';
 import { useLocalFDA } from '@/hooks/useLocalFDA';
 import {
   Table,
@@ -29,17 +29,16 @@ const Scan = () => {
   const { isLoading: authLoading, roles } = useAuth();
   const navigate = useNavigate();
   const { 
+    templates,
     isReady, 
-    getTemplates, 
     isLoading: templatesLoading,
     saveScanRecords,
     loadScanRecords,
     getCostItemByNDC
-  } = useDataTemplates();
+  } = useCloudTemplates();
   const { lookupNDC: fdaLookup, isReady: fdaReady } = useLocalFDA();
 
-  const [templates, setTemplates] = useState<DataTemplate[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<DataTemplate | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<CloudTemplate | null>(null);
   const [scanRows, setScanRows] = useState<ScanRow[]>([
     { id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' }
   ]);
@@ -55,13 +54,6 @@ const Scan = () => {
     }
   }, [authLoading, hasRole, navigate]);
 
-  // Load templates when ready
-  useEffect(() => {
-    if (isReady) {
-      setTemplates(getTemplates());
-    }
-  }, [isReady, getTemplates]);
-
   // Auto-save with debounce
   useEffect(() => {
     if (!selectedTemplate || !isReady) return;
@@ -72,7 +64,7 @@ const Scan = () => {
     }
 
     // Debounce save - wait 500ms after last change
-    saveTimeoutRef.current = setTimeout(() => {
+    saveTimeoutRef.current = setTimeout(async () => {
       const recordsToSave = scanRows
         .filter(r => r.ndc)
         .map(r => ({
@@ -83,7 +75,7 @@ const Scan = () => {
         }));
       
       if (recordsToSave.length > 0) {
-        saveScanRecords(selectedTemplate.id, recordsToSave);
+        await saveScanRecords(selectedTemplate.id, recordsToSave);
       }
     }, 500);
 
@@ -95,19 +87,19 @@ const Scan = () => {
   }, [scanRows, selectedTemplate, isReady, saveScanRecords]);
 
   // Handle template selection - load saved records
-  const handleSelectTemplate = (template: DataTemplate) => {
+  const handleSelectTemplate = async (template: CloudTemplate) => {
     setSelectedTemplate(template);
     
     // Load saved scan records for this template
-    const savedRecords = loadScanRecords(template.id);
+    const savedRecords = await loadScanRecords(template.id);
     
     if (savedRecords.length > 0) {
       const rows: ScanRow[] = savedRecords.map(r => ({
         id: crypto.randomUUID(),
         ndc: r.ndc,
-        description: r.description,
+        description: r.description || '',
         price: r.price,
-        source: r.source as ScanRow['source']
+        source: (r.source as ScanRow['source']) || ''
       }));
       // Add empty row at the end
       rows.push({ id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' });
@@ -132,13 +124,13 @@ const Scan = () => {
     const fdaResult = fdaLookup(cleanNdc);
     
     // Try cost data lookup for price
-    const costItem = getCostItemByNDC(selectedTemplate.id, cleanNdc);
+    const costItem = await getCostItemByNDC(selectedTemplate.id, cleanNdc);
     
     const description = fdaResult 
       ? (fdaResult.meridian_desc || fdaResult.trade || fdaResult.generic || '')
       : (costItem?.material_description || 'Not found');
     
-    const price = costItem?.unit_price || null;
+    const price = costItem?.unit_price ? Number(costItem.unit_price) : null;
     const source: ScanRow['source'] = fdaResult ? 'fda' : (costItem ? 'cost_data' : 'not_found');
     
     setScanRows(prev => {
@@ -207,6 +199,17 @@ const Scan = () => {
     }, 100);
   };
 
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return '';
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return dateStr;
+      return date.toLocaleDateString();
+    } catch {
+      return dateStr;
+    }
+  };
+
   if (authLoading || templatesLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -265,7 +268,7 @@ const Scan = () => {
                     {template.inv_date && (
                       <div className="flex items-center gap-2">
                         <Calendar className="h-4 w-4" />
-                        <span>{template.inv_date}</span>
+                        <span>{formatDate(template.inv_date)}</span>
                       </div>
                     )}
                   </CardContent>
@@ -294,7 +297,7 @@ const Scan = () => {
           <div className="flex-1">
             <h1 className="text-2xl font-bold tracking-tight">{selectedTemplate.name}</h1>
             <p className="text-muted-foreground text-sm">
-              {selectedTemplate.facility_name} • {selectedTemplate.inv_date}
+              {selectedTemplate.facility_name} • {formatDate(selectedTemplate.inv_date)}
             </p>
           </div>
         </div>
