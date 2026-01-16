@@ -3,12 +3,27 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle } from 'lucide-react';
+import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useCloudTemplates, CloudTemplate } from '@/hooks/useCloudTemplates';
+import { useCloudTemplates, CloudTemplate, CloudSection } from '@/hooks/useCloudTemplates';
 import { useLocalFDA } from '@/hooks/useLocalFDA';
 import { toast } from 'sonner';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { supabase } from '@/integrations/supabase/client';
 import {
   Table,
   TableBody,
@@ -54,12 +69,24 @@ const Scan = () => {
   const { 
     templates,
     isLoading: templatesLoading,
-    getCostItemByNDC
+    getCostItemByNDC,
+    getSections
   } = useCloudTemplates();
   
   const { lookupNDC: fdaLookup } = useLocalFDA();
 
   const [selectedTemplate, setSelectedTemplate] = useState<CloudTemplate | null>(null);
+  const [sections, setSections] = useState<CloudSection[]>([]);
+  const [selectedSection, setSelectedSection] = useState<CloudSection | null>(null);
+  const [sectionsLoading, setSectionsLoading] = useState(false);
+  
+  // Dialog states for section management
+  const [addSectionDialogOpen, setAddSectionDialogOpen] = useState(false);
+  const [renameSectionDialogOpen, setRenameSectionDialogOpen] = useState(false);
+  const [newSectionCode, setNewSectionCode] = useState('');
+  const [newSectionDesc, setNewSectionDesc] = useState('');
+  const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
+  const [editingSectionDesc, setEditingSectionDesc] = useState('');
   
   const createEmptyRow = (): ScanRow => ({
     id: crypto.randomUUID(),
@@ -172,9 +199,26 @@ const Scan = () => {
     };
   }, [scanRows, selectedTemplate]);
 
+  // Load sections when template is selected
+  const loadSections = useCallback(async (templateId: string) => {
+    setSectionsLoading(true);
+    try {
+      const sectionData = await getSections(templateId);
+      setSections(sectionData);
+    } catch (err) {
+      console.error('Error loading sections:', err);
+    } finally {
+      setSectionsLoading(false);
+    }
+  }, [getSections]);
+
   // Handle template selection - load saved records from localStorage
-  const handleSelectTemplate = (template: CloudTemplate) => {
+  const handleSelectTemplate = async (template: CloudTemplate) => {
     setSelectedTemplate(template);
+    setSelectedSection(null); // Reset section selection
+    
+    // Load sections for this template
+    await loadSections(template.id);
     
     const savedData = localStorage.getItem(`scan_records_${template.id}`);
     
@@ -197,6 +241,90 @@ const Scan = () => {
       setScanRows([createEmptyRow()]);
       setActiveRowIndex(0);
     }
+  };
+
+  // Add new section
+  const handleAddSection = async () => {
+    if (!selectedTemplate || !newSectionCode.trim()) {
+      toast.error('请输入Section代码');
+      return;
+    }
+
+    try {
+      const paddedCode = newSectionCode.replace(/\D/g, '').padStart(4, '0') || newSectionCode;
+      const fullSection = `${paddedCode}-${newSectionDesc.trim()}`;
+      
+      const { error } = await supabase
+        .from('template_sections')
+        .insert({
+          template_id: selectedTemplate.id,
+          sect: paddedCode,
+          description: newSectionDesc.trim(),
+          full_section: fullSection,
+        });
+
+      if (error) throw error;
+
+      toast.success('Section添加成功');
+      setAddSectionDialogOpen(false);
+      setNewSectionCode('');
+      setNewSectionDesc('');
+      await loadSections(selectedTemplate.id);
+    } catch (err: any) {
+      toast.error('添加失败: ' + err.message);
+    }
+  };
+
+  // Rename section (update description)
+  const handleRenameSection = async () => {
+    if (!editingSectionId || !editingSectionDesc.trim()) {
+      toast.error('请输入描述');
+      return;
+    }
+
+    try {
+      const section = sections.find(s => s.id === editingSectionId);
+      if (!section) return;
+
+      const fullSection = `${section.sect}-${editingSectionDesc.trim()}`;
+      
+      // Note: We need to allow UPDATE on template_sections for managers
+      const { error } = await supabase
+        .from('template_sections')
+        .update({
+          description: editingSectionDesc.trim(),
+          full_section: fullSection,
+        })
+        .eq('id', editingSectionId);
+
+      if (error) throw error;
+
+      toast.success('Section更新成功');
+      setRenameSectionDialogOpen(false);
+      setEditingSectionId(null);
+      setEditingSectionDesc('');
+      
+      if (selectedTemplate) {
+        await loadSections(selectedTemplate.id);
+        // Update selected section if it was renamed
+        if (selectedSection?.id === editingSectionId) {
+          setSelectedSection(prev => prev ? {
+            ...prev,
+            description: editingSectionDesc.trim(),
+            full_section: fullSection
+          } : null);
+        }
+      }
+    } catch (err: any) {
+      toast.error('更新失败: ' + err.message);
+    }
+  };
+
+  // Open rename dialog for a section
+  const openRenameDialog = (section: CloudSection) => {
+    setEditingSectionId(section.id);
+    setEditingSectionDesc(section.description || '');
+    setRenameSectionDialogOpen(true);
   };
 
   // Lookup NDC and update row with mapping (by column position, not name):
@@ -560,7 +688,71 @@ const Scan = () => {
               {selectedTemplate.facility_name} • {formatDate(selectedTemplate.inv_date)}
             </p>
           </div>
+          
+          {/* Section Selector */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Section:</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="min-w-[200px] justify-between">
+                  {sectionsLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : selectedSection ? (
+                    <span className="truncate">{selectedSection.full_section}</span>
+                  ) : (
+                    <span className="text-muted-foreground">Select Section</span>
+                  )}
+                  <ChevronDown className="h-4 w-4 ml-2 shrink-0" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-[280px] max-h-[300px] overflow-y-auto">
+                {sections.length === 0 ? (
+                  <div className="p-2 text-sm text-muted-foreground text-center">
+                    No sections available
+                  </div>
+                ) : (
+                  sections.map((section) => (
+                    <DropdownMenuItem
+                      key={section.id}
+                      className="flex items-center justify-between group"
+                      onClick={() => setSelectedSection(section)}
+                    >
+                      <span className={selectedSection?.id === section.id ? 'font-medium' : ''}>
+                        {section.full_section}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openRenameDialog(section);
+                        }}
+                      >
+                        <Edit2 className="h-3 w-3" />
+                      </Button>
+                    </DropdownMenuItem>
+                  ))
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setAddSectionDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add New Section
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
+
+        {/* Section required warning */}
+        {!selectedSection && (
+          <Card className="border-warning bg-warning/10">
+            <CardContent className="py-3 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-warning" />
+              <span className="text-sm">请先选择一个Section才能开始扫描</span>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Scan Input */}
         <Card className="w-full">
@@ -568,13 +760,16 @@ const Scan = () => {
             <div className="flex items-center gap-4 mb-4">
               <ScanBarcode className="h-5 w-5 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">
-                Scan a barcode or enter NDC in "Scanned NDC" column, then press Enter
+                {selectedSection 
+                  ? `Scanning in: ${selectedSection.full_section}` 
+                  : 'Scan a barcode or enter NDC in "Scanned NDC" column, then press Enter'}
               </span>
               <Button 
                 variant="outline" 
                 size="sm" 
                 className="ml-auto"
                 onClick={handleAddRow}
+                disabled={!selectedSection}
               >
                 <Plus className="h-4 w-4 mr-1" />
                 Add Row
@@ -701,6 +896,78 @@ const Scan = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Add Section Dialog */}
+      <Dialog open={addSectionDialogOpen} onOpenChange={setAddSectionDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>添加新Section</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Section代码</label>
+              <Input
+                placeholder="例如: 0001"
+                value={newSectionCode}
+                onChange={(e) => setNewSectionCode(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">描述</label>
+              <Input
+                placeholder="例如: Topicals-EENT"
+                value={newSectionDesc}
+                onChange={(e) => setNewSectionDesc(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddSectionDialogOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={handleAddSection}>
+              <Plus className="h-4 w-4 mr-1" />
+              添加
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename Section Dialog */}
+      <Dialog open={renameSectionDialogOpen} onOpenChange={setRenameSectionDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>修改Section描述</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Section代码</label>
+              <Input
+                value={sections.find(s => s.id === editingSectionId)?.sect || ''}
+                disabled
+                className="bg-muted"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">描述</label>
+              <Input
+                placeholder="例如: Topicals-EENT"
+                value={editingSectionDesc}
+                onChange={(e) => setEditingSectionDesc(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameSectionDialogOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={handleRenameSection}>
+              <Check className="h-4 w-4 mr-1" />
+              保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 };
