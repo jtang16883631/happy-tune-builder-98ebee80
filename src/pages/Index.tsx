@@ -106,61 +106,49 @@ const Index = () => {
     });
   };
 
-  // Extract the number from filename (e.g., "25100220" from "ALL COST DATA 25100220 Adventist...")
-  const extractNumber = (fileName: string): string | null => {
-    // Look for a number that's 6-10 digits (typical invoice/ID numbers)
-    const match = fileName.match(/\b(\d{6,10})\b/);
+  // Extract the invoice number from filename (7-9 digits)
+  const extractInvNumber = (fileName: string): string | null => {
+    const match = fileName.match(/\b(\d{7,9})\b/);
     return match ? match[1] : null;
   };
 
-  // Extract template name from the number and text after it
-  const getTemplateName = (fileName: string): string => {
-    const number = extractNumber(fileName);
-    if (!number) return fileName;
-    
-    // Find the number in the filename and get everything after it
-    const regex = new RegExp(`${number}\\s*(.+?)(?:\\s*(?:cost\\s*data|job\\s*ticket|jobticket|bljc).*)?$`, 'i');
-    const match = fileName.replace(/\.(xlsx|xlsm|xls|csv)$/i, '').match(regex);
-    
-    if (match && match[1]) {
-      // Clean up the name
-      let name = match[1]
-        .replace(/\s*(cost\s*data|job\s*ticket|jobticket|bljc|jobtickettemplate|\d{2}\.\d{2}\.\d{2})\s*/gi, '')
-        .trim();
-      return `${number} ${name}`.trim();
-    }
-    
-    return number;
+  // Check if file is a job ticket
+  const isTicketFile = (fileName: string): boolean => {
+    const s = fileName.toLowerCase();
+    return s.includes('jobticket') || s.includes('jobtickettemplate') || s.startsWith('jc ');
   };
 
-  // Group files by the number in the filename
+  // Check if file is a cost data file
+  const isCostFile = (fileName: string): boolean => {
+    const s = fileName.toLowerCase();
+    return s.includes('cost data');
+  };
+
+  // Group files by the invoice number in the filename
   const groupFiles = (files: FileList): FileGroup[] => {
-    const costFiles: { [number: string]: File } = {};
-    const jobTicketFiles: { [number: string]: File } = {};
+    const costFiles: { [inv: string]: File } = {};
+    const jobTicketFiles: { [inv: string]: File } = {};
 
     Array.from(files).forEach(file => {
-      const fileName = file.name.toLowerCase();
-      const number = extractNumber(file.name);
+      const inv = extractInvNumber(file.name);
       
-      if (!number) return;
+      if (!inv) return;
 
-      if (fileName.includes('cost')) {
-        costFiles[number] = file;
-      } else if (fileName.includes('jobticket') || fileName.includes('job ticket')) {
-        jobTicketFiles[number] = file;
+      if (isCostFile(file.name)) {
+        costFiles[inv] = file;
+      } else if (isTicketFile(file.name)) {
+        jobTicketFiles[inv] = file;
       }
     });
 
-    // Match pairs by number
+    // Match pairs by invoice number
     const groups: FileGroup[] = [];
-    for (const number of Object.keys(costFiles)) {
-      if (jobTicketFiles[number]) {
-        const costFile = costFiles[number];
-        const templateName = getTemplateName(costFile.name);
+    for (const inv of Object.keys(costFiles)) {
+      if (jobTicketFiles[inv]) {
         groups.push({
-          name: templateName,
-          costFile,
-          jobTicketFile: jobTicketFiles[number],
+          name: inv, // Will be replaced with proper name after parsing
+          costFile: costFiles[inv],
+          jobTicketFile: jobTicketFiles[inv],
         });
       }
     }
