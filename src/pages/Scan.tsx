@@ -152,7 +152,15 @@ const Scan = () => {
     }
   };
 
-  // Lookup NDC and update row
+  // Lookup NDC and update row with mapping:
+  // TIME = laptop real time
+  // Med Desc = Cost Data material_description
+  // MERIDIAN DESC = FDA meridian_desc
+  // SOURCE = Cost Data source
+  // Pack Cost = Cost Data unit_price
+  // MIS Divisor = FDA meridian_divisor
+  // Unit Cost = Pack Cost / MIS Divisor
+  // Extended = Unit Cost * QTY
   const lookupNDC = useCallback(async (ndc: string, rowIndex: number) => {
     if (!ndc || ndc.length < 10 || !selectedTemplate) return;
 
@@ -160,26 +168,58 @@ const Scan = () => {
     const fdaResult = fdaLookup(cleanNdc);
     const costItem = await getCostItemByNDC(selectedTemplate.id, cleanNdc);
     
-    const medDesc = fdaResult 
-      ? (fdaResult.trade || fdaResult.generic || '')
-      : (costItem?.material_description || 'Not found');
+    // Med Desc from Cost Data (material_description)
+    const medDesc = costItem?.material_description || 'Not found';
     
+    // MERIDIAN DESC from FDA
     const meridianDesc = fdaResult?.meridian_desc || '';
+    
+    // SOURCE from Cost Data
+    const costSource = costItem?.source || '';
+    
+    // Pack Cost from Cost Data (unit_price column)
+    const packCost = costItem?.unit_price ? Number(costItem.unit_price) : null;
+    
+    // MIS Divisor from FDA (meridian_divisor)
+    const misDivisor = fdaResult?.meridian_divisor ? Number(fdaResult.meridian_divisor) : null;
+    
+    // Unit Cost = Pack Cost / MIS Divisor
+    let unitCost: number | null = null;
+    if (packCost !== null && misDivisor !== null && misDivisor !== 0) {
+      unitCost = packCost / misDivisor;
+    }
+    
+    // Get current QTY to calculate Extended
+    const currentQty = scanRows[rowIndex].qty;
+    
+    // Extended = Unit Cost * QTY
+    let extended: number | null = null;
+    if (unitCost !== null && currentQty !== null) {
+      extended = unitCost * currentQty;
+    }
+    
+    // Determine lookup source status
+    const lookupSource: ScanRow['source'] = fdaResult ? 'fda' : (costItem ? 'cost_data' : 'not_found');
+    
+    // Other fields from FDA
+    const fdaSize = fdaResult?.fda_size || '';
     const manufacturer = fdaResult?.manufacturer || costItem?.manufacturer || '';
-    const unitCost = costItem?.unit_price ? Number(costItem.unit_price) : null;
-    const source: ScanRow['source'] = fdaResult ? 'fda' : (costItem ? 'cost_data' : 'not_found');
     
     setScanRows(prev => {
       const updated = [...prev];
       updated[rowIndex] = {
         ...updated[rowIndex],
         ndc: cleanNdc,
+        time: new Date().toLocaleTimeString(), // Real time from laptop
         medDesc,
         meridianDesc,
-        manufacturer,
+        source: lookupSource,
+        packCost,
+        misDivisor,
         unitCost,
-        source,
-        time: new Date().toLocaleTimeString(),
+        extended,
+        fdaSize,
+        manufacturer,
       };
       return updated;
     });
@@ -198,13 +238,38 @@ const Scan = () => {
         setActiveRowIndex(rowIndex + 1);
       }
     }, 100);
-  }, [fdaLookup, getCostItemByNDC, selectedTemplate]);
+  }, [fdaLookup, getCostItemByNDC, selectedTemplate, scanRows]);
 
-  // Handle field change
+  // Handle field change - recalculate Extended when QTY or Unit Cost changes
   const handleFieldChange = (field: keyof ScanRow, value: string | number | null, rowIndex: number) => {
     setScanRows(prev => {
       const updated = [...prev];
-      updated[rowIndex] = { ...updated[rowIndex], [field]: value };
+      const row = { ...updated[rowIndex], [field]: value };
+      
+      // Recalculate Unit Cost when Pack Cost or MIS Divisor changes
+      if (field === 'packCost' || field === 'misDivisor') {
+        const packCost = field === 'packCost' ? (value as number | null) : row.packCost;
+        const misDivisor = field === 'misDivisor' ? (value as number | null) : row.misDivisor;
+        
+        if (packCost !== null && misDivisor !== null && misDivisor !== 0) {
+          row.unitCost = packCost / misDivisor;
+        } else {
+          row.unitCost = null;
+        }
+      }
+      
+      // Recalculate Extended when QTY or Unit Cost changes
+      if (field === 'qty' || field === 'packCost' || field === 'misDivisor') {
+        const qty = field === 'qty' ? (value as number | null) : row.qty;
+        
+        if (row.unitCost !== null && qty !== null) {
+          row.extended = row.unitCost * qty;
+        } else {
+          row.extended = null;
+        }
+      }
+      
+      updated[rowIndex] = row;
       return updated;
     });
   };
