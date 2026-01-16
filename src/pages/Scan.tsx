@@ -834,7 +834,6 @@ const Scan = () => {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
-                      <TableHead className="w-12 text-center sticky left-0 bg-muted/50 z-10">#</TableHead>
                       {columns.map((col) => (
                         <TableHead key={col.key} className={`${col.width} text-xs font-medium`}>
                           {col.label}
@@ -851,16 +850,6 @@ const Scan = () => {
                         key={row.id}
                         className={`${index === activeRowIndex ? 'bg-primary/5' : ''} ${validationStatus === 'invalid' ? 'bg-destructive/10' : ''}`}
                       >
-                        <TableCell className={`text-center font-mono text-xs sticky left-0 z-10 ${validationStatus === 'invalid' ? 'bg-destructive/10' : 'bg-background'}`}>
-                          <div className="flex items-center justify-center gap-1">
-                            {validationStatus === 'invalid' && (
-                              <AlertCircle className="h-3 w-3 text-destructive" />
-                            )}
-                            <span className={validationStatus === 'invalid' ? 'text-destructive' : 'text-muted-foreground'}>
-                              {index + 1}
-                            </span>
-                          </div>
-                        </TableCell>
                         {columns.map((col) => {
                           const value = row[col.key as keyof ScanRow];
                           
