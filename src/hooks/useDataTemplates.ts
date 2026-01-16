@@ -204,42 +204,118 @@ export function useDataTemplates() {
     return name;
   };
 
-  // Parse job ticket to extract sections and inv date
-  const parseJobTicket = (rows: any[]): { invDate: string | null; invNumber: string | null; facilityName: string | null; sections: { sect: string; description: string }[] } => {
+  // Parse job ticket to extract sections and inv date (matching Python logic exactly)
+  const parseJobTicket = (rows: any[], rawData: any[][]): { 
+    invDate: string | null; 
+    invNumber: string | null; 
+    facilityName: string | null; 
+    sections: { sect: string; description: string }[] 
+  } => {
     let invDate: string | null = null;
     let invNumber: string | null = null;
     let facilityName: string | null = null;
     const sections: { sect: string; description: string }[] = [];
 
-    for (const row of rows) {
-      // Look for Inv. Date
-      if (row['Inv. Date'] || row['Inv Date']) {
-        const dateVal = row['Inv. Date'] || row['Inv Date'];
-        if (dateVal) {
-          invDate = String(dateVal);
+    // Scan raw data for metadata (like Python's applymap approach)
+    for (let r = 0; r < rawData.length; r++) {
+      for (let c = 0; c < rawData[r].length; c++) {
+        const cellValue = String(rawData[r][c] || '').toLowerCase().trim();
+        
+        // Look for Facility Name
+        if (cellValue === 'facility name' || cellValue.includes('facility name')) {
+          if (c + 1 < rawData[r].length && rawData[r][c + 1]) {
+            facilityName = String(rawData[r][c + 1]).trim();
+          }
+        }
+        
+        // Look for Inv. Date or Inv Date
+        if (cellValue === 'inv. date' || cellValue === 'inv date' || cellValue.includes('inv. date')) {
+          if (c + 1 < rawData[r].length && rawData[r][c + 1]) {
+            const rawDate = rawData[r][c + 1];
+            if (rawDate) {
+              // Try to parse the date
+              try {
+                if (typeof rawDate === 'number') {
+                  // Excel date serial number
+                  const date = new Date((rawDate - 25569) * 86400 * 1000);
+                  invDate = date.toISOString().split('T')[0];
+                } else {
+                  const parsed = new Date(rawDate);
+                  if (!isNaN(parsed.getTime())) {
+                    invDate = parsed.toISOString().split('T')[0];
+                  } else {
+                    invDate = String(rawDate);
+                  }
+                }
+              } catch {
+                invDate = String(rawDate);
+              }
+            }
+          }
         }
       }
-      
-      // Look for Current Inv #
-      if (row['Current Inv #'] || row['Current Inv']) {
-        invNumber = String(row['Current Inv #'] || row['Current Inv']);
+    }
+
+    // Find Section List header and parse sections
+    let sectionListRowIndex = -1;
+    for (let r = 0; r < rawData.length; r++) {
+      const rowText = rawData[r].map(c => String(c || '').toLowerCase()).join(' ');
+      if (rowText.includes('section list')) {
+        sectionListRowIndex = r;
+        break;
       }
-      
-      // Look for Facility Name
-      if (row['Facility Name']) {
-        facilityName = String(row['Facility Name']);
+    }
+
+    if (sectionListRowIndex >= 0) {
+      // Find header row with "sect" and "description" (within 30 rows)
+      let headerRowIndex = -1;
+      let sectCol = 0;
+      let descCol = 1;
+
+      for (let r = sectionListRowIndex; r < Math.min(sectionListRowIndex + 30, rawData.length); r++) {
+        const rowLower = rawData[r].map(c => String(c || '').toLowerCase());
+        const sectIdx = rowLower.findIndex(v => v.includes('sect'));
+        const descIdx = rowLower.findIndex(v => v.includes('description'));
+        
+        if (sectIdx >= 0 && descIdx >= 0) {
+          headerRowIndex = r;
+          sectCol = sectIdx;
+          descCol = descIdx;
+          break;
+        }
       }
 
-      // Look for SECT and Description columns
-      const sect = row['SECT'] || row['Sect'] || row['sect'];
-      const desc = row['Description'] || row['description'] || row['Description (do NOT use spec characters \\ / * ? : [ ] \')'];
-      
-      if (sect && desc) {
+      if (headerRowIndex === -1) {
+        headerRowIndex = sectionListRowIndex + 1;
+      }
+
+      // Read rows EXACTLY as-is (keep order, keep duplicates)
+      for (let r = headerRowIndex + 1; r < rawData.length; r++) {
+        const sectRaw = String(rawData[r][sectCol] || '').trim();
+        const descRaw = String(rawData[r][descCol] || '').trim();
+
+        // Stop only when BOTH are blank
+        if (!sectRaw && !descRaw) {
+          break;
+        }
+
+        // Extract digits and pad to 4 digits
+        const sectDigits = sectRaw.replace(/\D/g, '');
+        const paddedSect = sectDigits ? sectDigits.padStart(4, '0') : '';
+        
+        // Format: "0008 - Narcotics"
+        const fullSection = paddedSect ? `${paddedSect} - ${descRaw}` : descRaw;
+        
         sections.push({
-          sect: String(sect).padStart(4, '0'),
-          description: String(desc).trim(),
+          sect: paddedSect || sectRaw,
+          description: descRaw,
         });
       }
+    }
+
+    // Fallback: if no sections found, add a default
+    if (sections.length === 0) {
+      sections.push({ sect: '0000', description: 'Default' });
     }
 
     return { invDate, invNumber, facilityName, sections };
@@ -250,14 +326,15 @@ export function useDataTemplates() {
     templateName: string,
     costRows: any[],
     jobTicketRows: any[],
+    jobTicketRawData: any[][],
     costFileName: string,
     jobTicketFileName: string
   ): Promise<{ success: boolean; error?: string }> => {
     if (!db) return { success: false, error: 'Database not initialized' };
 
     try {
-      // Parse job ticket
-      const { invDate, invNumber, facilityName, sections } = parseJobTicket(jobTicketRows);
+      // Parse job ticket with raw data for cell scanning
+      const { invDate, invNumber, facilityName, sections } = parseJobTicket(jobTicketRows, jobTicketRawData);
 
       // Check if template already exists
       const existing = db.exec(`SELECT id FROM templates WHERE name = ?`, [templateName]);

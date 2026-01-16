@@ -87,7 +87,7 @@ const Index = () => {
 
   const hasRole = roles.length > 0;
 
-  const parseExcelFile = (file: File): Promise<any[]> => {
+  const parseExcelFile = (file: File): Promise<{ rows: any[]; rawData: any[][] }> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -96,7 +96,9 @@ const Index = () => {
           const workbook = XLSX.read(data, { type: 'array' });
           const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
           const jsonData = XLSX.utils.sheet_to_json(firstSheet, { defval: null });
-          resolve(jsonData);
+          // Also get raw 2D array for scanning cells
+          const rawData = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' }) as any[][];
+          resolve({ rows: jsonData, rawData });
         } catch (error) {
           reject(error);
         }
@@ -190,13 +192,14 @@ const Index = () => {
       try {
         setImportProgress(prev => ({ ...prev, status: 'importing' }));
 
-        const costRows = await parseExcelFile(group.costFile!);
-        const jobTicketRows = await parseExcelFile(group.jobTicketFile!);
+        const costData = await parseExcelFile(group.costFile!);
+        const jobTicketData = await parseExcelFile(group.jobTicketFile!);
 
         const result = await importTemplate(
           group.name,
-          costRows,
-          jobTicketRows,
+          costData.rows,
+          jobTicketData.rows,
+          jobTicketData.rawData,
           group.costFile!.name,
           group.jobTicketFile!.name
         );
@@ -240,9 +243,9 @@ const Index = () => {
 
     try {
       toast({ title: 'Parsing cost data...' });
-      const costRows = await parseExcelFile(file);
+      const costData = await parseExcelFile(file);
 
-      const result = await updateTemplateCost(updateTemplateId, costRows, file.name);
+      const result = await updateTemplateCost(updateTemplateId, costData.rows, file.name);
 
       if (result.success) {
         toast({
