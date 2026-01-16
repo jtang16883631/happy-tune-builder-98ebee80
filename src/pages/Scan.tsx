@@ -175,11 +175,11 @@ const Scan = () => {
     // MIS Count Method from FDA Column P (count_method)
     const misCountMethod = fdaResult?.count_method || '';
     
-    // Item Number from Cost Data (material field)
+    // Item Number from Cost Data Column D (material field)
     const itemNumber = costItem?.material || '';
     
     // Med Desc from Cost Data Column B (material_description)
-    const medDesc = costItem?.material_description || 'Not found';
+    const medDesc = costItem?.material_description || '';
     
     // MERIDIAN DESC from FDA Column B (meridian_desc)
     const meridianDesc = fdaResult?.meridian_desc || '';
@@ -191,7 +191,9 @@ const Scan = () => {
     const fdaSize = fdaResult?.fda_size || '';
     
     // Pack Cost from Cost Data Column C (unit_price)
-    const packCost = costItem?.unit_price ? Number(costItem.unit_price) : null;
+    const packCost = costItem?.unit_price !== null && costItem?.unit_price !== undefined 
+      ? Number(costItem.unit_price) 
+      : null;
     
     // SOURCE from Cost Data Column E (source field)
     const source = costItem?.source || '';

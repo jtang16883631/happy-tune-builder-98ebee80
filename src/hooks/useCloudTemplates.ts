@@ -182,7 +182,12 @@ export function useCloudTemplates() {
     return { invDate, invNumber, facilityName, sections };
   };
 
-  // Import a template
+  // Import a template - uses column positions for Cost Data:
+  // Column A (index 0) = NDC
+  // Column B (index 1) = material_description (Med Desc)
+  // Column C (index 2) = unit_price (Pack Cost)
+  // Column D (index 3) = material (Item Number)
+  // Column E (index 4) = source (SOURCE)
   const importTemplate = useCallback(
     async (
       templateName: string,
@@ -231,23 +236,44 @@ export function useCloudTemplates() {
           if (sectionsError) console.error('Error inserting sections:', sectionsError);
         }
 
-        // Insert cost items in batches
+        // Get column keys from first row (headers) to map by position
+        const columnKeys = costRows.length > 0 ? Object.keys(costRows[0]) : [];
+        
+        // Insert cost items in batches - using column position (not names)
         const costInserts = costRows
-          .filter((row) => row['NDC 11'] || row['NDC'] || row['ndc'])
-          .map((row) => ({
-            template_id: templateId,
-            ndc: String(row['NDC 11'] || row['NDC'] || row['ndc'] || '').trim(),
-            material_description: row['Material Description'] || row['material_description'] || null,
-            unit_price: row['Unit Price'] ? parseFloat(row['Unit Price']) : null,
-            source: row['Source'] || null,
-            material: row['Material'] || null,
-            billing_date: row['Billing Date'] || row['Billing Da'] || null,
-            manufacturer: row['manu'] || row['Manufacturer'] || null,
-            generic: row['generic'] || null,
-            strength: row['strength'] || null,
-            size: row['size'] || null,
-            dose: row['dose'] || null,
-          }));
+          .filter((row) => {
+            // Column A (index 0) should have NDC
+            const ndcValue = columnKeys[0] ? row[columnKeys[0]] : null;
+            return ndcValue && String(ndcValue).trim().length > 0;
+          })
+          .map((row) => {
+            // Map by column position:
+            // Column A (0) = NDC
+            // Column B (1) = material_description
+            // Column C (2) = unit_price (Pack Cost)
+            // Column D (3) = material (Item Number)  
+            // Column E (4) = source
+            const colA = columnKeys[0] ? row[columnKeys[0]] : null; // NDC
+            const colB = columnKeys[1] ? row[columnKeys[1]] : null; // material_description
+            const colC = columnKeys[2] ? row[columnKeys[2]] : null; // unit_price
+            const colD = columnKeys[3] ? row[columnKeys[3]] : null; // material
+            const colE = columnKeys[4] ? row[columnKeys[4]] : null; // source
+            
+            return {
+              template_id: templateId,
+              ndc: String(colA || '').trim(),
+              material_description: colB ? String(colB).trim() : null,
+              unit_price: colC ? parseFloat(String(colC)) : null,
+              material: colD ? String(colD).trim() : null,
+              source: colE ? String(colE).trim() : null,
+              billing_date: null,
+              manufacturer: null,
+              generic: null,
+              strength: null,
+              size: null,
+              dose: null,
+            };
+          });
 
         // Insert in batches of 500
         const batchSize = 500;
