@@ -328,7 +328,7 @@ export function useCloudTemplates() {
     return data || [];
   }, []);
 
-  // Get cost item by NDC
+  // Get cost item by NDC - returns first match by import order (VLOOKUP logic)
   const getCostItemByNDC = useCallback(
     async (templateId: string, ndc: string): Promise<CloudCostItem | null> => {
       const cleanNdc = ndc.replace(/\D/g, '');
@@ -338,6 +338,7 @@ export function useCloudTemplates() {
         .select('*')
         .eq('template_id', templateId)
         .or(`ndc.eq.${cleanNdc},ndc.eq.${ndc}`)
+        .order('created_at', { ascending: true }) // First imported = first match (VLOOKUP logic)
         .limit(1)
         .maybeSingle();
 
