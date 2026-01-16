@@ -186,8 +186,8 @@ export function useCloudTemplates() {
   // Column A (index 0) = NDC
   // Column B (index 1) = material_description (Med Desc)
   // Column C (index 2) = unit_price (Pack Cost)
-  // Column D (index 3) = material (Item Number)
-  // Column E (index 4) = source (SOURCE)
+  // Column D (index 3) = source (SOURCE)
+  // Column E (index 4) = material (Item Number)
   const importTemplate = useCallback(
     async (
       templateName: string,
@@ -251,21 +251,21 @@ export function useCloudTemplates() {
             // Column A (0) = NDC
             // Column B (1) = material_description
             // Column C (2) = unit_price (Pack Cost)
-            // Column D (3) = material (Item Number)  
-            // Column E (4) = source
+            // Column D (3) = source (SOURCE)
+            // Column E (4) = material (Item Number)
             const colA = columnKeys[0] ? row[columnKeys[0]] : null; // NDC
             const colB = columnKeys[1] ? row[columnKeys[1]] : null; // material_description
             const colC = columnKeys[2] ? row[columnKeys[2]] : null; // unit_price
-            const colD = columnKeys[3] ? row[columnKeys[3]] : null; // material
-            const colE = columnKeys[4] ? row[columnKeys[4]] : null; // source
+            const colD = columnKeys[3] ? row[columnKeys[3]] : null; // source
+            const colE = columnKeys[4] ? row[columnKeys[4]] : null; // material (Item Number)
             
             return {
               template_id: templateId,
               ndc: String(colA || '').trim(),
               material_description: colB ? String(colB).trim() : null,
               unit_price: colC ? parseFloat(String(colC)) : null,
-              material: colD ? String(colD).trim() : null,
-              source: colE ? String(colE).trim() : null,
+              source: colD ? String(colD).trim() : null,
+              material: colE ? String(colE).trim() : null,
               billing_date: null,
               manufacturer: null,
               generic: null,
