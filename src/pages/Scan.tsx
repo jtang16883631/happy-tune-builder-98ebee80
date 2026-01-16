@@ -394,7 +394,7 @@ const Scan = () => {
     { key: 'loc', label: 'LOC', width: 'w-20', editable: true },
     { key: 'rec', label: 'REC', width: 'w-20', editable: true },
     { key: 'time', label: 'TIME', width: 'w-24', editable: false },
-    { key: 'ndc', label: 'NDC', width: 'w-32', editable: true },
+    { key: 'ndc', label: 'NDC', width: 'w-32', editable: true, isNdcInput: true },
     { key: 'scannedNdc', label: 'Scanned NDC', width: 'w-36', editable: true, isNdcInput: true },
     { key: 'qty', label: 'QTY', width: 'w-20', editable: true, type: 'number' },
     { key: 'misDivisor', label: 'MIS Divisor', width: 'w-24', editable: true, type: 'number' },
