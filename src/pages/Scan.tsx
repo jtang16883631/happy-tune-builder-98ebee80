@@ -7,7 +7,6 @@ import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText } fro
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useCloudTemplates, CloudTemplate } from '@/hooks/useCloudTemplates';
-
 import { useLocalFDA } from '@/hooks/useLocalFDA';
 import {
   Table,
@@ -17,13 +16,35 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 
 interface ScanRow {
   id: string;
+  loc: string;
+  rec: string;
+  time: string;
   ndc: string;
-  description: string;
-  price: number | null;
+  scannedNdc: string;
+  qty: number | null;
+  misDivisor: number | null;
+  misCountMethod: string;
+  itemNumber: string;
+  medDesc: string;
+  meridianDesc: string;
+  packSz: string;
+  fdaSize: string;
+  manufacturer: string;
   source: 'fda' | 'cost_data' | 'not_found' | '';
+  packCost: number | null;
+  unitCost: number | null;
+  extended: number | null;
+  blank: string;
+  sheetType: string;
+  auditCriteria: string;
+  originalQty: number | null;
+  auditorInitials: string;
+  results: string;
+  additionalNotes: string;
 }
 
 const Scan = () => {
@@ -31,18 +52,44 @@ const Scan = () => {
   const navigate = useNavigate();
   const { 
     templates,
-    isReady: cloudReady, 
     isLoading: templatesLoading,
     getCostItemByNDC
   } = useCloudTemplates();
   
-  // Local storage hooks not needed for scan records anymore (using localStorage directly)
-  const { lookupNDC: fdaLookup, isReady: fdaReady } = useLocalFDA();
+  const { lookupNDC: fdaLookup } = useLocalFDA();
 
   const [selectedTemplate, setSelectedTemplate] = useState<CloudTemplate | null>(null);
-  const [scanRows, setScanRows] = useState<ScanRow[]>([
-    { id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' }
-  ]);
+  
+  const createEmptyRow = (): ScanRow => ({
+    id: crypto.randomUUID(),
+    loc: '',
+    rec: '',
+    time: '',
+    ndc: '',
+    scannedNdc: '',
+    qty: null,
+    misDivisor: null,
+    misCountMethod: '',
+    itemNumber: '',
+    medDesc: '',
+    meridianDesc: '',
+    packSz: '',
+    fdaSize: '',
+    manufacturer: '',
+    source: '',
+    packCost: null,
+    unitCost: null,
+    extended: null,
+    blank: '',
+    sheetType: '',
+    auditCriteria: '',
+    originalQty: null,
+    auditorInitials: '',
+    results: '',
+    additionalNotes: '',
+  });
+
+  const [scanRows, setScanRows] = useState<ScanRow[]>([createEmptyRow()]);
   const [activeRowIndex, setActiveRowIndex] = useState(0);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -59,23 +106,15 @@ const Scan = () => {
   useEffect(() => {
     if (!selectedTemplate) return;
 
-    // Clear existing timeout
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
 
-    // Debounce save - wait 500ms after last change
     saveTimeoutRef.current = setTimeout(() => {
       const recordsToSave = scanRows
-        .filter(r => r.ndc)
-        .map(r => ({
-          ndc: r.ndc,
-          description: r.description,
-          price: r.price,
-          source: r.source
-        }));
+        .filter(r => r.ndc || r.scannedNdc)
+        .map(r => ({ ...r, id: undefined }));
       
-      // Save to localStorage with template UUID as key
       localStorage.setItem(`scan_records_${selectedTemplate.id}`, JSON.stringify(recordsToSave));
     }, 500);
 
@@ -90,33 +129,25 @@ const Scan = () => {
   const handleSelectTemplate = (template: CloudTemplate) => {
     setSelectedTemplate(template);
     
-    // Load saved scan records from localStorage
     const savedData = localStorage.getItem(`scan_records_${template.id}`);
     
     if (savedData) {
       try {
-        const savedRecords = JSON.parse(savedData) as { ndc: string; description: string; price: number | null; source: string }[];
+        const savedRecords = JSON.parse(savedData) as Omit<ScanRow, 'id'>[];
         const rows: ScanRow[] = savedRecords.map(r => ({
+          ...createEmptyRow(),
+          ...r,
           id: crypto.randomUUID(),
-          ndc: r.ndc,
-          description: r.description || '',
-          price: r.price,
-          source: (r.source as ScanRow['source']) || ''
         }));
-        // Add empty row at the end
-        rows.push({ id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' });
+        rows.push(createEmptyRow());
         setScanRows(rows);
         setActiveRowIndex(rows.length - 1);
       } catch {
-        setScanRows([
-          { id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' }
-        ]);
+        setScanRows([createEmptyRow()]);
         setActiveRowIndex(0);
       }
     } else {
-      setScanRows([
-        { id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' }
-      ]);
+      setScanRows([createEmptyRow()]);
       setActiveRowIndex(0);
     }
   };
@@ -125,20 +156,17 @@ const Scan = () => {
   const lookupNDC = useCallback(async (ndc: string, rowIndex: number) => {
     if (!ndc || ndc.length < 10 || !selectedTemplate) return;
 
-    // Clean the NDC (remove dashes)
     const cleanNdc = ndc.replace(/-/g, '');
-
-    // Try FDA lookup for description
     const fdaResult = fdaLookup(cleanNdc);
-    
-    // Try cost data lookup for price
     const costItem = await getCostItemByNDC(selectedTemplate.id, cleanNdc);
     
-    const description = fdaResult 
-      ? (fdaResult.meridian_desc || fdaResult.trade || fdaResult.generic || '')
+    const medDesc = fdaResult 
+      ? (fdaResult.trade || fdaResult.generic || '')
       : (costItem?.material_description || 'Not found');
     
-    const price = costItem?.unit_price ? Number(costItem.unit_price) : null;
+    const meridianDesc = fdaResult?.meridian_desc || '';
+    const manufacturer = fdaResult?.manufacturer || costItem?.manufacturer || '';
+    const unitCost = costItem?.unit_price ? Number(costItem.unit_price) : null;
     const source: ScanRow['source'] = fdaResult ? 'fda' : (costItem ? 'cost_data' : 'not_found');
     
     setScanRows(prev => {
@@ -146,9 +174,12 @@ const Scan = () => {
       updated[rowIndex] = {
         ...updated[rowIndex],
         ndc: cleanNdc,
-        description,
-        price,
-        source
+        medDesc,
+        meridianDesc,
+        manufacturer,
+        unitCost,
+        source,
+        time: new Date().toLocaleTimeString(),
       };
       return updated;
     });
@@ -156,12 +187,11 @@ const Scan = () => {
     // Auto-add new row if this is the last row
     setScanRows(prev => {
       if (rowIndex === prev.length - 1) {
-        return [...prev, { id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' }];
+        return [...prev, createEmptyRow()];
       }
       return prev;
     });
 
-    // Move focus to next row
     setTimeout(() => {
       if (inputRefs.current[rowIndex + 1]) {
         inputRefs.current[rowIndex + 1]?.focus();
@@ -170,11 +200,11 @@ const Scan = () => {
     }, 100);
   }, [fdaLookup, getCostItemByNDC, selectedTemplate]);
 
-  // Handle NDC input change
-  const handleNdcChange = (value: string, rowIndex: number) => {
+  // Handle field change
+  const handleFieldChange = (field: keyof ScanRow, value: string | number | null, rowIndex: number) => {
     setScanRows(prev => {
       const updated = [...prev];
-      updated[rowIndex] = { ...updated[rowIndex], ndc: value };
+      updated[rowIndex] = { ...updated[rowIndex], [field]: value };
       return updated;
     });
   };
@@ -183,7 +213,7 @@ const Scan = () => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const ndc = scanRows[rowIndex].ndc;
+      const ndc = scanRows[rowIndex].scannedNdc || scanRows[rowIndex].ndc;
       lookupNDC(ndc, rowIndex);
     }
   };
@@ -191,7 +221,7 @@ const Scan = () => {
   // Delete a row
   const handleDeleteRow = (rowIndex: number) => {
     if (scanRows.length === 1) {
-      setScanRows([{ id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' }]);
+      setScanRows([createEmptyRow()]);
       return;
     }
     setScanRows(prev => prev.filter((_, i) => i !== rowIndex));
@@ -199,7 +229,7 @@ const Scan = () => {
 
   // Add new row
   const handleAddRow = () => {
-    setScanRows(prev => [...prev, { id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' }]);
+    setScanRows(prev => [...prev, createEmptyRow()]);
     setTimeout(() => {
       const lastIndex = scanRows.length;
       inputRefs.current[lastIndex]?.focus();
@@ -216,6 +246,11 @@ const Scan = () => {
     } catch {
       return dateStr;
     }
+  };
+
+  const formatCurrency = (value: number | null) => {
+    if (value === null) return '';
+    return `$${value.toFixed(2)}`;
   };
 
   if (authLoading || templatesLoading) {
@@ -289,10 +324,39 @@ const Scan = () => {
     );
   }
 
-  // Scan View (Excel-like)
+  // Column definitions
+  const columns = [
+    { key: 'loc', label: 'LOC', width: 'w-20', editable: true },
+    { key: 'rec', label: 'REC', width: 'w-20', editable: true },
+    { key: 'time', label: 'TIME', width: 'w-24', editable: false },
+    { key: 'ndc', label: 'NDC', width: 'w-32', editable: true },
+    { key: 'scannedNdc', label: 'Scanned NDC', width: 'w-36', editable: true, isNdcInput: true },
+    { key: 'qty', label: 'QTY', width: 'w-20', editable: true, type: 'number' },
+    { key: 'misDivisor', label: 'MIS Divisor', width: 'w-24', editable: true, type: 'number' },
+    { key: 'misCountMethod', label: 'MIS Count Method', width: 'w-32', editable: true },
+    { key: 'itemNumber', label: 'Item Number', width: 'w-28', editable: true },
+    { key: 'medDesc', label: 'Med Desc', width: 'w-48', editable: false },
+    { key: 'meridianDesc', label: 'MERIDIAN DESC', width: 'w-48', editable: false },
+    { key: 'packSz', label: 'PACK SZ', width: 'w-24', editable: true },
+    { key: 'fdaSize', label: 'FDA SIZE', width: 'w-24', editable: false },
+    { key: 'manufacturer', label: 'MANUFACTURER', width: 'w-36', editable: false },
+    { key: 'source', label: 'SOURCE', width: 'w-24', editable: false },
+    { key: 'packCost', label: 'Pack Cost', width: 'w-28', editable: true, type: 'currency' },
+    { key: 'unitCost', label: 'Unit Cost', width: 'w-28', editable: false, type: 'currency' },
+    { key: 'extended', label: 'Extended', width: 'w-28', editable: true, type: 'currency' },
+    { key: 'blank', label: '$-', width: 'w-20', editable: true },
+    { key: 'sheetType', label: 'Sheet Type', width: 'w-28', editable: true },
+    { key: 'auditCriteria', label: 'Audit Criteria', width: 'w-32', editable: true },
+    { key: 'originalQty', label: 'Original QTY', width: 'w-28', editable: true, type: 'number' },
+    { key: 'auditorInitials', label: 'Auditor Initials', width: 'w-32', editable: true },
+    { key: 'results', label: 'Results', width: 'w-28', editable: true },
+    { key: 'additionalNotes', label: 'Additional Notes', width: 'w-48', editable: true },
+  ];
+
+  // Scan View (Excel-like with horizontal scroll)
   return (
     <AppLayout>
-      <div className="space-y-4">
+      <div className="space-y-4 w-full">
         {/* Header with back button */}
         <div className="flex items-center gap-4">
           <Button 
@@ -311,12 +375,12 @@ const Scan = () => {
         </div>
 
         {/* Scan Input */}
-        <Card>
+        <Card className="w-full">
           <CardContent className="p-4">
             <div className="flex items-center gap-4 mb-4">
               <ScanBarcode className="h-5 w-5 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">
-                Scan a barcode or enter NDC manually, then press Enter
+                Scan a barcode or enter NDC in "Scanned NDC" column, then press Enter
               </span>
               <Button 
                 variant="outline" 
@@ -329,63 +393,88 @@ const Scan = () => {
               </Button>
             </div>
 
-            {/* Excel-like Table */}
-            <div className="border rounded-lg overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/50">
-                    <TableHead className="w-12 text-center">#</TableHead>
-                    <TableHead className="w-48">NDC</TableHead>
-                    <TableHead className="flex-1">Description</TableHead>
-                    <TableHead className="w-32 text-right">Price</TableHead>
-                    <TableHead className="w-12"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {scanRows.map((row, index) => (
-                    <TableRow 
-                      key={row.id}
-                      className={index === activeRowIndex ? 'bg-primary/5' : ''}
-                    >
-                      <TableCell className="text-center text-muted-foreground font-mono text-sm">
-                        {index + 1}
-                      </TableCell>
-                      <TableCell className="p-1">
-                        <Input
-                          ref={el => inputRefs.current[index] = el}
-                          value={row.ndc}
-                          onChange={(e) => handleNdcChange(e.target.value, index)}
-                          onKeyDown={(e) => handleKeyDown(e, index)}
-                          onFocus={() => setActiveRowIndex(index)}
-                          placeholder="Enter NDC..."
-                          className="font-mono h-9 border-0 focus-visible:ring-1"
-                        />
-                      </TableCell>
-                      <TableCell className={`text-sm ${row.source === 'not_found' ? 'text-destructive' : ''}`}>
-                        {row.description || <span className="text-muted-foreground">—</span>}
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-sm">
-                        {row.price !== null ? `$${row.price.toFixed(2)}` : <span className="text-muted-foreground">—</span>}
-                      </TableCell>
-                      <TableCell className="p-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                          onClick={() => handleDeleteRow(index)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
+            {/* Excel-like Table with horizontal scroll */}
+            <ScrollArea className="w-full whitespace-nowrap rounded-lg border">
+              <div className="min-w-max">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/50">
+                      <TableHead className="w-12 text-center sticky left-0 bg-muted/50 z-10">#</TableHead>
+                      {columns.map((col) => (
+                        <TableHead key={col.key} className={`${col.width} text-xs font-medium`}>
+                          {col.label}
+                        </TableHead>
+                      ))}
+                      <TableHead className="w-12 sticky right-0 bg-muted/50 z-10"></TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {scanRows.map((row, index) => (
+                      <TableRow 
+                        key={row.id}
+                        className={index === activeRowIndex ? 'bg-primary/5' : ''}
+                      >
+                        <TableCell className="text-center text-muted-foreground font-mono text-xs sticky left-0 bg-background z-10">
+                          {index + 1}
+                        </TableCell>
+                        {columns.map((col) => {
+                          const value = row[col.key as keyof ScanRow];
+                          
+                          if (col.editable) {
+                            return (
+                              <TableCell key={col.key} className="p-1">
+                                <Input
+                                  ref={col.isNdcInput ? (el => inputRefs.current[index] = el) : undefined}
+                                  value={value?.toString() || ''}
+                                  onChange={(e) => {
+                                    const newValue = col.type === 'number' || col.type === 'currency'
+                                      ? (e.target.value ? parseFloat(e.target.value) : null)
+                                      : e.target.value;
+                                    handleFieldChange(col.key as keyof ScanRow, newValue, index);
+                                  }}
+                                  onKeyDown={col.isNdcInput ? (e) => handleKeyDown(e, index) : undefined}
+                                  onFocus={() => setActiveRowIndex(index)}
+                                  type={col.type === 'number' || col.type === 'currency' ? 'number' : 'text'}
+                                  step={col.type === 'currency' ? '0.01' : undefined}
+                                  className="font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0"
+                                />
+                              </TableCell>
+                            );
+                          }
+                          
+                          return (
+                            <TableCell 
+                              key={col.key} 
+                              className={`text-xs ${row.source === 'not_found' && (col.key === 'medDesc' || col.key === 'source') ? 'text-destructive' : ''}`}
+                            >
+                              {col.type === 'currency' 
+                                ? formatCurrency(value as number | null)
+                                : (value?.toString() || <span className="text-muted-foreground">—</span>)
+                              }
+                            </TableCell>
+                          );
+                        })}
+                        <TableCell className="p-1 sticky right-0 bg-background z-10">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => handleDeleteRow(index)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <ScrollBar orientation="horizontal" />
+            </ScrollArea>
 
             {/* Stats */}
             <div className="flex gap-4 mt-4 text-sm text-muted-foreground">
-              <span>{scanRows.filter(r => r.ndc).length} items scanned</span>
+              <span>{scanRows.filter(r => r.ndc || r.scannedNdc).length} items scanned</span>
               <span>•</span>
               <span>{scanRows.filter(r => r.source === 'fda').length} found in FDA</span>
               <span>•</span>
