@@ -41,16 +41,6 @@ export interface CloudCostItem {
   created_at: string;
 }
 
-export interface CloudScanRecord {
-  id: string;
-  template_id: string;
-  ndc: string;
-  description: string | null;
-  price: number | null;
-  source: string | null;
-  created_at: string;
-}
-
 export function useCloudTemplates() {
   const { user } = useAuth();
   const [templates, setTemplates] = useState<CloudTemplate[]>([]);
@@ -334,54 +324,6 @@ export function useCloudTemplates() {
     []
   );
 
-  // Save scan records
-  const saveScanRecords = useCallback(
-    async (
-      templateId: string,
-      records: { ndc: string; description: string; price: number | null; source: string }[]
-    ): Promise<{ success: boolean; error?: string }> => {
-      try {
-        // Delete existing records for this template
-        await supabase.from('template_scan_records').delete().eq('template_id', templateId);
-
-        if (records.length === 0) return { success: true };
-
-        // Insert new records
-        const inserts = records.map((r) => ({
-          template_id: templateId,
-          ndc: r.ndc,
-          description: r.description,
-          price: r.price,
-          source: r.source,
-        }));
-
-        const { error } = await supabase.from('template_scan_records').insert(inserts);
-        if (error) throw error;
-
-        return { success: true };
-      } catch (err: any) {
-        console.error('Error saving scan records:', err);
-        return { success: false, error: err.message };
-      }
-    },
-    []
-  );
-
-  // Load scan records
-  const loadScanRecords = useCallback(async (templateId: string): Promise<CloudScanRecord[]> => {
-    const { data, error } = await supabase
-      .from('template_scan_records')
-      .select('*')
-      .eq('template_id', templateId)
-      .order('created_at');
-
-    if (error) {
-      console.error('Error loading scan records:', error);
-      return [];
-    }
-    return data || [];
-  }, []);
-
   return {
     templates,
     isLoading,
@@ -391,8 +333,6 @@ export function useCloudTemplates() {
     deleteTemplate,
     getSections,
     getCostItemByNDC,
-    saveScanRecords,
-    loadScanRecords,
     refetch: fetchTemplates,
   };
 }

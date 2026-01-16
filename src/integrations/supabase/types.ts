@@ -181,44 +181,6 @@ export type Database = {
           },
         ]
       }
-      template_scan_records: {
-        Row: {
-          created_at: string | null
-          description: string | null
-          id: string
-          ndc: string
-          price: number | null
-          source: string | null
-          template_id: string
-        }
-        Insert: {
-          created_at?: string | null
-          description?: string | null
-          id?: string
-          ndc: string
-          price?: number | null
-          source?: string | null
-          template_id: string
-        }
-        Update: {
-          created_at?: string | null
-          description?: string | null
-          id?: string
-          ndc?: string
-          price?: number | null
-          source?: string | null
-          template_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "template_scan_records_template_id_fkey"
-            columns: ["template_id"]
-            isOneToOne: false
-            referencedRelation: "data_templates"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       template_sections: {
         Row: {
           created_at: string | null

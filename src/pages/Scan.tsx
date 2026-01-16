@@ -7,6 +7,7 @@ import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText } fro
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useCloudTemplates, CloudTemplate } from '@/hooks/useCloudTemplates';
+
 import { useLocalFDA } from '@/hooks/useLocalFDA';
 import {
   Table,
@@ -30,12 +31,12 @@ const Scan = () => {
   const navigate = useNavigate();
   const { 
     templates,
-    isReady, 
+    isReady: cloudReady, 
     isLoading: templatesLoading,
-    saveScanRecords,
-    loadScanRecords,
     getCostItemByNDC
   } = useCloudTemplates();
+  
+  // Local storage hooks not needed for scan records anymore (using localStorage directly)
   const { lookupNDC: fdaLookup, isReady: fdaReady } = useLocalFDA();
 
   const [selectedTemplate, setSelectedTemplate] = useState<CloudTemplate | null>(null);
@@ -54,9 +55,9 @@ const Scan = () => {
     }
   }, [authLoading, hasRole, navigate]);
 
-  // Auto-save with debounce
+  // Auto-save with debounce - using localStorage for scan records
   useEffect(() => {
-    if (!selectedTemplate || !isReady) return;
+    if (!selectedTemplate) return;
 
     // Clear existing timeout
     if (saveTimeoutRef.current) {
@@ -64,7 +65,7 @@ const Scan = () => {
     }
 
     // Debounce save - wait 500ms after last change
-    saveTimeoutRef.current = setTimeout(async () => {
+    saveTimeoutRef.current = setTimeout(() => {
       const recordsToSave = scanRows
         .filter(r => r.ndc)
         .map(r => ({
@@ -74,9 +75,8 @@ const Scan = () => {
           source: r.source
         }));
       
-      if (recordsToSave.length > 0) {
-        await saveScanRecords(selectedTemplate.id, recordsToSave);
-      }
+      // Save to localStorage with template UUID as key
+      localStorage.setItem(`scan_records_${selectedTemplate.id}`, JSON.stringify(recordsToSave));
     }, 500);
 
     return () => {
@@ -84,27 +84,35 @@ const Scan = () => {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [scanRows, selectedTemplate, isReady, saveScanRecords]);
+  }, [scanRows, selectedTemplate]);
 
-  // Handle template selection - load saved records
-  const handleSelectTemplate = async (template: CloudTemplate) => {
+  // Handle template selection - load saved records from localStorage
+  const handleSelectTemplate = (template: CloudTemplate) => {
     setSelectedTemplate(template);
     
-    // Load saved scan records for this template
-    const savedRecords = await loadScanRecords(template.id);
+    // Load saved scan records from localStorage
+    const savedData = localStorage.getItem(`scan_records_${template.id}`);
     
-    if (savedRecords.length > 0) {
-      const rows: ScanRow[] = savedRecords.map(r => ({
-        id: crypto.randomUUID(),
-        ndc: r.ndc,
-        description: r.description || '',
-        price: r.price,
-        source: (r.source as ScanRow['source']) || ''
-      }));
-      // Add empty row at the end
-      rows.push({ id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' });
-      setScanRows(rows);
-      setActiveRowIndex(rows.length - 1);
+    if (savedData) {
+      try {
+        const savedRecords = JSON.parse(savedData) as { ndc: string; description: string; price: number | null; source: string }[];
+        const rows: ScanRow[] = savedRecords.map(r => ({
+          id: crypto.randomUUID(),
+          ndc: r.ndc,
+          description: r.description || '',
+          price: r.price,
+          source: (r.source as ScanRow['source']) || ''
+        }));
+        // Add empty row at the end
+        rows.push({ id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' });
+        setScanRows(rows);
+        setActiveRowIndex(rows.length - 1);
+      } catch {
+        setScanRows([
+          { id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' }
+        ]);
+        setActiveRowIndex(0);
+      }
     } else {
       setScanRows([
         { id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' }
