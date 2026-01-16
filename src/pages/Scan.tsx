@@ -160,8 +160,8 @@ const Scan = () => {
   // MERIDIAN DESC = FDA Column B (meridian_desc)
   // PACK SZ = FDA Column F (package_size)
   // FDA SIZE = FDA Column G (fda_size)
-  // SOURCE = Cost Data Column C (source)
-  // Pack Cost = Cost Data unit_price
+  // SOURCE = Cost Data Column D (source)
+  // Pack Cost = Cost Data Column C (unit_price)
   // MIS Divisor = FDA Column O (meridian_divisor)
   // Unit Cost = Pack Cost / MIS Divisor
   // Extended = Unit Cost * QTY
@@ -175,7 +175,7 @@ const Scan = () => {
     // MIS Count Method from FDA Column P (count_method)
     const misCountMethod = fdaResult?.count_method || '';
     
-    // Item Number from Cost Data Column D (material field)
+    // Item Number from Cost Data Column E (material field)
     const itemNumber = costItem?.material || '';
     
     // Med Desc from Cost Data Column B (material_description)
@@ -195,7 +195,7 @@ const Scan = () => {
       ? Number(costItem.unit_price) 
       : null;
     
-    // SOURCE from Cost Data Column E (source field)
+    // SOURCE from Cost Data Column D (source field)
     const source = costItem?.source || '';
     
     // MIS Divisor from FDA Column O (meridian_divisor)
