@@ -152,13 +152,17 @@ const Scan = () => {
     }
   };
 
-  // Lookup NDC and update row with mapping:
+  // Lookup NDC and update row with mapping (by column position, not name):
   // TIME = laptop real time
-  // Med Desc = Cost Data material_description
-  // MERIDIAN DESC = FDA meridian_desc
-  // SOURCE = Cost Data source
+  // MIS Count Method = FDA Column P (count_method)
+  // Item Number = Cost Data Column E (material)
+  // Med Desc = Cost Data Column B (material_description)
+  // MERIDIAN DESC = FDA Column B (meridian_desc)
+  // PACK SZ = FDA Column F (package_size)
+  // FDA SIZE = FDA Column G (fda_size)
+  // SOURCE = Cost Data Column C (source)
   // Pack Cost = Cost Data unit_price
-  // MIS Divisor = FDA meridian_divisor
+  // MIS Divisor = FDA Column O (meridian_divisor)
   // Unit Cost = Pack Cost / MIS Divisor
   // Extended = Unit Cost * QTY
   const lookupNDC = useCallback(async (ndc: string, rowIndex: number) => {
@@ -168,19 +172,31 @@ const Scan = () => {
     const fdaResult = fdaLookup(cleanNdc);
     const costItem = await getCostItemByNDC(selectedTemplate.id, cleanNdc);
     
-    // Med Desc from Cost Data (material_description)
+    // MIS Count Method from FDA Column P (count_method)
+    const misCountMethod = fdaResult?.count_method || '';
+    
+    // Item Number from Cost Data Column E (material)
+    const itemNumber = costItem?.material || '';
+    
+    // Med Desc from Cost Data Column B (material_description)
     const medDesc = costItem?.material_description || 'Not found';
     
-    // MERIDIAN DESC from FDA
+    // MERIDIAN DESC from FDA Column B (meridian_desc)
     const meridianDesc = fdaResult?.meridian_desc || '';
     
-    // SOURCE from Cost Data
+    // PACK SZ from FDA Column F (package_size)
+    const packSz = fdaResult?.package_size || '';
+    
+    // FDA SIZE from FDA Column G (fda_size)
+    const fdaSize = fdaResult?.fda_size || '';
+    
+    // SOURCE from Cost Data Column C (source)
     const costSource = costItem?.source || '';
     
     // Pack Cost from Cost Data (unit_price column)
     const packCost = costItem?.unit_price ? Number(costItem.unit_price) : null;
     
-    // MIS Divisor from FDA (meridian_divisor)
+    // MIS Divisor from FDA Column O (meridian_divisor)
     const misDivisor = fdaResult?.meridian_divisor ? Number(fdaResult.meridian_divisor) : null;
     
     // Unit Cost = Pack Cost / MIS Divisor
@@ -201,8 +217,7 @@ const Scan = () => {
     // Determine lookup source status
     const lookupSource: ScanRow['source'] = fdaResult ? 'fda' : (costItem ? 'cost_data' : 'not_found');
     
-    // Other fields from FDA
-    const fdaSize = fdaResult?.fda_size || '';
+    // Manufacturer from FDA or Cost Data
     const manufacturer = fdaResult?.manufacturer || costItem?.manufacturer || '';
     
     setScanRows(prev => {
@@ -211,14 +226,17 @@ const Scan = () => {
         ...updated[rowIndex],
         ndc: cleanNdc,
         time: new Date().toLocaleTimeString(), // Real time from laptop
+        misCountMethod,
+        itemNumber,
         medDesc,
         meridianDesc,
+        packSz,
+        fdaSize,
         source: lookupSource,
         packCost,
         misDivisor,
         unitCost,
         extended,
-        fdaSize,
         manufacturer,
       };
       return updated;
