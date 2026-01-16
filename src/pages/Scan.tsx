@@ -355,7 +355,7 @@ const Scan = () => {
 
   // Scan View (Excel-like with horizontal scroll)
   return (
-    <AppLayout>
+    <AppLayout fullWidth>
       <div className="space-y-4 w-full">
         {/* Header with back button */}
         <div className="flex items-center gap-4">

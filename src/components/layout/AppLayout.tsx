@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 
 interface AppLayoutProps {
   children: ReactNode;
+  fullWidth?: boolean;
 }
 
 const navItems = [
@@ -25,7 +26,7 @@ const navItems = [
   { href: '/users', label: 'Users', icon: Users, roles: ['manager'] },
 ];
 
-export function AppLayout({ children }: AppLayoutProps) {
+export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
   const { user, roles, isManager, signOut } = useAuth();
   const location = useLocation();
 
@@ -117,7 +118,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       </header>
 
       {/* Main Content */}
-      <main className="container py-6">{children}</main>
+      <main className={cn("py-6", fullWidth ? "px-4" : "container")}>{children}</main>
     </div>
   );
 }
