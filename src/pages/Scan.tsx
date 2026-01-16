@@ -3,11 +3,12 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText } from 'lucide-react';
+import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useCloudTemplates, CloudTemplate } from '@/hooks/useCloudTemplates';
 import { useLocalFDA } from '@/hooks/useLocalFDA';
+import { toast } from 'sonner';
 import {
   Table,
   TableBody,
@@ -95,6 +96,51 @@ const Scan = () => {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const hasRole = roles.length > 0;
+
+  // Validation: Check if a row has all required fields filled
+  // QTY, MIS Divisor, MIS Count Method are ALL required
+  // Med Desc OR MERIDIAN DESC at least one is required
+  const validateRow = useCallback((row: ScanRow): { valid: boolean; errors: string[] } => {
+    const errors: string[] = [];
+    
+    // Only validate if the row has been scanned (has NDC)
+    if (!row.ndc && !row.scannedNdc) {
+      return { valid: true, errors: [] }; // Empty row, no validation needed
+    }
+    
+    // QTY is required
+    if (row.qty === null || row.qty === undefined) {
+      errors.push('QTY');
+    }
+    
+    // MIS Divisor is required
+    if (row.misDivisor === null || row.misDivisor === undefined) {
+      errors.push('MIS Divisor');
+    }
+    
+    // MIS Count Method is required
+    if (!row.misCountMethod || row.misCountMethod.trim() === '') {
+      errors.push('MIS Count Method');
+    }
+    
+    // Med Desc OR MERIDIAN DESC at least one is required
+    const hasMedDesc = row.medDesc && row.medDesc.trim() !== '';
+    const hasMeridianDesc = row.meridianDesc && row.meridianDesc.trim() !== '';
+    if (!hasMedDesc && !hasMeridianDesc) {
+      errors.push('Med Desc 或 MERIDIAN DESC (至少一个)');
+    }
+    
+    return { valid: errors.length === 0, errors };
+  }, []);
+
+  // Get validation status for a row (for visual feedback)
+  const getRowValidationStatus = useCallback((row: ScanRow): 'valid' | 'invalid' | 'empty' => {
+    if (!row.ndc && !row.scannedNdc) {
+      return 'empty';
+    }
+    const { valid } = validateRow(row);
+    return valid ? 'valid' : 'invalid';
+  }, [validateRow]);
 
   useEffect(() => {
     if (!authLoading && !hasRole) {
@@ -295,6 +341,20 @@ const Scan = () => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number) => {
     if (e.key === 'Enter') {
       e.preventDefault();
+      
+      // Check if previous row (if exists and has data) passes validation
+      if (rowIndex > 0) {
+        const prevRow = scanRows[rowIndex - 1];
+        const { valid, errors } = validateRow(prevRow);
+        if (!valid) {
+          toast.error('请先完成上一行的必填项', {
+            description: `缺少: ${errors.join(', ')}`,
+            duration: 5000,
+          });
+          return; // Block scanning
+        }
+      }
+      
       const ndc = scanRows[rowIndex].scannedNdc || scanRows[rowIndex].ndc;
       lookupNDC(ndc, rowIndex);
     }
@@ -309,8 +369,22 @@ const Scan = () => {
     setScanRows(prev => prev.filter((_, i) => i !== rowIndex));
   };
 
-  // Add new row
+  // Add new row - with validation check
   const handleAddRow = () => {
+    // Check if the last row with data passes validation
+    const lastFilledRowIndex = scanRows.findIndex(r => r.ndc || r.scannedNdc);
+    if (lastFilledRowIndex >= 0) {
+      const lastFilledRow = scanRows[lastFilledRowIndex];
+      const { valid, errors } = validateRow(lastFilledRow);
+      if (!valid) {
+        toast.error('请先完成当前行的必填项', {
+          description: `缺少: ${errors.join(', ')}`,
+          duration: 5000,
+        });
+        return; // Block adding new row
+      }
+    }
+    
     setScanRows(prev => [...prev, createEmptyRow()]);
     setTimeout(() => {
       const lastIndex = scanRows.length;
@@ -491,13 +565,22 @@ const Scan = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {scanRows.map((row, index) => (
+                    {scanRows.map((row, index) => {
+                      const validationStatus = getRowValidationStatus(row);
+                      return (
                       <TableRow 
                         key={row.id}
-                        className={index === activeRowIndex ? 'bg-primary/5' : ''}
+                        className={`${index === activeRowIndex ? 'bg-primary/5' : ''} ${validationStatus === 'invalid' ? 'bg-destructive/10' : ''}`}
                       >
-                        <TableCell className="text-center text-muted-foreground font-mono text-xs sticky left-0 bg-background z-10">
-                          {index + 1}
+                        <TableCell className={`text-center font-mono text-xs sticky left-0 z-10 ${validationStatus === 'invalid' ? 'bg-destructive/10' : 'bg-background'}`}>
+                          <div className="flex items-center justify-center gap-1">
+                            {validationStatus === 'invalid' && (
+                              <AlertCircle className="h-3 w-3 text-destructive" />
+                            )}
+                            <span className={validationStatus === 'invalid' ? 'text-destructive' : 'text-muted-foreground'}>
+                              {index + 1}
+                            </span>
+                          </div>
                         </TableCell>
                         {columns.map((col) => {
                           const value = row[col.key as keyof ScanRow];
@@ -542,7 +625,7 @@ const Scan = () => {
                             </TableCell>
                           );
                         })}
-                        <TableCell className="p-1 sticky right-0 bg-background z-10">
+                        <TableCell className={`p-1 sticky right-0 z-10 ${validationStatus === 'invalid' ? 'bg-destructive/10' : 'bg-background'}`}>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -553,7 +636,7 @@ const Scan = () => {
                           </Button>
                         </TableCell>
                       </TableRow>
-                    ))}
+                    );})}
                   </TableBody>
                 </Table>
               </div>
