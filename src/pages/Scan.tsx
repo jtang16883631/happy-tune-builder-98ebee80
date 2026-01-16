@@ -34,7 +34,7 @@ interface ScanRow {
   packSz: string;
   fdaSize: string;
   manufacturer: string;
-  source: 'fda' | 'cost_data' | 'not_found' | '';
+  source: string; // SOURCE from Cost Data Column E
   packCost: number | null;
   unitCost: number | null;
   extended: number | null;
@@ -175,7 +175,7 @@ const Scan = () => {
     // MIS Count Method from FDA Column P (count_method)
     const misCountMethod = fdaResult?.count_method || '';
     
-    // Item Number from Cost Data Column E (material)
+    // Item Number from Cost Data (material field)
     const itemNumber = costItem?.material || '';
     
     // Med Desc from Cost Data Column B (material_description)
@@ -190,11 +190,11 @@ const Scan = () => {
     // FDA SIZE from FDA Column G (fda_size)
     const fdaSize = fdaResult?.fda_size || '';
     
-    // SOURCE from Cost Data Column C (source)
-    const costSource = costItem?.source || '';
-    
-    // Pack Cost from Cost Data (unit_price column)
+    // Pack Cost from Cost Data Column C (unit_price)
     const packCost = costItem?.unit_price ? Number(costItem.unit_price) : null;
+    
+    // SOURCE from Cost Data Column E (source field)
+    const source = costItem?.source || '';
     
     // MIS Divisor from FDA Column O (meridian_divisor)
     const misDivisor = fdaResult?.meridian_divisor ? Number(fdaResult.meridian_divisor) : null;
@@ -214,9 +214,6 @@ const Scan = () => {
       extended = unitCost * currentQty;
     }
     
-    // Determine lookup source status
-    const lookupSource: ScanRow['source'] = fdaResult ? 'fda' : (costItem ? 'cost_data' : 'not_found');
-    
     // Manufacturer from FDA or Cost Data
     const manufacturer = fdaResult?.manufacturer || costItem?.manufacturer || '';
     
@@ -232,8 +229,8 @@ const Scan = () => {
         meridianDesc,
         packSz,
         fdaSize,
-        source: lookupSource,
         packCost,
+        source,
         misDivisor,
         unitCost,
         extended,
