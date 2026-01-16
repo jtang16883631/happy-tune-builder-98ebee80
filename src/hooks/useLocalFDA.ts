@@ -12,14 +12,40 @@ interface FDAMeta {
   fileName: string;
 }
 
-interface FDADrug {
+export interface FDADrug {
   id: number;
   ndc: string;
-  drug_name: string;
+  meridian_desc: string | null;
+  trade: string | null;
+  generic: string | null;
+  strength: string | null;
+  package_size: string | null;
+  fda_size: string | null;
+  size_txt: string | null;
+  dose_form: string | null;
   manufacturer: string | null;
-  package_description: string | null;
-  fda_status: string | null;
-  dea_schedule: string | null;
+  generic_code: string | null;
+  dea_class: string | null;
+  ahfs: string | null;
+  source: string | null;
+  meridian_divisor: string | null;
+  count_method: string | null;
+  verify_count_method: string | null;
+  rx_otc: string | null;
+  cardinal_cin: string | null;
+  mckesson_item: string | null;
+  abc_number: string | null;
+  gcn: string | null;
+  divisor_ml_each: string | null;
+  io: string | null;
+  ndc_inv_since_2020: string | null;
+  ndc_cost_since_2020: string | null;
+  entry_updated_fda: string | null;
+  cardinal_upc: string | null;
+  ndc9_outer: string | null;
+  outerpack_ndc: string | null;
+  innerpack_outer_left9: string | null;
+  mckesson_upc: string | null;
 }
 
 // IndexedDB helpers
@@ -120,20 +146,50 @@ export function useLocalFDA() {
     // Create new database
     const newDb = new sqlRef.current.Database();
 
-    // Create table with indexes
+    // Create table with ALL columns
     newDb.run(`
       CREATE TABLE drugs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         ndc TEXT UNIQUE NOT NULL,
-        drug_name TEXT NOT NULL,
+        meridian_desc TEXT,
+        trade TEXT,
+        generic TEXT,
+        strength TEXT,
+        package_size TEXT,
+        fda_size TEXT,
+        size_txt TEXT,
+        dose_form TEXT,
         manufacturer TEXT,
-        package_description TEXT,
-        fda_status TEXT,
-        dea_schedule TEXT
+        generic_code TEXT,
+        dea_class TEXT,
+        ahfs TEXT,
+        source TEXT,
+        meridian_divisor TEXT,
+        count_method TEXT,
+        verify_count_method TEXT,
+        rx_otc TEXT,
+        cardinal_cin TEXT,
+        mckesson_item TEXT,
+        abc_number TEXT,
+        gcn TEXT,
+        divisor_ml_each TEXT,
+        io TEXT,
+        ndc_inv_since_2020 TEXT,
+        ndc_cost_since_2020 TEXT,
+        entry_updated_fda TEXT,
+        cardinal_upc TEXT,
+        ndc9_outer TEXT,
+        outerpack_ndc TEXT,
+        innerpack_outer_left9 TEXT,
+        mckesson_upc TEXT
       );
       CREATE INDEX idx_ndc ON drugs(ndc);
-      CREATE INDEX idx_drug_name ON drugs(drug_name COLLATE NOCASE);
+      CREATE INDEX idx_trade ON drugs(trade COLLATE NOCASE);
+      CREATE INDEX idx_generic ON drugs(generic COLLATE NOCASE);
       CREATE INDEX idx_manufacturer ON drugs(manufacturer COLLATE NOCASE);
+      CREATE INDEX idx_cardinal_cin ON drugs(cardinal_cin);
+      CREATE INDEX idx_mckesson_item ON drugs(mckesson_item);
+      CREATE INDEX idx_gcn ON drugs(gcn);
     `);
 
     let success = 0;
@@ -141,37 +197,72 @@ export function useLocalFDA() {
 
     // Prepare insert statement
     const stmt = newDb.prepare(`
-      INSERT OR REPLACE INTO drugs (ndc, drug_name, manufacturer, package_description, fda_status, dea_schedule)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO drugs (
+        ndc, meridian_desc, trade, generic, strength, package_size, fda_size,
+        size_txt, dose_form, manufacturer, generic_code, dea_class, ahfs, source,
+        meridian_divisor, count_method, verify_count_method, rx_otc, cardinal_cin,
+        mckesson_item, abc_number, gcn, divisor_ml_each, io, ndc_inv_since_2020,
+        ndc_cost_since_2020, entry_updated_fda, cardinal_upc, ndc9_outer,
+        outerpack_ndc, innerpack_outer_left9, mckesson_upc
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     // Begin transaction for faster inserts
     newDb.run('BEGIN TRANSACTION');
 
+    const getVal = (row: any, ...keys: string[]): string | null => {
+      for (const key of keys) {
+        if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+          return String(row[key]).trim();
+        }
+      }
+      return null;
+    };
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       
       try {
-        const ndc = row['NDC'] || row.NDC || row.ndc;
-        const drugName = row['TRADE'] || row['GENERIC'] || row['MERIDIAN DESC'] || row.TRADE || row.GENERIC;
+        const ndc = getVal(row, 'NDC', 'ndc');
         
-        if (!ndc || !drugName) {
+        if (!ndc) {
           failed++;
           continue;
         }
 
-        const packageSize = row['PACKAGE SIZE'] || row['FDA SIZE'] || '';
-        const sizeText = row['SIZE TXT'] || '';
-        const doseForm = row['DOSE FORM'] || '';
-        const packageDesc = [packageSize, sizeText, doseForm].filter(Boolean).join(' ').trim() || null;
-
         stmt.run([
-          String(ndc).trim(),
-          String(drugName).trim(),
-          row['MANUFACTURER'] || row.MANUFACTURER || null,
-          packageDesc,
-          row['RX/OTC INDICATOR'] || null,
-          row['DEA CLASS'] || null,
+          ndc,
+          getVal(row, 'MERIDIAN DESC', 'Meridian Desc', 'meridian_desc'),
+          getVal(row, 'TRADE', 'Trade', 'trade'),
+          getVal(row, 'GENERIC', 'Generic', 'generic'),
+          getVal(row, 'STRENGTH', 'Strength', 'strength'),
+          getVal(row, 'PACKAGE SIZE', 'Package Size', 'package_size'),
+          getVal(row, 'FDA SIZE', 'FDA Size', 'fda_size'),
+          getVal(row, 'SIZE TXT', 'Size Txt', 'size_txt'),
+          getVal(row, 'DOSE FORM', 'Dose Form', 'dose_form'),
+          getVal(row, 'MANUFACTURER', 'Manufacturer', 'manufacturer'),
+          getVal(row, 'GENERIC CODE', 'Generic Code', 'generic_code'),
+          getVal(row, 'DEA CLASS', 'DEA Class', 'dea_class'),
+          getVal(row, 'AHFS', 'Ahfs', 'ahfs'),
+          getVal(row, 'SOURCE', 'Source', 'source'),
+          getVal(row, 'MERIDIAN DIVISOR (PACK TO EACH)', 'Meridian Divisor', 'meridian_divisor'),
+          getVal(row, 'COUNT METHOD', 'Count Method', 'count_method'),
+          getVal(row, 'Verify Count  Method indicator', 'Verify Count Method', 'verify_count_method'),
+          getVal(row, 'RX/OTC INDICATOR', 'RX/OTC', 'rx_otc'),
+          getVal(row, 'Cardinal CIN', 'Cardinal Cin', 'cardinal_cin'),
+          getVal(row, 'McKesson item no', 'McKesson Item', 'mckesson_item'),
+          getVal(row, 'ABC #', 'ABC', 'abc_number'),
+          getVal(row, 'GCN', 'Gcn', 'gcn'),
+          getVal(row, 'DIVISOR (ML or EACH)', 'Divisor', 'divisor_ml_each'),
+          getVal(row, 'I/O', 'IO', 'io'),
+          getVal(row, 'NDC in Inv since 2020', 'ndc_inv_since_2020'),
+          getVal(row, 'NDC in cost data since 2020', 'ndc_cost_since_2020'),
+          getVal(row, 'ENTRY UPDATED FROM FDA', 'entry_updated_fda'),
+          getVal(row, 'Cardinal UPC pulled from FDA site since 2022', 'cardinal_upc'),
+          getVal(row, 'NDC9Outer', 'ndc9_outer'),
+          getVal(row, 'Outerpack NDC', 'outerpack_ndc'),
+          getVal(row, 'Innerpack - Outer Left 9', 'innerpack_outer_left9'),
+          getVal(row, 'McKesson UPC', 'mckesson_upc'),
         ]);
 
         success++;
@@ -210,6 +301,30 @@ export function useLocalFDA() {
     return { success, failed };
   }, [db]);
 
+  // Lookup by NDC
+  const lookupNDC = useCallback((ndc: string): FDADrug | null => {
+    if (!db) return null;
+
+    try {
+      const results = db.exec(`SELECT * FROM drugs WHERE ndc = ? LIMIT 1`, [ndc.trim()]);
+
+      if (results.length === 0 || results[0].values.length === 0) return null;
+
+      const columns = results[0].columns;
+      const row = results[0].values[0];
+      
+      const drug: any = {};
+      columns.forEach((col, idx) => {
+        drug[col] = row[idx];
+      });
+
+      return drug as FDADrug;
+    } catch (err) {
+      console.error('Lookup error:', err);
+      return null;
+    }
+  }, [db]);
+
   // Search drugs
   const searchDrugs = useCallback((searchTerm: string, limit: number = 100): FDADrug[] => {
     if (!db) return [];
@@ -217,86 +332,25 @@ export function useLocalFDA() {
     try {
       const term = `%${searchTerm}%`;
       const results = db.exec(`
-        SELECT id, ndc, drug_name, manufacturer, package_description, fda_status, dea_schedule
-        FROM drugs
-        WHERE ndc LIKE ? OR drug_name LIKE ? OR manufacturer LIKE ?
-        ORDER BY drug_name
+        SELECT * FROM drugs
+        WHERE ndc LIKE ? OR trade LIKE ? OR generic LIKE ? OR manufacturer LIKE ? OR cardinal_cin LIKE ? OR mckesson_item LIKE ?
+        ORDER BY trade
         LIMIT ?
-      `, [term, term, term, limit]);
+      `, [term, term, term, term, term, term, limit]);
 
       if (results.length === 0) return [];
 
-      return results[0].values.map((row: any[]) => ({
-        id: row[0] as number,
-        ndc: row[1] as string,
-        drug_name: row[2] as string,
-        manufacturer: row[3] as string | null,
-        package_description: row[4] as string | null,
-        fda_status: row[5] as string | null,
-        dea_schedule: row[6] as string | null,
-      }));
+      const columns = results[0].columns;
+      return results[0].values.map((row: any[]) => {
+        const drug: any = {};
+        columns.forEach((col, idx) => {
+          drug[col] = row[idx];
+        });
+        return drug as FDADrug;
+      });
     } catch (err) {
       console.error('Search error:', err);
       return [];
-    }
-  }, [db]);
-
-  // Get all drugs (paginated)
-  const getDrugs = useCallback((offset: number = 0, limit: number = 100): FDADrug[] => {
-    if (!db) return [];
-
-    try {
-      const results = db.exec(`
-        SELECT id, ndc, drug_name, manufacturer, package_description, fda_status, dea_schedule
-        FROM drugs
-        ORDER BY drug_name
-        LIMIT ? OFFSET ?
-      `, [limit, offset]);
-
-      if (results.length === 0) return [];
-
-      return results[0].values.map((row: any[]) => ({
-        id: row[0] as number,
-        ndc: row[1] as string,
-        drug_name: row[2] as string,
-        manufacturer: row[3] as string | null,
-        package_description: row[4] as string | null,
-        fda_status: row[5] as string | null,
-        dea_schedule: row[6] as string | null,
-      }));
-    } catch (err) {
-      console.error('Get drugs error:', err);
-      return [];
-    }
-  }, [db]);
-
-  // Lookup by NDC
-  const lookupNDC = useCallback((ndc: string): FDADrug | null => {
-    if (!db) return null;
-
-    try {
-      const results = db.exec(`
-        SELECT id, ndc, drug_name, manufacturer, package_description, fda_status, dea_schedule
-        FROM drugs
-        WHERE ndc = ?
-        LIMIT 1
-      `, [ndc.trim()]);
-
-      if (results.length === 0 || results[0].values.length === 0) return null;
-
-      const row = results[0].values[0];
-      return {
-        id: row[0] as number,
-        ndc: row[1] as string,
-        drug_name: row[2] as string,
-        manufacturer: row[3] as string | null,
-        package_description: row[4] as string | null,
-        fda_status: row[5] as string | null,
-        dea_schedule: row[6] as string | null,
-      };
-    } catch (err) {
-      console.error('Lookup error:', err);
-      return null;
     }
   }, [db]);
 
@@ -334,7 +388,6 @@ export function useLocalFDA() {
     error,
     importData,
     searchDrugs,
-    getDrugs,
     lookupNDC,
     getCount,
     clearDatabase,
