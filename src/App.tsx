@@ -8,7 +8,7 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Users from "./pages/Users";
 import Scan from "./pages/Scan";
-import DrugDatabase from "./pages/DrugDatabase";
+import FDA from "./pages/FDA";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -61,10 +61,10 @@ function AppRoutes() {
         }
       />
       <Route
-        path="/drugs"
+        path="/fda"
         element={
           <ProtectedRoute>
-            <DrugDatabase />
+            <FDA />
           </ProtectedRoute>
         }
       />
