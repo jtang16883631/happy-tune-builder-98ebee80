@@ -189,9 +189,9 @@ const Scan = () => {
     }));
   }, [selectedSection]);
 
-  // Auto-save with debounce - using localStorage for scan records
+  // Auto-save with debounce - using localStorage for scan records (per template + section)
   useEffect(() => {
-    if (!selectedTemplate) return;
+    if (!selectedTemplate || !selectedSection) return;
 
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -202,7 +202,8 @@ const Scan = () => {
         .filter(r => r.ndc || r.scannedNdc)
         .map(r => ({ ...r, id: undefined }));
       
-      localStorage.setItem(`scan_records_${selectedTemplate.id}`, JSON.stringify(recordsToSave));
+      // Save per template + section combination
+      localStorage.setItem(`scan_records_${selectedTemplate.id}_${selectedSection.id}`, JSON.stringify(recordsToSave));
     }, 500);
 
     return () => {
@@ -210,7 +211,39 @@ const Scan = () => {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [scanRows, selectedTemplate]);
+  }, [scanRows, selectedTemplate, selectedSection]);
+
+  // Load scan records when section changes
+  const loadSectionRecords = useCallback((templateId: string, sectionId: string, sectionName: string) => {
+    const savedData = localStorage.getItem(`scan_records_${templateId}_${sectionId}`);
+    
+    if (savedData) {
+      try {
+        const savedRecords = JSON.parse(savedData) as Omit<ScanRow, 'id'>[];
+        const rows: ScanRow[] = savedRecords.map(r => ({
+          ...createEmptyRow(sectionName),
+          ...r,
+          id: crypto.randomUUID(),
+        }));
+        rows.push(createEmptyRow(sectionName));
+        setScanRows(rows);
+        setActiveRowIndex(rows.length - 1);
+      } catch {
+        setScanRows([createEmptyRow(sectionName)]);
+        setActiveRowIndex(0);
+      }
+    } else {
+      setScanRows([createEmptyRow(sectionName)]);
+      setActiveRowIndex(0);
+    }
+  }, [createEmptyRow]);
+
+  // Handle section selection - load records for this section
+  const handleSelectSection = useCallback((section: CloudSection) => {
+    if (!selectedTemplate) return;
+    setSelectedSection(section);
+    loadSectionRecords(selectedTemplate.id, section.id, section.full_section || '');
+  }, [selectedTemplate, loadSectionRecords]);
 
   // Load sections when template is selected
   const loadSections = useCallback(async (templateId: string) => {
@@ -225,35 +258,15 @@ const Scan = () => {
     }
   }, [getSections]);
 
-  // Handle template selection - load saved records from localStorage
+  // Handle template selection - just load sections, don't load records yet
   const handleSelectTemplate = async (template: CloudTemplate) => {
     setSelectedTemplate(template);
     setSelectedSection(null); // Reset section selection
+    setScanRows([createEmptyRow()]); // Start with empty row
+    setActiveRowIndex(0);
     
     // Load sections for this template
     await loadSections(template.id);
-    
-    const savedData = localStorage.getItem(`scan_records_${template.id}`);
-    
-    if (savedData) {
-      try {
-        const savedRecords = JSON.parse(savedData) as Omit<ScanRow, 'id'>[];
-        const rows: ScanRow[] = savedRecords.map(r => ({
-          ...createEmptyRow(),
-          ...r,
-          id: crypto.randomUUID(),
-        }));
-        rows.push(createEmptyRow());
-        setScanRows(rows);
-        setActiveRowIndex(rows.length - 1);
-      } catch {
-        setScanRows([createEmptyRow()]);
-        setActiveRowIndex(0);
-      }
-    } else {
-      setScanRows([createEmptyRow()]);
-      setActiveRowIndex(0);
-    }
   };
 
   // Add new section
@@ -299,18 +312,44 @@ const Scan = () => {
       const section = sections.find(s => s.id === editingSectionId);
       if (!section) return;
 
-      const fullSection = `${section.sect}-${editingSectionDesc.trim()}`;
+      const oldFullSection = section.full_section;
+      const newFullSection = `${section.sect}-${editingSectionDesc.trim()}`;
       
       // Note: We need to allow UPDATE on template_sections for managers
       const { error } = await supabase
         .from('template_sections')
         .update({
           description: editingSectionDesc.trim(),
-          full_section: fullSection,
+          full_section: newFullSection,
         })
         .eq('id', editingSectionId);
 
       if (error) throw error;
+
+      // Update LOC in current scan records if they match the old section name
+      setScanRows(prev => prev.map(row => {
+        if (row.loc === oldFullSection) {
+          return { ...row, loc: newFullSection };
+        }
+        return row;
+      }));
+
+      // Also update localStorage records for this section
+      if (selectedTemplate) {
+        const savedData = localStorage.getItem(`scan_records_${selectedTemplate.id}_${editingSectionId}`);
+        if (savedData) {
+          try {
+            const savedRecords = JSON.parse(savedData);
+            const updatedRecords = savedRecords.map((r: any) => ({
+              ...r,
+              loc: r.loc === oldFullSection ? newFullSection : r.loc
+            }));
+            localStorage.setItem(`scan_records_${selectedTemplate.id}_${editingSectionId}`, JSON.stringify(updatedRecords));
+          } catch (e) {
+            console.error('Error updating localStorage records:', e);
+          }
+        }
+      }
 
       toast.success('Section更新成功');
       setRenameSectionDialogOpen(false);
@@ -324,7 +363,7 @@ const Scan = () => {
           setSelectedSection(prev => prev ? {
             ...prev,
             description: editingSectionDesc.trim(),
-            full_section: fullSection
+            full_section: newFullSection
           } : null);
         }
       }
@@ -728,7 +767,7 @@ const Scan = () => {
                     <DropdownMenuItem
                       key={section.id}
                       className="flex items-center justify-between group"
-                      onClick={() => setSelectedSection(section)}
+                      onClick={() => handleSelectSection(section)}
                     >
                       <span className={selectedSection?.id === section.id ? 'font-medium' : ''}>
                         {section.full_section}
