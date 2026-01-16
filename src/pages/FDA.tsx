@@ -1,11 +1,9 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { Search, Upload, RefreshCw, Database, FileSpreadsheet, CheckCircle, XCircle, HardDrive, Trash2 } from 'lucide-react';
+import { Upload, RefreshCw, FileSpreadsheet, CheckCircle, XCircle, HardDrive, Trash2 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useLocalFDA } from '@/hooks/useLocalFDA';
 import * as XLSX from 'xlsx';
@@ -39,15 +37,10 @@ const FDA = () => {
     isReady,
     meta,
     importData,
-    searchDrugs,
-    getDrugs,
     getCount,
     clearDatabase,
   } = useLocalFDA();
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [drugs, setDrugs] = useState<any[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress>({
     total: 0,
     processed: 0,
@@ -56,24 +49,6 @@ const FDA = () => {
     status: 'idle',
     errors: [],
   });
-
-  // Load drugs when ready or search changes
-  useEffect(() => {
-    if (!isReady) {
-      setDrugs([]);
-      setTotalCount(0);
-      return;
-    }
-
-    if (searchTerm.trim()) {
-      const results = searchDrugs(searchTerm, 100);
-      setDrugs(results);
-    } else {
-      const results = getDrugs(0, 100);
-      setDrugs(results);
-    }
-    setTotalCount(getCount());
-  }, [isReady, searchTerm, searchDrugs, getDrugs, getCount]);
 
   const parseExcelFile = (file: File): Promise<any[]> => {
     return new Promise((resolve, reject) => {
@@ -118,7 +93,7 @@ const FDA = () => {
         status: 'importing',
       }));
 
-      toast({ title: 'Importing to local database...', description: `Processing ${rows.length.toLocaleString()} rows...` });
+      toast({ title: 'Importing to local database...', description: `Processing ${rows.length.toLocaleString()} rows with all columns...` });
 
       const result = await importData(rows, file.name, (processed, total) => {
         setUploadProgress(prev => ({
@@ -136,17 +111,9 @@ const FDA = () => {
         status: 'complete',
       }));
 
-      // Refresh the list
-      if (searchTerm.trim()) {
-        setDrugs(searchDrugs(searchTerm, 100));
-      } else {
-        setDrugs(getDrugs(0, 100));
-      }
-      setTotalCount(getCount());
-
       toast({
         title: 'Import complete!',
-        description: `${result.success.toLocaleString()} drugs saved locally. Data will persist on this device.`,
+        description: `${result.success.toLocaleString()} drugs saved locally with all columns.`,
       });
     } catch (error: any) {
       setUploadProgress(prev => ({
@@ -164,14 +131,14 @@ const FDA = () => {
 
   const handleClearDatabase = async () => {
     await clearDatabase();
-    setDrugs([]);
-    setTotalCount(0);
     toast({ title: 'Database cleared', description: 'All local FDA data has been removed.' });
   };
 
   const progressPercent = uploadProgress.total > 0 
     ? Math.round((uploadProgress.processed / uploadProgress.total) * 100) 
     : 0;
+
+  const totalCount = isReady ? getCount() : 0;
 
   if (dbLoading) {
     return (
@@ -196,7 +163,7 @@ const FDA = () => {
               {isReady && meta ? (
                 <span className="flex items-center gap-2">
                   <HardDrive className="h-4 w-4" />
-                  {totalCount.toLocaleString()} drugs stored locally
+                  {totalCount.toLocaleString()} drugs stored locally (all columns)
                   {meta.lastUpdated && (
                     <> • Updated: {new Date(meta.lastUpdated).toLocaleDateString()}</>
                   )}
@@ -253,6 +220,41 @@ const FDA = () => {
           </div>
         </div>
 
+        {/* Status Card */}
+        {isReady && uploadProgress.status === 'idle' && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-green-600" />
+                FDA Database Ready
+              </CardTitle>
+              <CardDescription>
+                {meta?.fileName && `Source: ${meta.fileName}`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <p className="text-muted-foreground">Total Drugs</p>
+                  <p className="text-2xl font-bold">{totalCount.toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Last Updated</p>
+                  <p className="font-medium">{meta?.lastUpdated ? new Date(meta.lastUpdated).toLocaleString() : '-'}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Storage</p>
+                  <p className="font-medium">Local (this device)</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground">Columns</p>
+                  <p className="font-medium">All 32 columns</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Upload Progress */}
         {uploadProgress.status !== 'idle' && (
           <Card>
@@ -268,7 +270,7 @@ const FDA = () => {
                   <span>
                     {uploadProgress.status === 'parsing' && 'Parsing Excel file...'}
                     {uploadProgress.status === 'importing' && `Importing ${uploadProgress.processed.toLocaleString()} of ${uploadProgress.total.toLocaleString()}`}
-                    {uploadProgress.status === 'complete' && 'Complete! Data saved to this device.'}
+                    {uploadProgress.status === 'complete' && 'Complete! All columns saved to this device.'}
                     {uploadProgress.status === 'error' && 'Error occurred'}
                   </span>
                   <span>{progressPercent}%</span>
@@ -300,85 +302,19 @@ const FDA = () => {
           </Card>
         )}
 
-        {/* Search */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Search FDA Database</CardTitle>
-            <CardDescription>
-              {isReady ? 'Search locally - instant results' : 'Upload FDA data to enable search'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by NDC, drug name, or manufacturer..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                  disabled={!isReady}
-                />
+        {/* Empty State */}
+        {!isReady && uploadProgress.status === 'idle' && (
+          <Card>
+            <CardContent className="py-12">
+              <div className="text-center text-muted-foreground">
+                <HardDrive className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p className="text-lg font-medium">No FDA data loaded</p>
+                <p className="text-sm mt-2">Upload your FDA Excel file to store it locally.</p>
+                <p className="text-sm">All 32 columns will be imported for instant lookups.</p>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Drugs Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Drug List</CardTitle>
-            <CardDescription>
-              {isReady 
-                ? `Showing ${drugs.length} of ${totalCount.toLocaleString()} drugs${searchTerm ? ` matching "${searchTerm}"` : ''}`
-                : 'No data loaded'
-              }
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {!isReady ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <Database className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>Upload your FDA Excel file to get started.</p>
-                <p className="text-sm mt-2">Data will be stored locally on this device for instant access.</p>
-              </div>
-            ) : drugs.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <Search className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>No drugs found{searchTerm ? ` matching "${searchTerm}"` : ''}.</p>
-              </div>
-            ) : (
-              <div className="border rounded-lg overflow-hidden">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>NDC</TableHead>
-                      <TableHead>Drug Name</TableHead>
-                      <TableHead>Manufacturer</TableHead>
-                      <TableHead>Package</TableHead>
-                      <TableHead>RX/OTC</TableHead>
-                      <TableHead>DEA Class</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {drugs.map((drug) => (
-                      <TableRow key={drug.id}>
-                        <TableCell className="font-mono text-sm">{drug.ndc}</TableCell>
-                        <TableCell className="font-medium">{drug.drug_name}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{drug.manufacturer || '-'}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">
-                          {drug.package_description || '-'}
-                        </TableCell>
-                        <TableCell className="text-sm">{drug.fda_status || '-'}</TableCell>
-                        <TableCell className="text-sm">{drug.dea_schedule || '-'}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </AppLayout>
   );
