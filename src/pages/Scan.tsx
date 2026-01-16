@@ -28,17 +28,24 @@ interface ScanRow {
 const Scan = () => {
   const { isLoading: authLoading, roles } = useAuth();
   const navigate = useNavigate();
-  const { isReady, getTemplates, isLoading: templatesLoading } = useDataTemplates();
+  const { 
+    isReady, 
+    getTemplates, 
+    isLoading: templatesLoading,
+    saveScanRecords,
+    loadScanRecords,
+    getCostItemByNDC
+  } = useDataTemplates();
   const { lookupNDC: fdaLookup, isReady: fdaReady } = useLocalFDA();
 
   const [templates, setTemplates] = useState<DataTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<DataTemplate | null>(null);
-  const [costItems, setCostItems] = useState<Map<string, TemplateCostItem>>(new Map());
   const [scanRows, setScanRows] = useState<ScanRow[]>([
     { id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' }
   ]);
   const [activeRowIndex, setActiveRowIndex] = useState(0);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const hasRole = roles.length > 0;
 
@@ -55,58 +62,96 @@ const Scan = () => {
     }
   }, [isReady, getTemplates]);
 
-  // Load cost items when template is selected
-  const loadCostItems = useCallback(async (templateId: number) => {
-    // We need to access the db directly - let's add a getCostItems function
-    // For now, we'll load from the hook
-  }, []);
+  // Auto-save with debounce
+  useEffect(() => {
+    if (!selectedTemplate || !isReady) return;
 
-  // Handle template selection
+    // Clear existing timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    // Debounce save - wait 500ms after last change
+    saveTimeoutRef.current = setTimeout(() => {
+      const recordsToSave = scanRows
+        .filter(r => r.ndc)
+        .map(r => ({
+          ndc: r.ndc,
+          description: r.description,
+          price: r.price,
+          source: r.source
+        }));
+      
+      if (recordsToSave.length > 0) {
+        saveScanRecords(selectedTemplate.id, recordsToSave);
+      }
+    }, 500);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [scanRows, selectedTemplate, isReady, saveScanRecords]);
+
+  // Handle template selection - load saved records
   const handleSelectTemplate = (template: DataTemplate) => {
     setSelectedTemplate(template);
-    // Load cost data for this template
-    // Reset scan rows
-    setScanRows([
-      { id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' }
-    ]);
-    setActiveRowIndex(0);
+    
+    // Load saved scan records for this template
+    const savedRecords = loadScanRecords(template.id);
+    
+    if (savedRecords.length > 0) {
+      const rows: ScanRow[] = savedRecords.map(r => ({
+        id: crypto.randomUUID(),
+        ndc: r.ndc,
+        description: r.description,
+        price: r.price,
+        source: r.source as ScanRow['source']
+      }));
+      // Add empty row at the end
+      rows.push({ id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' });
+      setScanRows(rows);
+      setActiveRowIndex(rows.length - 1);
+    } else {
+      setScanRows([
+        { id: crypto.randomUUID(), ndc: '', description: '', price: null, source: '' }
+      ]);
+      setActiveRowIndex(0);
+    }
   };
 
   // Lookup NDC and update row
   const lookupNDC = useCallback(async (ndc: string, rowIndex: number) => {
-    if (!ndc || ndc.length < 10) return;
+    if (!ndc || ndc.length < 10 || !selectedTemplate) return;
 
     // Clean the NDC (remove dashes)
     const cleanNdc = ndc.replace(/-/g, '');
 
-    // First try FDA lookup
+    // Try FDA lookup for description
     const fdaResult = fdaLookup(cleanNdc);
     
-    if (fdaResult) {
-      setScanRows(prev => {
-        const updated = [...prev];
-        updated[rowIndex] = {
-          ...updated[rowIndex],
-          ndc: cleanNdc,
-          description: fdaResult.meridian_desc || fdaResult.trade || fdaResult.generic || '',
-          price: null, // Will look up from cost data
-          source: 'fda'
-        };
-        return updated;
-      });
-    } else {
-      setScanRows(prev => {
-        const updated = [...prev];
-        updated[rowIndex] = {
-          ...updated[rowIndex],
-          ndc: cleanNdc,
-          description: 'Not found in FDA database',
-          price: null,
-          source: 'not_found'
-        };
-        return updated;
-      });
-    }
+    // Try cost data lookup for price
+    const costItem = getCostItemByNDC(selectedTemplate.id, cleanNdc);
+    
+    const description = fdaResult 
+      ? (fdaResult.meridian_desc || fdaResult.trade || fdaResult.generic || '')
+      : (costItem?.material_description || 'Not found');
+    
+    const price = costItem?.unit_price || null;
+    const source: ScanRow['source'] = fdaResult ? 'fda' : (costItem ? 'cost_data' : 'not_found');
+    
+    setScanRows(prev => {
+      const updated = [...prev];
+      updated[rowIndex] = {
+        ...updated[rowIndex],
+        ndc: cleanNdc,
+        description,
+        price,
+        source
+      };
+      return updated;
+    });
 
     // Auto-add new row if this is the last row
     setScanRows(prev => {
@@ -123,7 +168,7 @@ const Scan = () => {
         setActiveRowIndex(rowIndex + 1);
       }
     }, 100);
-  }, [fdaLookup]);
+  }, [fdaLookup, getCostItemByNDC, selectedTemplate]);
 
   // Handle NDC input change
   const handleNdcChange = (value: string, rowIndex: number) => {

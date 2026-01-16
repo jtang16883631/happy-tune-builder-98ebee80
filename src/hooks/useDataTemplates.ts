@@ -30,6 +30,16 @@ export interface TemplateSection {
   full_section: string; // e.g., "0001-Topicals-EENT"
 }
 
+export interface ScanRecord {
+  id: number;
+  template_id: number;
+  ndc: string;
+  description: string;
+  price: number | null;
+  source: string;
+  created_at: string;
+}
+
 export interface TemplateCostItem {
   id: number;
   template_id: number;
@@ -151,10 +161,22 @@ export function useDataTemplates() {
               FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
             );
             
+            CREATE TABLE IF NOT EXISTS scan_records (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              template_id INTEGER NOT NULL,
+              ndc TEXT NOT NULL,
+              description TEXT,
+              price REAL,
+              source TEXT,
+              created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
+            );
+            
             CREATE INDEX idx_templates_date ON templates(inv_date DESC);
             CREATE INDEX idx_sections_template ON sections(template_id);
             CREATE INDEX idx_cost_template ON cost_items(template_id);
             CREATE INDEX idx_cost_ndc ON cost_items(ndc);
+            CREATE INDEX idx_scan_template ON scan_records(template_id);
           `);
           
           setDb(database);
@@ -544,6 +566,104 @@ export function useDataTemplates() {
     }
   }, [db]);
 
+  // Save scan records for a template (replaces all existing)
+  const saveScanRecords = useCallback(async (
+    templateId: number,
+    records: { ndc: string; description: string; price: number | null; source: string }[]
+  ): Promise<void> => {
+    if (!db) return;
+
+    try {
+      // Delete existing records for this template
+      db.run(`DELETE FROM scan_records WHERE template_id = ?`, [templateId]);
+
+      // Insert new records
+      const stmt = db.prepare(`
+        INSERT INTO scan_records (template_id, ndc, description, price, source, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const record of records) {
+        if (record.ndc) { // Only save rows with NDC
+          stmt.run([templateId, record.ndc, record.description, record.price, record.source, new Date().toISOString()]);
+        }
+      }
+      stmt.free();
+
+      await saveDatabase();
+    } catch (err) {
+      console.error('Save scan records error:', err);
+    }
+  }, [db, saveDatabase]);
+
+  // Load scan records for a template
+  const loadScanRecords = useCallback((templateId: number): ScanRecord[] => {
+    if (!db) return [];
+
+    try {
+      const results = db.exec(`
+        SELECT id, template_id, ndc, description, price, source, created_at
+        FROM scan_records
+        WHERE template_id = ?
+        ORDER BY id
+      `, [templateId]);
+
+      if (results.length === 0) return [];
+
+      return results[0].values.map((row: any[]) => ({
+        id: row[0] as number,
+        template_id: row[1] as number,
+        ndc: row[2] as string,
+        description: row[3] as string,
+        price: row[4] as number | null,
+        source: row[5] as string,
+        created_at: row[6] as string,
+      }));
+    } catch (err) {
+      console.error('Load scan records error:', err);
+      return [];
+    }
+  }, [db]);
+
+  // Get cost item by NDC for a template
+  const getCostItemByNDC = useCallback((templateId: number, ndc: string): TemplateCostItem | null => {
+    if (!db) return null;
+
+    try {
+      // Clean NDC - remove dashes
+      const cleanNdc = ndc.replace(/-/g, '');
+      
+      const results = db.exec(`
+        SELECT id, template_id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose
+        FROM cost_items
+        WHERE template_id = ? AND REPLACE(ndc, '-', '') = ?
+        LIMIT 1
+      `, [templateId, cleanNdc]);
+
+      if (results.length === 0 || results[0].values.length === 0) return null;
+
+      const row = results[0].values[0];
+      return {
+        id: row[0] as number,
+        template_id: row[1] as number,
+        ndc: row[2] as string,
+        material_description: row[3] as string,
+        unit_price: row[4] as number | null,
+        source: row[5] as string | null,
+        material: row[6] as string | null,
+        billing_date: row[7] as string | null,
+        manufacturer: row[8] as string | null,
+        generic: row[9] as string | null,
+        strength: row[10] as string | null,
+        size: row[11] as string | null,
+        dose: row[12] as string | null,
+      };
+    } catch (err) {
+      console.error('Get cost item error:', err);
+      return null;
+    }
+  }, [db]);
+
   return {
     isLoading,
     isReady: !!db,
@@ -557,5 +677,8 @@ export function useDataTemplates() {
     getCostItemCount,
     deleteTemplates,
     getTemplateCount,
+    saveScanRecords,
+    loadScanRecords,
+    getCostItemByNDC,
   };
 }
