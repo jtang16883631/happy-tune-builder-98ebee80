@@ -12,7 +12,8 @@ import {
   FileText, 
   FolderSync, 
   Plus,
-  TrendingUp
+  TrendingUp,
+  Loader2
 } from 'lucide-react';
 import {
   Table,
@@ -22,23 +23,156 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 
-// Mock data for demonstration
-const activeAudits = [
-  { id: 'H-NTH-01', location: 'Northside Hospital', auditor: 'Mike Chen', status: 'In Progress', progress: 85, lastSync: '2m ago' },
-  { id: 'H-NTH-02', location: 'Bondon Hospital', auditor: 'Mike Chen', status: 'In Progress', progress: 85, lastSync: '1m ago' },
-  { id: 'H-NTH-03', location: 'St. Marys Hospital', auditor: 'Sarah Name', status: 'Reviewing', progress: 75, lastSync: '2m ago' },
-  { id: 'H-NTH-04', location: 'Northside Hospital', auditor: 'Mike Chen', status: 'Reviewing', progress: 75, lastSync: '1m ago' },
-  { id: 'H-NTH-05', location: 'Northside Hospital', auditor: 'Sarah Name', status: 'In Progress', progress: 85, lastSync: '12m ago' },
-];
+interface ScanRecord {
+  id: string;
+  qty: string;
+  ndc: string;
+  loc: string;
+  drugName: string;
+  timestamp: string;
+}
 
-const activityFeed = [
-  { time: '10:45 AM', user: 'Sarah', message: 'Reported "Barcodes damaged in Section C" at St. Mary\'s' },
-  { time: '10:30 AM', user: 'Mike', message: 'Completed Section B scan at Northside Hospital' },
-  { time: '10:15 AM', user: 'Sarah', message: 'Started audit at Bondon Hospital' },
-];
+interface TemplateStats {
+  templateId: string;
+  templateName: string;
+  facilityName: string;
+  totalSections: number;
+  sectionsWithScans: number;
+  totalScans: number;
+  lastActivity: string | null;
+}
 
 export default function Dashboard() {
+  const [templateStats, setTemplateStats] = useState<TemplateStats[]>([]);
+  const [totalScans, setTotalScans] = useState(0);
+  const [recentActivity, setRecentActivity] = useState<{ time: string; message: string }[]>([]);
+
+  // Fetch templates from database
+  const { data: templates, isLoading: templatesLoading } = useQuery({
+    queryKey: ['dashboard-templates'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('data_templates')
+        .select('*')
+        .order('updated_at', { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Fetch all sections from database
+  const { data: sections, isLoading: sectionsLoading } = useQuery({
+    queryKey: ['dashboard-sections'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('template_sections')
+        .select('*');
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  // Calculate stats from localStorage scan records
+  useEffect(() => {
+    if (!templates || !sections) return;
+
+    const stats: TemplateStats[] = [];
+    let totalScanCount = 0;
+    const activities: { time: Date; message: string }[] = [];
+
+    templates.forEach(template => {
+      const templateSections = sections.filter(s => s.template_id === template.id);
+      let sectionsWithScans = 0;
+      let templateTotalScans = 0;
+      let lastActivityTime: Date | null = null;
+
+      templateSections.forEach(section => {
+        const key = `scan_records_${template.id}_${section.id}`;
+        const savedData = localStorage.getItem(key);
+        if (savedData) {
+          try {
+            const records: ScanRecord[] = JSON.parse(savedData);
+            if (records.length > 0) {
+              sectionsWithScans++;
+              templateTotalScans += records.length;
+              totalScanCount += records.length;
+
+              // Find latest activity
+              records.forEach(record => {
+                const recordTime = new Date(record.timestamp);
+                if (!lastActivityTime || recordTime > lastActivityTime) {
+                  lastActivityTime = recordTime;
+                }
+                
+                // Add to activities
+                activities.push({
+                  time: recordTime,
+                  message: `Scanned ${record.drugName || record.ndc} at ${template.facility_name || template.name}`
+                });
+              });
+            }
+          } catch (e) {
+            console.error('Error parsing scan records:', e);
+          }
+        }
+      });
+
+      stats.push({
+        templateId: template.id,
+        templateName: template.name,
+        facilityName: template.facility_name || 'Unknown Facility',
+        totalSections: templateSections.length,
+        sectionsWithScans,
+        totalScans: templateTotalScans,
+        lastActivity: lastActivityTime ? formatTimeAgo(lastActivityTime) : null
+      });
+    });
+
+    setTemplateStats(stats);
+    setTotalScans(totalScanCount);
+
+    // Get recent activities (last 5)
+    const sortedActivities = activities
+      .sort((a, b) => b.time.getTime() - a.time.getTime())
+      .slice(0, 5)
+      .map(a => ({
+        time: formatTime(a.time),
+        message: a.message
+      }));
+    setRecentActivity(sortedActivities);
+  }, [templates, sections]);
+
+  const formatTimeAgo = (date: Date): string => {
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
+  };
+
+  const formatTime = (date: Date): string => {
+    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  };
+
+  const isLoading = templatesLoading || sectionsLoading;
+
+  // Calculate aggregate stats
+  const activeTemplates = templateStats.filter(t => t.totalScans > 0).length;
+  const totalTemplates = templateStats.length;
+  const totalSections = templateStats.reduce((acc, t) => acc + t.totalSections, 0);
+  const sectionsWithData = templateStats.reduce((acc, t) => acc + t.sectionsWithScans, 0);
+  const overallProgress = totalSections > 0 ? Math.round((sectionsWithData / totalSections) * 100) : 0;
+  const nearCompletion = templateStats.filter(t => t.totalSections > 0 && t.sectionsWithScans / t.totalSections >= 0.8).length;
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -48,9 +182,11 @@ export default function Dashboard() {
             <h1 className="text-2xl font-bold">Dashboard Overview</h1>
             <p className="text-muted-foreground">Monitor audit progress and field activities</p>
           </div>
-          <Button className="gap-2">
-            <Plus className="h-4 w-4" />
-            New Audit
+          <Button className="gap-2" asChild>
+            <Link to="/data-template">
+              <Plus className="h-4 w-4" />
+              New Template
+            </Link>
           </Button>
         </div>
 
@@ -59,118 +195,165 @@ export default function Dashboard() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Today's Active Audits
+                Active Templates
               </CardTitle>
               <Badge variant="outline" className="text-primary border-primary">
-                Status
+                {isLoading ? '...' : `${activeTemplates}/${totalTemplates}`}
               </Badge>
             </CardHeader>
             <CardContent>
-              <div className="text-4xl font-bold">5</div>
-              <p className="text-sm text-green-600 flex items-center gap-1 mt-1">
-                <TrendingUp className="h-4 w-4" />
-                2 Near Completion
-              </p>
+              {isLoading ? (
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              ) : (
+                <>
+                  <div className="text-4xl font-bold">{activeTemplates}</div>
+                  <p className="text-sm text-green-600 flex items-center gap-1 mt-1">
+                    <TrendingUp className="h-4 w-4" />
+                    {nearCompletion} Near Completion
+                  </p>
+                </>
+              )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Real-time Progress
+                Sections Progress
               </CardTitle>
               <Activity className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-4xl font-bold">74%</div>
-              <p className="text-sm text-muted-foreground mt-1">Across all sites</p>
-              <Progress value={74} className="mt-3 h-2" />
+              {isLoading ? (
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              ) : (
+                <>
+                  <div className="text-4xl font-bold">{overallProgress}%</div>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {sectionsWithData} of {totalSections} sections scanned
+                  </p>
+                  <Progress value={overallProgress} className="mt-3 h-2" />
+                </>
+              )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Field Issues
+                Total Scans
               </CardTitle>
-              <AlertTriangle className="h-5 w-5 text-destructive" />
+              <CheckCircle2 className="h-5 w-5 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-4xl font-bold">3 Open</div>
-              <p className="text-sm text-destructive mt-1">Requires Office Attention</p>
+              {isLoading ? (
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              ) : (
+                <>
+                  <div className="text-4xl font-bold">{totalScans}</div>
+                  <p className="text-sm text-muted-foreground mt-1">Items scanned across all templates</p>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
 
         {/* Main Content Grid */}
         <div className="grid gap-6 lg:grid-cols-3">
-          {/* Live Audit Tracker */}
+          {/* Template Tracker */}
           <Card className="lg:col-span-2">
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-lg">Live Audit Tracker</CardTitle>
-              <Badge variant="secondary">60%</Badge>
+              <CardTitle className="text-lg">Template Progress</CardTitle>
+              <Badge variant="secondary">{overallProgress}%</Badge>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Hospital ID</TableHead>
-                    <TableHead>Location</TableHead>
-                    <TableHead>Lead Auditor</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>% Done</TableHead>
-                    <TableHead>Last Sync</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {activeAudits.map((audit) => (
-                    <TableRow key={audit.id}>
-                      <TableCell className="font-medium">{audit.id}</TableCell>
-                      <TableCell>{audit.location}</TableCell>
-                      <TableCell>{audit.auditor}</TableCell>
-                      <TableCell>
-                        <Badge 
-                          variant={audit.status === 'In Progress' ? 'default' : 'secondary'}
-                          className={audit.status === 'In Progress' ? 'bg-blue-500' : 'bg-amber-500'}
-                        >
-                          {audit.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{audit.progress}%</TableCell>
-                      <TableCell className="text-muted-foreground">{audit.lastSync}</TableCell>
-                      <TableCell>
-                        <Button variant="link" size="sm" className="p-0 h-auto text-primary">
-                          <Eye className="h-4 w-4 mr-1" />
-                          View Live
-                        </Button>
-                      </TableCell>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : templateStats.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <FileText className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>No templates yet. Create one to get started.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Template</TableHead>
+                      <TableHead>Facility</TableHead>
+                      <TableHead>Sections</TableHead>
+                      <TableHead>Scans</TableHead>
+                      <TableHead>Progress</TableHead>
+                      <TableHead>Last Activity</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {templateStats.map((template) => {
+                      const progress = template.totalSections > 0 
+                        ? Math.round((template.sectionsWithScans / template.totalSections) * 100) 
+                        : 0;
+                      return (
+                        <TableRow key={template.templateId}>
+                          <TableCell className="font-medium">{template.templateName}</TableCell>
+                          <TableCell>{template.facilityName}</TableCell>
+                          <TableCell>{template.sectionsWithScans}/{template.totalSections}</TableCell>
+                          <TableCell>{template.totalScans}</TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Progress value={progress} className="h-2 w-16" />
+                              <span className="text-sm text-muted-foreground">{progress}%</span>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {template.lastActivity || 'No activity'}
+                          </TableCell>
+                          <TableCell>
+                            <Button variant="link" size="sm" className="p-0 h-auto text-primary" asChild>
+                              <Link to="/scan">
+                                <Eye className="h-4 w-4 mr-1" />
+                                Scan
+                              </Link>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
 
           {/* Activity Feed */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Field Activity Feed</CardTitle>
+              <CardTitle className="text-lg">Recent Activity</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {activityFeed.map((activity, index) => (
-                <div key={index} className="flex gap-3 text-sm">
-                  <div className="flex-shrink-0 mt-1">
-                    <div className="h-2 w-2 rounded-full bg-primary" />
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">{activity.time}</span>
-                    <span className="mx-1">-</span>
-                    <span className="font-medium">{activity.user}</span>
-                    <p className="text-muted-foreground mt-0.5">{activity.message}</p>
-                  </div>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
-              ))}
+              ) : recentActivity.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Activity className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>No recent activity</p>
+                </div>
+              ) : (
+                recentActivity.map((activity, index) => (
+                  <div key={index} className="flex gap-3 text-sm">
+                    <div className="flex-shrink-0 mt-1">
+                      <div className="h-2 w-2 rounded-full bg-primary" />
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">{activity.time}</span>
+                      <p className="text-muted-foreground mt-0.5">{activity.message}</p>
+                    </div>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
         </div>
@@ -182,21 +365,23 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-3">
-              <Button variant="outline" className="gap-2">
-                <FileText className="h-4 w-4" />
-                New Project Wizard
+              <Button variant="outline" className="gap-2" asChild>
+                <Link to="/data-template">
+                  <FileText className="h-4 w-4" />
+                  Manage Templates
+                </Link>
               </Button>
-              <Button variant="outline" className="gap-2">
-                <FolderSync className="h-4 w-4" />
-                Sync Cost Data
+              <Button variant="outline" className="gap-2" asChild>
+                <Link to="/scan">
+                  <FolderSync className="h-4 w-4" />
+                  Start Scanning
+                </Link>
               </Button>
-              <Button variant="outline" className="gap-2">
-                <CheckCircle2 className="h-4 w-4" />
-                Review Pending
-              </Button>
-              <Button variant="outline" className="gap-2">
-                <Clock className="h-4 w-4" />
-                View Schedule
+              <Button variant="outline" className="gap-2" asChild>
+                <Link to="/fda">
+                  <CheckCircle2 className="h-4 w-4" />
+                  FDA Database
+                </Link>
               </Button>
             </div>
           </CardContent>
