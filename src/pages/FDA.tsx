@@ -70,17 +70,31 @@ const FDA = () => {
     },
   });
 
-  // Get total count
-  const { data: totalCount } = useQuery({
-    queryKey: ['drugs-count'],
+  // Get total count and last update
+  const { data: dbStats } = useQuery({
+    queryKey: ['drugs-stats'],
     queryFn: async () => {
-      const { count, error } = await supabase
+      const { count, error: countError } = await supabase
         .from('drugs')
         .select('*', { count: 'exact', head: true });
-      if (error) throw error;
-      return count || 0;
+      if (countError) throw countError;
+      
+      // Get most recent update
+      const { data: lastUpdated, error: lastError } = await supabase
+        .from('drugs')
+        .select('updated_at')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .single();
+      
+      return {
+        count: count || 0,
+        lastUpdated: lastUpdated?.updated_at || null,
+      };
     },
   });
+
+  const hasExistingData = (dbStats?.count || 0) > 0;
 
   const parseExcelFile = (file: File): Promise<any[]> => {
     return new Promise((resolve, reject) => {
@@ -208,7 +222,7 @@ const FDA = () => {
       }));
 
       queryClient.invalidateQueries({ queryKey: ['drugs'] });
-      queryClient.invalidateQueries({ queryKey: ['drugs-count'] });
+      queryClient.invalidateQueries({ queryKey: ['drugs-stats'] });
 
       toast({
         title: 'Upload complete',
@@ -240,7 +254,16 @@ const FDA = () => {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">FDA Database</h1>
             <p className="text-muted-foreground">
-              Upload and manage FDA drug data • {totalCount?.toLocaleString() || 0} drugs in database
+              {hasExistingData ? (
+                <>
+                  {dbStats?.count.toLocaleString()} drugs in database
+                  {dbStats?.lastUpdated && (
+                    <> • Last updated: {new Date(dbStats.lastUpdated).toLocaleDateString()}</>
+                  )}
+                </>
+              ) : (
+                'Upload your FDA Excel file to get started'
+              )}
             </p>
           </div>
           <div className="flex gap-2">
@@ -255,13 +278,14 @@ const FDA = () => {
             <Button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploadProgress.status === 'parsing' || uploadProgress.status === 'uploading'}
+              variant={hasExistingData ? 'outline' : 'default'}
             >
               {uploadProgress.status === 'parsing' || uploadProgress.status === 'uploading' ? (
                 <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Upload className="mr-2 h-4 w-4" />
               )}
-              Upload FDA Data
+              {hasExistingData ? 'Update FDA Data' : 'Upload FDA Data'}
             </Button>
           </div>
         </div>
@@ -338,7 +362,7 @@ const FDA = () => {
           <CardHeader>
             <CardTitle className="text-lg">Drug List</CardTitle>
             <CardDescription>
-              Showing {drugs.length} of {totalCount?.toLocaleString() || 0} drugs
+              Showing {drugs.length} of {dbStats?.count.toLocaleString() || 0} drugs
               {searchTerm && ` matching "${searchTerm}"`}
             </CardDescription>
           </CardHeader>
