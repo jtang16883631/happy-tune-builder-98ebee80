@@ -49,6 +49,14 @@ interface SyncMeta {
   pendingChanges: number;
 }
 
+export interface SyncProgress {
+  currentTemplate: string | null;
+  currentTemplateIndex: number;
+  totalTemplates: number;
+  costItemsFetched: number;
+  status: 'idle' | 'fetching_template' | 'fetching_sections' | 'fetching_cost_items' | 'saving' | 'complete';
+}
+
 // IndexedDB helpers
 const openIndexedDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -98,6 +106,13 @@ export function useOfflineTemplates() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncMeta, setSyncMeta] = useState<SyncMeta>({ lastSyncedAt: null, pendingChanges: 0 });
   const [error, setError] = useState<string | null>(null);
+  const [syncProgress, setSyncProgress] = useState<SyncProgress>({
+    currentTemplate: null,
+    currentTemplateIndex: 0,
+    totalTemplates: 0,
+    costItemsFetched: 0,
+    status: 'idle',
+  });
   const sqlRef = useRef<any>(null);
 
   // Monitor online status
@@ -352,6 +367,13 @@ export function useOfflineTemplates() {
     }
 
     setIsSyncing(true);
+    setSyncProgress({
+      currentTemplate: null,
+      currentTemplateIndex: 0,
+      totalTemplates: templateIds.length,
+      costItemsFetched: 0,
+      status: 'idle',
+    });
 
     try {
       // Get currently synced templates
@@ -376,7 +398,17 @@ export function useOfflineTemplates() {
 
       // Add newly selected templates
       let synced = 0;
-      for (const cloudId of toAdd) {
+      for (let i = 0; i < toAdd.length; i++) {
+        const cloudId = toAdd[i];
+        
+        // Update progress - fetching template
+        setSyncProgress(prev => ({
+          ...prev,
+          currentTemplateIndex: i + 1,
+          status: 'fetching_template',
+          costItemsFetched: 0,
+        }));
+
         // Fetch template from cloud
         const { data: ct, error: fetchError } = await supabase
           .from('data_templates')
@@ -385,6 +417,11 @@ export function useOfflineTemplates() {
           .single();
 
         if (fetchError || !ct) continue;
+
+        setSyncProgress(prev => ({
+          ...prev,
+          currentTemplate: ct.name || ct.facility_name || 'Template',
+        }));
 
         const localId = generateId();
         db.run(`
@@ -395,6 +432,9 @@ export function useOfflineTemplates() {
           localId, ct.id, ct.user_id, ct.name, ct.inv_date, ct.facility_name, ct.inv_number,
           ct.cost_file_name, ct.job_ticket_file_name, ct.status || 'active', ct.created_at, ct.updated_at
         ]);
+
+        // Update progress - fetching sections
+        setSyncProgress(prev => ({ ...prev, status: 'fetching_sections' }));
 
         // Fetch and insert sections
         const { data: sections } = await supabase
@@ -409,10 +449,14 @@ export function useOfflineTemplates() {
           `, [generateId(), localId, s.sect, s.description, s.full_section]);
         }
 
+        // Update progress - fetching cost items
+        setSyncProgress(prev => ({ ...prev, status: 'fetching_cost_items', costItemsFetched: 0 }));
+
         // Fetch and insert cost items with pagination (handle >1000 items)
         let costItemsOffset = 0;
         const costItemsLimit = 1000;
         let hasMoreCostItems = true;
+        let totalCostItemsFetched = 0;
         
         while (hasMoreCostItems) {
           const { data: costItems, error: costError } = await supabase
@@ -433,9 +477,15 @@ export function useOfflineTemplates() {
             `, [generateId(), localId, c.ndc, c.material_description, c.unit_price, c.source, c.material]);
           }
 
+          totalCostItemsFetched += (costItems?.length || 0);
+          setSyncProgress(prev => ({ ...prev, costItemsFetched: totalCostItemsFetched }));
+
           hasMoreCostItems = (costItems?.length || 0) === costItemsLimit;
           costItemsOffset += costItemsLimit;
         }
+
+        // Update progress - saving
+        setSyncProgress(prev => ({ ...prev, status: 'saving' }));
 
         synced++;
       }
@@ -443,12 +493,29 @@ export function useOfflineTemplates() {
       await saveDatabase();
       await updateSyncMeta({ lastSyncedAt: new Date().toISOString() });
       
+      // Mark sync complete
+      setSyncProgress(prev => ({ 
+        ...prev, 
+        status: 'complete',
+        currentTemplate: null,
+      }));
+      
       return { success: true, synced: synced + (templateIds.length - toAdd.length) };
     } catch (err: any) {
       console.error('Sync selected templates error:', err);
       return { success: false, synced: 0, error: err.message };
     } finally {
       setIsSyncing(false);
+      // Reset progress after a short delay
+      setTimeout(() => {
+        setSyncProgress({
+          currentTemplate: null,
+          currentTemplateIndex: 0,
+          totalTemplates: 0,
+          costItemsFetched: 0,
+          status: 'idle',
+        });
+      }, 2000);
     }
   }, [db, user, isOnline, saveDatabase, updateSyncMeta, getSyncedTemplateIds]);
 
@@ -712,6 +779,7 @@ export function useOfflineTemplates() {
     isSyncing,
     isOnline,
     syncMeta,
+    syncProgress,
     error,
     isReady: !isLoading && !!db,
     hasLocalData: hasLocalData(),

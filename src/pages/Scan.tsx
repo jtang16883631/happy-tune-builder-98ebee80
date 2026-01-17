@@ -87,6 +87,7 @@ const Scan = () => {
     isOnline,
     isSyncing,
     syncMeta,
+    syncProgress,
     pendingChanges,
     syncedTemplateIds,
     syncWithCloud,
@@ -763,6 +764,7 @@ const Scan = () => {
             syncedTemplateIds={syncedTemplateIds}
             onSyncTemplates={syncSelectedTemplates}
             isSyncing={isSyncing}
+            syncProgress={syncProgress}
           />
 
           {sortedTemplates.length === 0 ? (
