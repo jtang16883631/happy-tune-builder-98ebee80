@@ -409,17 +409,32 @@ export function useOfflineTemplates() {
           `, [generateId(), localId, s.sect, s.description, s.full_section]);
         }
 
-        // Fetch and insert cost items
-        const { data: costItems } = await supabase
-          .from('template_cost_items')
-          .select('*')
-          .eq('template_id', ct.id);
+        // Fetch and insert cost items with pagination (handle >1000 items)
+        let costItemsOffset = 0;
+        const costItemsLimit = 1000;
+        let hasMoreCostItems = true;
+        
+        while (hasMoreCostItems) {
+          const { data: costItems, error: costError } = await supabase
+            .from('template_cost_items')
+            .select('*')
+            .eq('template_id', ct.id)
+            .range(costItemsOffset, costItemsOffset + costItemsLimit - 1);
 
-        for (const c of costItems || []) {
-          db.run(`
-            INSERT INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `, [generateId(), localId, c.ndc, c.material_description, c.unit_price, c.source, c.material]);
+          if (costError) {
+            console.error('Cost items fetch error:', costError);
+            break;
+          }
+
+          for (const c of costItems || []) {
+            db.run(`
+              INSERT INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+            `, [generateId(), localId, c.ndc, c.material_description, c.unit_price, c.source, c.material]);
+          }
+
+          hasMoreCostItems = (costItems?.length || 0) === costItemsLimit;
+          costItemsOffset += costItemsLimit;
         }
 
         synced++;
@@ -483,17 +498,32 @@ export function useOfflineTemplates() {
             `, [generateId(), localId, s.sect, s.description, s.full_section]);
           }
 
-          // Fetch and insert cost items (in batches)
-          const { data: costItems } = await supabase
-            .from('template_cost_items')
-            .select('*')
-            .eq('template_id', ct.id);
+          // Fetch and insert cost items with pagination (handle >1000 items)
+          let costItemsOffset = 0;
+          const costItemsLimit = 1000;
+          let hasMoreCostItems = true;
+          
+          while (hasMoreCostItems) {
+            const { data: costItems, error: costError } = await supabase
+              .from('template_cost_items')
+              .select('*')
+              .eq('template_id', ct.id)
+              .range(costItemsOffset, costItemsOffset + costItemsLimit - 1);
 
-          for (const c of costItems || []) {
-            db.run(`
-              INSERT INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
-            `, [generateId(), localId, c.ndc, c.material_description, c.unit_price, c.source, c.material]);
+            if (costError) {
+              console.error('Cost items fetch error:', costError);
+              break;
+            }
+
+            for (const c of costItems || []) {
+              db.run(`
+                INSERT INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+              `, [generateId(), localId, c.ndc, c.material_description, c.unit_price, c.source, c.material]);
+            }
+
+            hasMoreCostItems = (costItems?.length || 0) === costItemsLimit;
+            costItemsOffset += costItemsLimit;
           }
 
           pulled++;
