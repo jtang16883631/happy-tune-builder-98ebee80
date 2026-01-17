@@ -41,6 +41,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 interface ScanRow {
   id: string;
   loc: string;
+  device: string;
   rec: string;
   time: string;
   ndc: string;
@@ -51,10 +52,18 @@ interface ScanRow {
   itemNumber: string;
   medDesc: string;
   meridianDesc: string;
+  trade: string;
+  generic: string;
+  strength: string;
   packSz: string;
   fdaSize: string;
+  sizeTxt: string;
+  doseForm: string;
   manufacturer: string;
-  source: string; // SOURCE from Cost Data Column E
+  genericCode: string;
+  deaClass: string;
+  ahfs: string;
+  source: string;
   packCost: number | null;
   unitCost: number | null;
   extended: number | null;
@@ -124,6 +133,7 @@ const Scan = () => {
   const createEmptyRow = useCallback((sectionName?: string): ScanRow => ({
     id: crypto.randomUUID(),
     loc: sectionName || '',
+    device: '',
     rec: '',
     time: '',
     ndc: '',
@@ -134,9 +144,17 @@ const Scan = () => {
     itemNumber: '',
     medDesc: '',
     meridianDesc: '',
+    trade: '',
+    generic: '',
+    strength: '',
     packSz: '',
     fdaSize: '',
+    sizeTxt: '',
+    doseForm: '',
     manufacturer: '',
+    genericCode: '',
+    deaClass: '',
+    ahfs: '',
     source: '',
     packCost: null,
     unitCost: null,
@@ -871,6 +889,7 @@ const Scan = () => {
   // Column definitions - ALL cells are now editable
   const columns = [
     { key: 'loc', label: 'LOC', width: 'w-20', editable: true },
+    { key: 'device', label: 'Device', width: 'w-24', editable: true },
     { key: 'rec', label: 'REC', width: 'w-20', editable: true },
     { key: 'time', label: 'TIME', width: 'w-24', editable: true },
     { key: 'ndc', label: 'NDC', width: 'w-32', editable: true, isNdcInput: true },
@@ -881,9 +900,17 @@ const Scan = () => {
     { key: 'itemNumber', label: 'Item Number', width: 'w-28', editable: true },
     { key: 'medDesc', label: 'Med Desc', width: 'w-48', editable: true },
     { key: 'meridianDesc', label: 'MERIDIAN DESC', width: 'w-48', editable: true },
+    { key: 'trade', label: 'TRADE', width: 'w-32', editable: true },
+    { key: 'generic', label: 'GENERIC', width: 'w-36', editable: true },
+    { key: 'strength', label: 'STRENGTH', width: 'w-28', editable: true },
     { key: 'packSz', label: 'PACK SZ', width: 'w-24', editable: true },
     { key: 'fdaSize', label: 'FDA SIZE', width: 'w-24', editable: true },
+    { key: 'sizeTxt', label: 'SIZE TXT', width: 'w-24', editable: true },
+    { key: 'doseForm', label: 'DOSE FORM', width: 'w-28', editable: true },
     { key: 'manufacturer', label: 'MANUFACTURER', width: 'w-36', editable: true },
+    { key: 'genericCode', label: 'GENERIC CODE', width: 'w-32', editable: true },
+    { key: 'deaClass', label: 'DEA CLASS', width: 'w-28', editable: true },
+    { key: 'ahfs', label: 'AHFS', width: 'w-28', editable: true },
     { key: 'source', label: 'SOURCE', width: 'w-24', editable: true },
     { key: 'packCost', label: 'Pack Cost', width: 'w-28', editable: true, type: 'currency' },
     { key: 'unitCost', label: 'Unit Cost', width: 'w-28', editable: true, type: 'currency' },
