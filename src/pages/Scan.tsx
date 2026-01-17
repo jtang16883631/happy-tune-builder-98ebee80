@@ -3,13 +3,14 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff } from 'lucide-react';
+import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff, Download } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useCloudTemplates, CloudTemplate, CloudSection, TemplateStatus } from '@/hooks/useCloudTemplates';
 import { useOfflineTemplates, OfflineTemplate } from '@/hooks/useOfflineTemplates';
 import { useLocalFDA } from '@/hooks/useLocalFDA';
 import { SyncButton } from '@/components/scanner/SyncButton';
+import { OfflineSyncDialog } from '@/components/scanner/OfflineSyncDialog';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import {
@@ -87,13 +88,18 @@ const Scan = () => {
     isSyncing,
     syncMeta,
     pendingChanges,
+    syncedTemplateIds,
     syncWithCloud,
+    syncSelectedTemplates,
     getCostItemByNDC: offlineGetCostItemByNDC,
     getSections: offlineGetSections,
     updateTemplateStatus: offlineUpdateTemplateStatus,
   } = useOfflineTemplates();
   
   const { lookupNDC: fdaLookup } = useLocalFDA();
+
+  // State for offline sync dialog
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
 
   // Use cloud templates when online, offline templates when offline
   const templates = isOnline ? cloudTemplates : offlineTemplates as unknown as CloudTemplate[];
@@ -710,8 +716,19 @@ const Scan = () => {
       <AppLayout>
         <div className="space-y-8">
           <div className="text-center py-4 relative">
-            {/* Sync button in top right */}
-            <div className="absolute right-0 top-0">
+            {/* Sync buttons in top right */}
+            <div className="absolute right-0 top-0 flex items-center gap-2">
+              {isOnline && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSyncDialogOpen(true)}
+                  className="gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  <span className="hidden sm:inline">Sync for Offline</span>
+                </Button>
+              )}
               <SyncButton
                 isOnline={isOnline}
                 isSyncing={isSyncing}
@@ -732,11 +749,21 @@ const Scan = () => {
             {/* Offline indicator */}
             {!isOnline && (
               <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 text-amber-600 rounded-full text-sm">
-                <CloudOff className="h-4 w-4" />
-                <span>Offline Mode - Data saved locally</span>
-              </div>
-            )}
+              <CloudOff className="h-4 w-4" />
+              <span>Offline Mode - Data saved locally</span>
+            </div>
+          )}
           </div>
+
+          {/* Offline Sync Dialog */}
+          <OfflineSyncDialog
+            open={syncDialogOpen}
+            onOpenChange={setSyncDialogOpen}
+            cloudTemplates={cloudTemplates}
+            syncedTemplateIds={syncedTemplateIds}
+            onSyncTemplates={syncSelectedTemplates}
+            isSyncing={isSyncing}
+          />
 
           {sortedTemplates.length === 0 ? (
             <Card className="border-dashed max-w-md mx-auto">

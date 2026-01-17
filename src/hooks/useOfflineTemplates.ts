@@ -329,7 +329,115 @@ export function useOfflineTemplates() {
     }
   }, [db]);
 
-  // SYNC: Pull from cloud to local
+  // Get list of synced template cloud IDs
+  const getSyncedTemplateIds = useCallback((): string[] => {
+    if (!db) return [];
+    try {
+      const result = db.exec(`SELECT cloud_id FROM templates WHERE cloud_id IS NOT NULL`);
+      if (result.length === 0) return [];
+      return result[0].values.map(row => row[0] as string);
+    } catch {
+      return [];
+    }
+  }, [db]);
+
+  // SYNC: Pull specific templates from cloud to local
+  const syncSelectedTemplates = useCallback(async (templateIds: string[]): Promise<{ 
+    success: boolean; 
+    synced: number; 
+    error?: string 
+  }> => {
+    if (!db || !user || !isOnline) {
+      return { success: false, synced: 0, error: 'Cannot sync: offline or not authenticated' };
+    }
+
+    setIsSyncing(true);
+
+    try {
+      // Get currently synced templates
+      const currentlySynced = getSyncedTemplateIds();
+      
+      // Templates to add (in templateIds but not synced)
+      const toAdd = templateIds.filter(id => !currentlySynced.includes(id));
+      
+      // Templates to remove (synced but not in templateIds)
+      const toRemove = currentlySynced.filter(id => !templateIds.includes(id));
+
+      // Remove unselected templates
+      for (const cloudId of toRemove) {
+        const localResult = db.exec(`SELECT id FROM templates WHERE cloud_id = ?`, [cloudId]);
+        if (localResult.length > 0 && localResult[0].values.length > 0) {
+          const localId = localResult[0].values[0][0] as string;
+          db.run(`DELETE FROM cost_items WHERE template_id = ?`, [localId]);
+          db.run(`DELETE FROM sections WHERE template_id = ?`, [localId]);
+          db.run(`DELETE FROM templates WHERE id = ?`, [localId]);
+        }
+      }
+
+      // Add newly selected templates
+      let synced = 0;
+      for (const cloudId of toAdd) {
+        // Fetch template from cloud
+        const { data: ct, error: fetchError } = await supabase
+          .from('data_templates')
+          .select('*')
+          .eq('id', cloudId)
+          .single();
+
+        if (fetchError || !ct) continue;
+
+        const localId = generateId();
+        db.run(`
+          INSERT INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, inv_number, 
+                                 cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        `, [
+          localId, ct.id, ct.user_id, ct.name, ct.inv_date, ct.facility_name, ct.inv_number,
+          ct.cost_file_name, ct.job_ticket_file_name, ct.status || 'active', ct.created_at, ct.updated_at
+        ]);
+
+        // Fetch and insert sections
+        const { data: sections } = await supabase
+          .from('template_sections')
+          .select('*')
+          .eq('template_id', ct.id);
+
+        for (const s of sections || []) {
+          db.run(`
+            INSERT INTO sections (id, template_id, sect, description, full_section)
+            VALUES (?, ?, ?, ?, ?)
+          `, [generateId(), localId, s.sect, s.description, s.full_section]);
+        }
+
+        // Fetch and insert cost items
+        const { data: costItems } = await supabase
+          .from('template_cost_items')
+          .select('*')
+          .eq('template_id', ct.id);
+
+        for (const c of costItems || []) {
+          db.run(`
+            INSERT INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `, [generateId(), localId, c.ndc, c.material_description, c.unit_price, c.source, c.material]);
+        }
+
+        synced++;
+      }
+
+      await saveDatabase();
+      await updateSyncMeta({ lastSyncedAt: new Date().toISOString() });
+      
+      return { success: true, synced: synced + (templateIds.length - toAdd.length) };
+    } catch (err: any) {
+      console.error('Sync selected templates error:', err);
+      return { success: false, synced: 0, error: err.message };
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [db, user, isOnline, saveDatabase, updateSyncMeta, getSyncedTemplateIds]);
+
+  // SYNC: Pull from cloud to local (all templates)
   const pullFromCloud = useCallback(async (): Promise<{ success: boolean; pulled: number; error?: string }> => {
     if (!db || !user || !isOnline) {
       return { success: false, pulled: 0, error: 'Cannot sync: offline or not authenticated' };
@@ -578,6 +686,7 @@ export function useOfflineTemplates() {
     isReady: !isLoading && !!db,
     hasLocalData: hasLocalData(),
     pendingChanges: getPendingChangesCount(),
+    syncedTemplateIds: getSyncedTemplateIds(),
     
     // Local operations
     updateTemplateStatus,
@@ -588,5 +697,6 @@ export function useOfflineTemplates() {
     syncWithCloud,
     pullFromCloud,
     pushToCloud,
+    syncSelectedTemplates,
   };
 }
