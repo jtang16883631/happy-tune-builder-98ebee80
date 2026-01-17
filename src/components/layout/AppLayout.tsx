@@ -37,7 +37,6 @@ const navSections: NavSection[] = [
     title: 'OPERATIONS',
     items: [
       { href: '/', label: 'Dashboard', icon: LayoutDashboard, roles: allRoles },
-      { href: '/schedule', label: 'Schedule Hub', icon: CalendarDays, roles: allRoles },
       { href: '/live-tracker', label: 'Live Tracker', icon: Radio, roles: allRoles },
     ],
   },
@@ -68,6 +67,7 @@ const navSections: NavSection[] = [
     title: 'COMMUNICATION',
     items: [
       { href: '/chat', label: 'Group Chat', icon: MessageSquare, roles: allRoles },
+      { href: '/schedule', label: 'Schedule Hub', icon: CalendarDays, roles: allRoles },
     ],
   },
 ];
