@@ -45,7 +45,7 @@ const navSections: NavSection[] = [
     items: [
       { href: '/scan', label: 'Audit Projects', icon: ClipboardList, roles: allRoles },
       { href: '/data-template', label: 'Data Templates', icon: FolderOpen, roles: allRoles },
-      { href: '#', label: 'Field Issues', icon: AlertTriangle, roles: allRoles, disabled: true },
+      { href: '/issues', label: 'Issues', icon: AlertTriangle, roles: allRoles },
     ],
   },
   {

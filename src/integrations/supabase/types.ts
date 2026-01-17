@@ -375,6 +375,47 @@ export type Database = {
           },
         ]
       }
+      template_issues: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          is_resolved: boolean | null
+          issue_type: string
+          notes: string | null
+          template_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_resolved?: boolean | null
+          issue_type: string
+          notes?: string | null
+          template_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_resolved?: boolean | null
+          issue_type?: string
+          notes?: string | null
+          template_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "template_issues_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "data_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       template_sections: {
         Row: {
           created_at: string | null

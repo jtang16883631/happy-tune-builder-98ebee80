@@ -14,6 +14,7 @@ import FDA from "./pages/FDA";
 import Dashboard from "./pages/Dashboard";
 import Schedule from "./pages/Schedule";
 import Timesheet from "./pages/Timesheet";
+import Issues from "./pages/Issues";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -96,6 +97,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Timesheet />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/issues"
+        element={
+          <ProtectedRoute>
+            <Issues />
           </ProtectedRoute>
         }
       />
