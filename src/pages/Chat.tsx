@@ -114,12 +114,13 @@ const Chat = () => {
 
   // Fetch rooms
   const fetchRooms = useCallback(async () => {
-    if (!user?.id) {
-      setIsLoading(false);
-      return;
-    }
-
     try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        setRooms([]);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('chat_rooms')
         .select('*')
@@ -132,7 +133,7 @@ const Chat = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [user?.id]);
+  }, []);
 
   useEffect(() => {
     fetchRooms();
@@ -244,9 +245,10 @@ const Chat = () => {
   const handleCreateRoom = async () => {
     if (!newRoomName.trim()) return;
 
-    // Hard guard: this operation requires an authenticated session
     const { data: sessionData } = await supabase.auth.getSession();
-    if (!sessionData.session || !user?.id) {
+    const authedUserId = sessionData.session?.user?.id;
+
+    if (!authedUserId) {
       toast.error('请先登录后再创建聊天室');
       navigate('/auth');
       return;
@@ -258,7 +260,7 @@ const Chat = () => {
         .insert({
           name: newRoomName.trim(),
           description: newRoomDesc.trim() || null,
-          created_by: user.id,
+          created_by: authedUserId,
         })
         .select()
         .single();
@@ -270,7 +272,7 @@ const Chat = () => {
         .from('chat_room_members')
         .insert({
           room_id: room.id,
-          user_id: user.id,
+          user_id: authedUserId,
           is_admin: true,
         });
 
