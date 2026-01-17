@@ -1129,24 +1129,23 @@ const Scan = () => {
     if (e.key === 'Enter') {
       e.preventDefault();
       
-      // First evaluate the expression
+      // First evaluate the expression (use the current input value; keydown can fire before React state updates)
       const rowId = scanRows[rowIndex].id;
-      const expression = qtyExpressions[rowId];
+      const rawExpression = e.currentTarget.value;
       let evaluatedQty = scanRows[rowIndex].qty;
-      
-      if (expression !== undefined) {
-        const result = evaluateQtyExpression(expression);
-        if (result !== null) {
-          evaluatedQty = result;
-          handleFieldChange('qty', result, rowIndex);
-        }
-        // Clear expression after evaluation
-        setQtyExpressions(prev => {
-          const next = { ...prev };
-          delete next[rowId];
-          return next;
-        });
+
+      const result = evaluateQtyExpression(rawExpression);
+      if (result !== null) {
+        evaluatedQty = result;
+        handleFieldChange('qty', result, rowIndex);
       }
+
+      // Clear expression after evaluation (so next focus shows computed value)
+      setQtyExpressions(prev => {
+        const next = { ...prev };
+        delete next[rowId];
+        return next;
+      });
       
       // Validate with the NEW qty value
       const currentRow = { ...scanRows[rowIndex], qty: evaluatedQty };
