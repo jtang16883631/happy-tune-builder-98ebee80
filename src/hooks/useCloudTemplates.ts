@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
+export type TemplateStatus = 'active' | 'working' | 'completed';
+
 export interface CloudTemplate {
   id: string;
   user_id: string;
@@ -11,6 +13,7 @@ export interface CloudTemplate {
   inv_number: string | null;
   cost_file_name: string | null;
   job_ticket_file_name: string | null;
+  status: TemplateStatus | null;
   created_at: string;
   updated_at: string;
 }
@@ -63,7 +66,7 @@ export function useCloudTemplates() {
         .order('inv_date', { ascending: false, nullsFirst: false });
 
       if (fetchError) throw fetchError;
-      setTemplates(data || []);
+      setTemplates((data || []) as CloudTemplate[]);
       setError(null);
     } catch (err: any) {
       console.error('Error fetching templates:', err);
@@ -456,6 +459,28 @@ export function useCloudTemplates() {
     []
   );
 
+  // Update template status
+  const updateTemplateStatus = useCallback(async (templateId: string, status: TemplateStatus) => {
+    try {
+      const { error: updateError } = await supabase
+        .from('data_templates')
+        .update({ status })
+        .eq('id', templateId);
+
+      if (updateError) throw updateError;
+
+      // Update local state
+      setTemplates(prev => prev.map(t => 
+        t.id === templateId ? { ...t, status } : t
+      ));
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Error updating template status:', err);
+      return { success: false, error: err.message };
+    }
+  }, []);
+
   return {
     templates,
     isLoading,
@@ -466,6 +491,7 @@ export function useCloudTemplates() {
     deleteTemplate,
     getSections,
     getCostItemByNDC,
+    updateTemplateStatus,
     refetch: fetchTemplates,
   };
 }
