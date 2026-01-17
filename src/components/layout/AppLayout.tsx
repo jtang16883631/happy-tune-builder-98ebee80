@@ -11,11 +11,13 @@ interface AppLayoutProps {
   fullWidth?: boolean;
 }
 
+type AppRole = 'auditor' | 'developer' | 'coordinator' | 'owner';
+
 interface NavItem {
   href: string;
   label: string;
   icon: React.ElementType;
-  roles: ('scanner' | 'manager')[];
+  roles: AppRole[];
   disabled?: boolean;
 }
 
@@ -28,38 +30,38 @@ const navSections: NavSection[] = [
   {
     title: 'OPERATIONS',
     items: [
-      { href: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['scanner', 'manager'] },
-      { href: '/schedule', label: 'Schedule Hub', icon: CalendarDays, roles: ['scanner', 'manager'] },
-      { href: '#', label: 'Live Tracker', icon: Radio, roles: ['scanner', 'manager'], disabled: true },
+      { href: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['auditor', 'developer', 'coordinator', 'owner'] },
+      { href: '/schedule', label: 'Schedule Hub', icon: CalendarDays, roles: ['auditor', 'developer', 'coordinator', 'owner'] },
+      { href: '#', label: 'Live Tracker', icon: Radio, roles: ['auditor', 'developer', 'coordinator', 'owner'], disabled: true },
     ],
   },
   {
     title: 'MANAGEMENT',
     items: [
-      { href: '/scan', label: 'Audit Projects', icon: ClipboardList, roles: ['scanner', 'manager'] },
-      { href: '/data-template', label: 'Data Templates', icon: FolderOpen, roles: ['scanner', 'manager'] },
-      { href: '#', label: 'Field Issues', icon: AlertTriangle, roles: ['scanner', 'manager'], disabled: true },
+      { href: '/scan', label: 'Audit Projects', icon: ClipboardList, roles: ['auditor', 'developer', 'coordinator', 'owner'] },
+      { href: '/data-template', label: 'Data Templates', icon: FolderOpen, roles: ['auditor', 'developer', 'coordinator', 'owner'] },
+      { href: '#', label: 'Field Issues', icon: AlertTriangle, roles: ['auditor', 'developer', 'coordinator', 'owner'], disabled: true },
     ],
   },
   {
     title: 'DATA CENTER',
     items: [
-      { href: '#', label: 'OneDrive Files', icon: HardDrive, roles: ['scanner', 'manager'], disabled: true },
-      { href: '#', label: 'Reports', icon: FileText, roles: ['scanner', 'manager'], disabled: true },
-      { href: '/fda', label: 'Master Data', icon: Database, roles: ['manager'] },
+      { href: '#', label: 'OneDrive Files', icon: HardDrive, roles: ['auditor', 'developer', 'coordinator', 'owner'], disabled: true },
+      { href: '#', label: 'Reports', icon: FileText, roles: ['auditor', 'developer', 'coordinator', 'owner'], disabled: true },
+      { href: '/fda', label: 'Master Data', icon: Database, roles: ['developer', 'owner'] },
     ],
   },
   {
     title: 'HR',
     items: [
-      { href: '/timesheet', label: 'Timesheet', icon: Clock, roles: ['scanner', 'manager'] },
-      { href: '/users', label: 'Users', icon: Users, roles: ['manager'] },
+      { href: '/timesheet', label: 'Timesheet', icon: Clock, roles: ['auditor', 'developer', 'coordinator', 'owner'] },
+      { href: '/users', label: 'Users', icon: Users, roles: ['developer', 'owner'] },
     ],
   },
 ];
 
 export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
-  const { user, roles, isManager, signOut } = useAuth();
+  const { user, roles, isPrivileged, signOut } = useAuth();
   const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -73,11 +75,19 @@ export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
       .slice(0, 2);
   };
 
+  const getRoleLabel = () => {
+    if (roles.includes('owner')) return 'Owner';
+    if (roles.includes('developer')) return 'Developer';
+    if (roles.includes('coordinator')) return 'Coordinator';
+    if (roles.includes('auditor')) return 'Auditor';
+    return null;
+  };
+
   const getVisibleSections = () => {
     return navSections.map(section => ({
       ...section,
       items: section.items.filter(item =>
-        item.roles.some(role => roles.includes(role))
+        item.roles.some(role => roles.includes(role as AppRole))
       )
     })).filter(section => section.items.length > 0);
   };
@@ -164,8 +174,8 @@ export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
               <p className="text-sm font-medium truncate">
                 {user?.user_metadata?.full_name || 'User'}
               </p>
-              {isManager && (
-                <span className="text-xs text-white/60">Manager</span>
+              {getRoleLabel() && (
+                <span className="text-xs text-white/60">{getRoleLabel()}</span>
               )}
             </div>
           </div>

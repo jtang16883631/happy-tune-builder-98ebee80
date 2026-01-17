@@ -3,7 +3,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,10 +14,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, UserCog, Shield, ScanBarcode } from 'lucide-react';
+import { Loader2, UserCog, Crown, Code, ClipboardCheck, Search, Trash2 } from 'lucide-react';
 
-type AppRole = 'scanner' | 'manager';
+type AppRole = 'auditor' | 'developer' | 'coordinator' | 'owner';
 
 interface Profile {
   id: string;
@@ -36,18 +46,27 @@ interface UserWithRoles extends Profile {
   roles: AppRole[];
 }
 
+const roleConfig: Record<AppRole, { label: string; icon: React.ElementType; color: string }> = {
+  owner: { label: 'Owner', icon: Crown, color: 'bg-amber-500 text-white' },
+  developer: { label: 'Developer', icon: Code, color: 'bg-purple-500 text-white' },
+  coordinator: { label: 'Coordinator', icon: ClipboardCheck, color: 'bg-blue-500 text-white' },
+  auditor: { label: 'Auditor', icon: Search, color: 'bg-green-500 text-white' },
+};
+
 const Users = () => {
-  const { isManager, isLoading: authLoading, user } = useAuth();
+  const { isPrivileged, isDeveloper, isLoading: authLoading, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [users, setUsers] = useState<UserWithRoles[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<UserWithRoles | null>(null);
 
   useEffect(() => {
-    if (!authLoading && !isManager) {
+    if (!authLoading && !isPrivileged) {
       navigate('/');
     }
-  }, [authLoading, isManager, navigate]);
+  }, [authLoading, isPrivileged, navigate]);
 
   useEffect(() => {
     fetchUsers();
@@ -112,7 +131,7 @@ const Users = () => {
 
       toast({
         title: 'Success',
-        description: newRole === 'none' ? 'Role removed' : `Role updated to ${newRole}`,
+        description: newRole === 'none' ? 'Role removed' : `Role updated to ${roleConfig[newRole].label}`,
       });
 
       fetchUsers();
@@ -121,6 +140,39 @@ const Users = () => {
       toast({
         title: 'Error',
         description: 'Failed to update role',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteUser = async () => {
+    if (!userToDelete) return;
+
+    try {
+      // Delete user roles first
+      const { error: roleError } = await supabase
+        .from('user_roles')
+        .delete()
+        .eq('user_id', userToDelete.id);
+
+      if (roleError) throw roleError;
+
+      // Note: Deleting from auth.users requires admin privileges
+      // For now, we just remove their roles which effectively removes their access
+
+      toast({
+        title: 'Success',
+        description: `User ${userToDelete.full_name || userToDelete.email} has been removed`,
+      });
+
+      setDeleteDialogOpen(false);
+      setUserToDelete(null);
+      fetchUsers();
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete user',
         variant: 'destructive',
       });
     }
@@ -137,8 +189,10 @@ const Users = () => {
   };
 
   const getCurrentRole = (roles: AppRole[]): AppRole | 'none' => {
-    if (roles.includes('manager')) return 'manager';
-    if (roles.includes('scanner')) return 'scanner';
+    if (roles.includes('owner')) return 'owner';
+    if (roles.includes('developer')) return 'developer';
+    if (roles.includes('coordinator')) return 'coordinator';
+    if (roles.includes('auditor')) return 'auditor';
     return 'none';
   };
 
@@ -158,23 +212,40 @@ const Users = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
           <p className="text-muted-foreground mt-1">
-            Assign roles to team members. Managers can scan and manage data.
+            Manage user roles and permissions. Developers can remove users.
           </p>
+        </div>
+
+        {/* Role Legend */}
+        <div className="flex flex-wrap gap-3">
+          {Object.entries(roleConfig).map(([role, config]) => {
+            const Icon = config.icon;
+            return (
+              <div key={role} className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Badge className={`${config.color} gap-1`}>
+                  <Icon className="h-3 w-3" />
+                  {config.label}
+                </Badge>
+              </div>
+            );
+          })}
         </div>
 
         <div className="grid gap-4">
           {users.map((u) => {
             const currentRole = getCurrentRole(u.roles);
             const isCurrentUser = u.id === user?.id;
+            const config = currentRole !== 'none' ? roleConfig[currentRole] : null;
+            const canDelete = isDeveloper && !isCurrentUser;
 
             return (
-              <Card key={u.id} className="overflow-hidden">
+              <Card key={u.id} className="overflow-hidden hover:shadow-md transition-shadow">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                      <Avatar className="h-12 w-12">
+                      <Avatar className="h-12 w-12 ring-2 ring-offset-2 ring-offset-background ring-primary/20">
                         <AvatarImage src={u.avatar_url || undefined} />
-                        <AvatarFallback className="bg-primary text-primary-foreground">
+                        <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
                           {getInitials(u.full_name, u.email)}
                         </AvatarFallback>
                       </Avatar>
@@ -192,17 +263,10 @@ const Users = () => {
                     </div>
 
                     <div className="flex items-center gap-3">
-                      {currentRole !== 'none' && (
-                        <Badge
-                          variant={currentRole === 'manager' ? 'default' : 'secondary'}
-                          className="gap-1"
-                        >
-                          {currentRole === 'manager' ? (
-                            <Shield className="h-3 w-3" />
-                          ) : (
-                            <ScanBarcode className="h-3 w-3" />
-                          )}
-                          {currentRole}
+                      {config && (
+                        <Badge className={`${config.color} gap-1`}>
+                          <config.icon className="h-3 w-3" />
+                          {config.label}
                         </Badge>
                       )}
 
@@ -213,15 +277,31 @@ const Users = () => {
                         }
                         disabled={isCurrentUser}
                       >
-                        <SelectTrigger className="w-[140px]">
+                        <SelectTrigger className="w-[150px]">
                           <SelectValue placeholder="Select role" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="none">No Role</SelectItem>
-                          <SelectItem value="scanner">Scanner</SelectItem>
-                          <SelectItem value="manager">Manager</SelectItem>
+                          <SelectItem value="auditor">Auditor</SelectItem>
+                          <SelectItem value="coordinator">Coordinator</SelectItem>
+                          <SelectItem value="developer">Developer</SelectItem>
+                          <SelectItem value="owner">Owner</SelectItem>
                         </SelectContent>
                       </Select>
+
+                      {canDelete && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => {
+                            setUserToDelete(u);
+                            setDeleteDialogOpen(true);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -242,6 +322,27 @@ const Users = () => {
           )}
         </div>
       </div>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete User</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove {userToDelete?.full_name || userToDelete?.email}? 
+              This will remove all their roles and access to the system.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteUser}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 };

@@ -2,13 +2,17 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
-type AppRole = 'scanner' | 'manager';
+type AppRole = 'auditor' | 'developer' | 'coordinator' | 'owner';
 
 interface UserWithRole {
   user: User | null;
   session: Session | null;
   roles: AppRole[];
-  isManager: boolean;
+  isOwner: boolean;
+  isDeveloper: boolean;
+  isCoordinator: boolean;
+  isAuditor: boolean;
+  isPrivileged: boolean; // developer or owner
   isLoading: boolean;
 }
 
@@ -103,7 +107,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setRoles([]);
   };
 
-  const isManager = roles.includes('manager');
+  const isOwner = roles.includes('owner');
+  const isDeveloper = roles.includes('developer');
+  const isCoordinator = roles.includes('coordinator');
+  const isAuditor = roles.includes('auditor');
+  const isPrivileged = isOwner || isDeveloper;
 
   return (
     <AuthContext.Provider
@@ -111,7 +119,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         session,
         roles,
-        isManager,
+        isOwner,
+        isDeveloper,
+        isCoordinator,
+        isAuditor,
+        isPrivileged,
         isLoading,
         signInWithGoogle,
         signOut,
