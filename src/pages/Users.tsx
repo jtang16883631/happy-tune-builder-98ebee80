@@ -64,10 +64,10 @@ const Users = () => {
   const [userToDelete, setUserToDelete] = useState<UserWithRoles | null>(null);
 
   useEffect(() => {
-    if (!authLoading && !isPrivileged) {
+    if (!authLoading && !isDeveloper) {
       navigate('/');
     }
-  }, [authLoading, isPrivileged, navigate]);
+  }, [authLoading, isDeveloper, navigate]);
 
   useEffect(() => {
     fetchUsers();

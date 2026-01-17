@@ -29,36 +29,38 @@ interface NavSection {
   items: NavItem[];
 }
 
+const allRoles: AppRole[] = ['auditor', 'developer', 'coordinator', 'owner', 'office_admin'];
+
 const navSections: NavSection[] = [
   {
     title: 'OPERATIONS',
     items: [
-      { href: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['auditor', 'developer', 'coordinator', 'owner'] },
-      { href: '/schedule', label: 'Schedule Hub', icon: CalendarDays, roles: ['auditor', 'developer', 'coordinator', 'owner'] },
-      { href: '#', label: 'Live Tracker', icon: Radio, roles: ['auditor', 'developer', 'coordinator', 'owner'], disabled: true },
+      { href: '/', label: 'Dashboard', icon: LayoutDashboard, roles: allRoles },
+      { href: '/schedule', label: 'Schedule Hub', icon: CalendarDays, roles: allRoles },
+      { href: '#', label: 'Live Tracker', icon: Radio, roles: allRoles, disabled: true },
     ],
   },
   {
     title: 'MANAGEMENT',
     items: [
-      { href: '/scan', label: 'Audit Projects', icon: ClipboardList, roles: ['auditor', 'developer', 'coordinator', 'owner'] },
-      { href: '/data-template', label: 'Data Templates', icon: FolderOpen, roles: ['auditor', 'developer', 'coordinator', 'owner'] },
-      { href: '#', label: 'Field Issues', icon: AlertTriangle, roles: ['auditor', 'developer', 'coordinator', 'owner'], disabled: true },
+      { href: '/scan', label: 'Audit Projects', icon: ClipboardList, roles: allRoles },
+      { href: '/data-template', label: 'Data Templates', icon: FolderOpen, roles: allRoles },
+      { href: '#', label: 'Field Issues', icon: AlertTriangle, roles: allRoles, disabled: true },
     ],
   },
   {
     title: 'DATA CENTER',
     items: [
-      { href: '#', label: 'OneDrive Files', icon: HardDrive, roles: ['auditor', 'developer', 'coordinator', 'owner'], disabled: true },
-      { href: '#', label: 'Reports', icon: FileText, roles: ['auditor', 'developer', 'coordinator', 'owner'], disabled: true },
-      { href: '/fda', label: 'Master Data', icon: Database, roles: ['developer', 'owner'] },
+      { href: '#', label: 'OneDrive Files', icon: HardDrive, roles: allRoles, disabled: true },
+      { href: '#', label: 'Reports', icon: FileText, roles: allRoles, disabled: true },
+      { href: '/fda', label: 'Master Data', icon: Database, roles: allRoles },
     ],
   },
   {
     title: 'HR',
     items: [
-      { href: '/timesheet', label: 'Timesheet', icon: Clock, roles: ['auditor', 'developer', 'coordinator', 'owner'] },
-      { href: '/users', label: 'Users', icon: Users, roles: ['developer', 'owner'] },
+      { href: '/timesheet', label: 'Timesheet', icon: Clock, roles: allRoles },
+      { href: '/users', label: 'Users', icon: Users, roles: ['developer'] },
     ],
   },
 ];
