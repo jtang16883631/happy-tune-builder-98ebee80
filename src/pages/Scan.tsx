@@ -3,7 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff, Download, GripVertical, Eye, EyeOff, Settings2, FileUp, Cloud, RefreshCw } from 'lucide-react';
+import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff, Download, GripVertical, Eye, EyeOff, Settings2, FileUp, Cloud, RefreshCw, Search, Calculator } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -177,6 +177,15 @@ const Scan = () => {
   const [newSectionDesc, setNewSectionDesc] = useState('');
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [editingSectionDesc, setEditingSectionDesc] = useState('');
+  
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  
+  // Calculator dialog state
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
+  const [calculatorRowIndex, setCalculatorRowIndex] = useState<number | null>(null);
+  const [calculatorExpression, setCalculatorExpression] = useState('');
+  const [calculatorResult, setCalculatorResult] = useState<number | null>(null);
   
   const createEmptyRow = useCallback((sectionName?: string): ScanRow => ({
     id: crypto.randomUUID(),
@@ -1070,6 +1079,61 @@ const Scan = () => {
     }
   }, [selectedTemplate, sections, isOnline]);
 
+  // Calculator functions
+  const openCalculator = (rowIndex: number) => {
+    setCalculatorRowIndex(rowIndex);
+    setCalculatorExpression(scanRows[rowIndex].qty?.toString() || '');
+    setCalculatorResult(scanRows[rowIndex].qty);
+    setCalculatorOpen(true);
+  };
+
+  const handleCalculatorInput = (value: string) => {
+    setCalculatorExpression(prev => prev + value);
+  };
+
+  const calculateResult = () => {
+    try {
+      // Safe eval - only allow numbers and basic operators
+      const sanitized = calculatorExpression.replace(/[^0-9+\-*/.()]/g, '');
+      if (!sanitized) {
+        setCalculatorResult(null);
+        return;
+      }
+      // eslint-disable-next-line no-eval
+      const result = eval(sanitized);
+      setCalculatorResult(typeof result === 'number' ? result : null);
+    } catch {
+      setCalculatorResult(null);
+    }
+  };
+
+  const applyCalculatorResult = () => {
+    if (calculatorRowIndex !== null && calculatorResult !== null) {
+      handleFieldChange('qty', calculatorResult, calculatorRowIndex);
+    }
+    setCalculatorOpen(false);
+    setCalculatorExpression('');
+    setCalculatorResult(null);
+    setCalculatorRowIndex(null);
+  };
+
+  const clearCalculator = () => {
+    setCalculatorExpression('');
+    setCalculatorResult(null);
+  };
+
+  // Filter rows by search query
+  const filteredRows = searchQuery.trim() 
+    ? scanRows.filter(row => 
+        row.ndc?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        row.scannedNdc?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        row.medDesc?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        row.meridianDesc?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        row.itemNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        row.rec?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : scanRows;
+
   const formatCurrency = (value: number | null) => {
     if (value === null) return '';
     return `$${value.toFixed(2)}`;
@@ -1386,7 +1450,7 @@ const Scan = () => {
 
   // Scan View (Excel-like with horizontal scroll)
   return (
-    <AppLayout fullWidth>
+    <AppLayout fullWidth defaultCollapsed>
       <div className="space-y-4 w-full">
         {/* Header with back button */}
         <div className="flex items-center gap-4">
@@ -1473,42 +1537,18 @@ const Scan = () => {
         {/* Scan Input */}
         <Card className="w-full">
           <CardContent className="p-4">
-            <div className="flex items-center gap-4 mb-4">
-              <ScanBarcode className="h-5 w-5 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">
-                {selectedSection 
-                  ? `Scanning in: ${selectedSection.full_section}` 
-                  : 'Scan a barcode or enter NDC in "Scanned NDC" column, then press Enter'}
-              </span>
-              {/* Column visibility settings */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="ml-auto gap-2">
-                    <Settings2 className="h-4 w-4" />
-                    Columns
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                    Toggle Hidden Columns
-                  </div>
-                  <DropdownMenuSeparator />
-                  {hideableColumns.map(col => (
-                    <DropdownMenuItem
-                      key={col.key}
-                      onClick={() => toggleColumnVisibility(col.key)}
-                      className="flex items-center justify-between"
-                    >
-                      <span>{col.label}</span>
-                      {hiddenColumns.has(col.key) ? (
-                        <EyeOff className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <Eye className="h-4 w-4 text-primary" />
-                      )}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+            {/* Toolbar - buttons on left, search on right */}
+            <div className="flex items-center gap-2 mb-4 flex-wrap">
+              {/* Left side - Action buttons */}
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={handleAddRow}
+                disabled={!selectedSection}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add Row
+              </Button>
               
               {/* Sync to Cloud button */}
               {isOnline && (
@@ -1523,11 +1563,11 @@ const Scan = () => {
                   ) : (
                     <Cloud className="h-4 w-4 mr-1" />
                   )}
-                  Sync to Cloud
+                  Sync
                 </Button>
               )}
               
-              {/* Export Merged button - gets all users' scans */}
+              {/* Export Merged button */}
               {isOnline && (
                 <Button 
                   variant="default" 
@@ -1554,15 +1594,47 @@ const Scan = () => {
                 Export My Scans
               </Button>
               
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={handleAddRow}
-                disabled={!selectedSection}
-              >
-                <Plus className="h-4 w-4 mr-1" />
-                Add Row
-              </Button>
+              {/* Column visibility settings */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2">
+                    <Settings2 className="h-4 w-4" />
+                    Columns
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-48">
+                  <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                    Toggle Hidden Columns
+                  </div>
+                  <DropdownMenuSeparator />
+                  {hideableColumns.map(col => (
+                    <DropdownMenuItem
+                      key={col.key}
+                      onClick={() => toggleColumnVisibility(col.key)}
+                      className="flex items-center justify-between"
+                    >
+                      <span>{col.label}</span>
+                      {hiddenColumns.has(col.key) ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-primary" />
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              
+              {/* Right side - Search */}
+              <div className="flex-1" />
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search NDC, Med Desc, REC..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-8 h-8 w-64 text-sm"
+                />
+              </div>
             </div>
 
             {/* Excel-like Table with horizontal scroll */}
@@ -1571,6 +1643,8 @@ const Scan = () => {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
+                      {/* Delete column header on left */}
+                      <TableHead className="w-10 sticky left-0 bg-muted/50 z-10"></TableHead>
                       {visibleColumns.map((col) => (
                         <TableHead 
                           key={col.key} 
@@ -1587,17 +1661,29 @@ const Scan = () => {
                           />
                         </TableHead>
                       ))}
-                      <TableHead className="w-12 sticky right-0 bg-muted/50 z-10"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {scanRows.map((row, index) => {
+                    {filteredRows.map((row) => {
+                      // Find real index in scanRows for refs
+                      const realIndex = scanRows.findIndex(r => r.id === row.id);
                       const validationStatus = getRowValidationStatus(row);
                       return (
                       <TableRow 
                         key={row.id}
-                        className={`${index === activeRowIndex ? 'bg-primary/5' : ''} ${validationStatus === 'invalid' ? 'bg-destructive/10' : ''}`}
+                        className={`${realIndex === activeRowIndex ? 'bg-primary/5' : ''} ${validationStatus === 'invalid' ? 'bg-destructive/10' : ''}`}
                       >
+                        {/* Delete button on left */}
+                        <TableCell className={`p-1 sticky left-0 z-10 ${validationStatus === 'invalid' ? 'bg-destructive/10' : 'bg-background'}`}>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => handleDeleteRow(realIndex)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
                         {visibleColumns.map((col) => {
                           const value = row[col.key as keyof ScanRow];
                           
@@ -1609,16 +1695,46 @@ const Scan = () => {
                             
                             // Determine ref and keydown handler based on field type
                             const getRef = () => {
-                              if (col.isNdcInput) return (el: HTMLInputElement | null) => ndcInputRefs.current[index] = el;
-                              if (col.key === 'qty') return (el: HTMLInputElement | null) => qtyInputRefs.current[index] = el;
+                              if (col.isNdcInput) return (el: HTMLInputElement | null) => ndcInputRefs.current[realIndex] = el;
+                              if (col.key === 'qty') return (el: HTMLInputElement | null) => qtyInputRefs.current[realIndex] = el;
                               return undefined;
                             };
                             
                             const getKeyDownHandler = () => {
-                              if (col.isNdcInput) return (e: React.KeyboardEvent<HTMLInputElement>) => handleNdcKeyDown(e, index);
-                              if (col.key === 'qty') return (e: React.KeyboardEvent<HTMLInputElement>) => handleQtyKeyDown(e, index);
+                              if (col.isNdcInput) return (e: React.KeyboardEvent<HTMLInputElement>) => handleNdcKeyDown(e, realIndex);
+                              if (col.key === 'qty') return (e: React.KeyboardEvent<HTMLInputElement>) => handleQtyKeyDown(e, realIndex);
                               return undefined;
                             };
+                            
+                            // Special handling for QTY - add calculator button
+                            if (col.key === 'qty') {
+                              return (
+                                <TableCell key={col.key} className="p-1" style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
+                                  <div className="flex items-center gap-0.5">
+                                    <Input
+                                      ref={getRef()}
+                                      value={value !== null && value !== undefined ? value.toString() : ''}
+                                      onChange={(e) => {
+                                        const newValue = e.target.value ? parseFloat(e.target.value) : null;
+                                        handleFieldChange('qty', newValue, realIndex);
+                                      }}
+                                      onKeyDown={getKeyDownHandler()}
+                                      onFocus={() => setActiveRowIndex(realIndex)}
+                                      type="number"
+                                      className="font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0 flex-1"
+                                    />
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 shrink-0"
+                                      onClick={() => openCalculator(realIndex)}
+                                    >
+                                      <Calculator className="h-3 w-3 text-muted-foreground" />
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              );
+                            }
                             
                             return (
                               <TableCell key={col.key} className="p-1" style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
@@ -1629,10 +1745,10 @@ const Scan = () => {
                                     const newValue = col.type === 'number' || col.type === 'currency'
                                       ? (e.target.value ? parseFloat(e.target.value) : null)
                                       : e.target.value;
-                                    handleFieldChange(col.key as keyof ScanRow, newValue, index);
+                                    handleFieldChange(col.key as keyof ScanRow, newValue, realIndex);
                                   }}
                                   onKeyDown={getKeyDownHandler()}
-                                  onFocus={() => setActiveRowIndex(index)}
+                                  onFocus={() => setActiveRowIndex(realIndex)}
                                   type={col.type === 'number' || col.type === 'currency' ? 'number' : 'text'}
                                   step={col.type === 'currency' ? '0.01' : undefined}
                                   placeholder={col.type === 'currency' ? '$0.00' : undefined}
@@ -1654,16 +1770,6 @@ const Scan = () => {
                             </TableCell>
                           );
                         })}
-                        <TableCell className={`p-1 sticky right-0 z-10 ${validationStatus === 'invalid' ? 'bg-destructive/10' : 'bg-background'}`}>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                            onClick={() => handleDeleteRow(index)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
                       </TableRow>
                     );})}
                   </TableBody>
@@ -1675,6 +1781,7 @@ const Scan = () => {
             {/* Stats */}
             <div className="flex gap-4 mt-4 text-sm text-muted-foreground">
               <span>{scanRows.filter(r => r.ndc || r.scannedNdc).length} items scanned</span>
+              {searchQuery && <span>• {filteredRows.length} shown</span>}
               <span>•</span>
               <span>{scanRows.filter(r => r.source === 'fda').length} found in FDA</span>
               <span>•</span>
@@ -1753,6 +1860,94 @@ const Scan = () => {
             <Button onClick={handleRenameSection}>
               <Check className="h-4 w-4 mr-1" />
               保存
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Calculator Dialog */}
+      <Dialog open={calculatorOpen} onOpenChange={setCalculatorOpen}>
+        <DialogContent className="sm:max-w-[320px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calculator className="h-5 w-5" />
+              计算器
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {/* Display */}
+            <div className="p-3 bg-muted rounded-lg font-mono text-right">
+              <div className="text-sm text-muted-foreground min-h-[20px]">
+                {calculatorExpression || '0'}
+              </div>
+              <div className="text-2xl font-bold">
+                {calculatorResult !== null ? calculatorResult : '—'}
+              </div>
+            </div>
+            
+            {/* Calculator buttons */}
+            <div className="grid grid-cols-4 gap-2">
+              {['7', '8', '9', '/'].map(btn => (
+                <Button
+                  key={btn}
+                  variant={btn === '/' ? 'secondary' : 'outline'}
+                  className="h-12 text-lg font-mono"
+                  onClick={() => handleCalculatorInput(btn)}
+                >
+                  {btn === '/' ? '÷' : btn}
+                </Button>
+              ))}
+              {['4', '5', '6', '*'].map(btn => (
+                <Button
+                  key={btn}
+                  variant={btn === '*' ? 'secondary' : 'outline'}
+                  className="h-12 text-lg font-mono"
+                  onClick={() => handleCalculatorInput(btn)}
+                >
+                  {btn === '*' ? '×' : btn}
+                </Button>
+              ))}
+              {['1', '2', '3', '-'].map(btn => (
+                <Button
+                  key={btn}
+                  variant={btn === '-' ? 'secondary' : 'outline'}
+                  className="h-12 text-lg font-mono"
+                  onClick={() => handleCalculatorInput(btn)}
+                >
+                  {btn}
+                </Button>
+              ))}
+              {['0', '.', '=', '+'].map(btn => (
+                <Button
+                  key={btn}
+                  variant={btn === '=' ? 'default' : btn === '+' ? 'secondary' : 'outline'}
+                  className="h-12 text-lg font-mono"
+                  onClick={() => btn === '=' ? calculateResult() : handleCalculatorInput(btn)}
+                >
+                  {btn}
+                </Button>
+              ))}
+            </div>
+            
+            {/* Clear button */}
+            <Button 
+              variant="outline" 
+              className="w-full" 
+              onClick={clearCalculator}
+            >
+              清除 (C)
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCalculatorOpen(false)}>
+              取消
+            </Button>
+            <Button 
+              onClick={applyCalculatorResult}
+              disabled={calculatorResult === null}
+            >
+              <Check className="h-4 w-4 mr-1" />
+              应用结果
             </Button>
           </DialogFooter>
         </DialogContent>

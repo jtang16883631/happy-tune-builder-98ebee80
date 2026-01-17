@@ -12,6 +12,7 @@ import { useProfileCompletion } from '@/hooks/useProfileCompletion';
 interface AppLayoutProps {
   children: ReactNode;
   fullWidth?: boolean;
+  defaultCollapsed?: boolean;
 }
 
 type AppRole = 'auditor' | 'developer' | 'coordinator' | 'owner' | 'office_admin';
@@ -65,10 +66,10 @@ const navSections: NavSection[] = [
   },
 ];
 
-export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
+export function AppLayout({ children, fullWidth = false, defaultCollapsed = false }: AppLayoutProps) {
   const { user, roles, isPrivileged, signOut, isLoading: authLoading } = useAuth();
   const location = useLocation();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultCollapsed);
   const { needsCompletion, isChecking, markCompleted } = useProfileCompletion();
 
   const hasNoRole = !authLoading && roles.length === 0;
