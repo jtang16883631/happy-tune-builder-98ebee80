@@ -672,10 +672,10 @@ const Scan = () => {
   };
 
   // Handle NDC input Enter/Tab key - jump to QTY after lookup
-  const handleNdcKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number) => {
+  const handleNdcKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number) => {
     if (e.key === 'Enter' || e.key === 'Tab') {
       e.preventDefault();
-      
+
       // Check if previous row (if exists and has data) passes validation
       if (rowIndex > 0) {
         const prevRow = scanRows[rowIndex - 1];
@@ -688,14 +688,18 @@ const Scan = () => {
           return; // Block scanning
         }
       }
-      
+
       const ndc = scanRows[rowIndex].scannedNdc || scanRows[rowIndex].ndc;
       if (ndc && ndc.length >= 10) {
-        lookupNDC(ndc, rowIndex);
+        // IMPORTANT: wait for lookup to finish before focusing QTY.
+        // Otherwise, fast users/scanners can reach QTY before MIS fields are filled,
+        // causing Enter on QTY to "fail" and require a second Enter.
+        await lookupNDC(ndc, rowIndex);
+
         // After lookup, focus on QTY field
-        setTimeout(() => {
+        requestAnimationFrame(() => {
           qtyInputRefs.current[rowIndex]?.focus();
-        }, 150);
+        });
       }
     }
   };
