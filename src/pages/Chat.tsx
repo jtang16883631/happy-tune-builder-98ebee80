@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -80,10 +80,35 @@ interface Profile {
   avatar_url: string | null;
 }
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+
+function createAuthedDb(accessToken: string): SupabaseClient<Database> {
+  return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+    // This client is only used for authenticated DB calls in this component
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+}
+
 const Chat = () => {
-  const { user, isLoading: authLoading, roles } = useAuth();
+  const { user, session, isLoading: authLoading, roles } = useAuth();
   const navigate = useNavigate();
   const hasRole = roles.length > 0;
+
+  // Force auth header on DB calls (fixes cases where RLS sees auth.uid() as null)
+  const db = useMemo(() => {
+    if (!session?.access_token) return null;
+    return createAuthedDb(session.access_token);
+  }, [session?.access_token]);
   
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
@@ -112,16 +137,14 @@ const Chat = () => {
     }
   }, [authLoading, hasRole, navigate]);
 
-  // Fetch rooms
   const fetchRooms = useCallback(async () => {
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session) {
+      if (!db) {
         setRooms([]);
         return;
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from('chat_rooms')
         .select('*')
         .order('created_at', { ascending: false });
@@ -133,17 +156,18 @@ const Chat = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [db]);
 
   useEffect(() => {
     fetchRooms();
   }, [fetchRooms]);
 
-  // Fetch messages and members when room selected
   const fetchRoomData = useCallback(async (roomId: string) => {
     try {
+      if (!db) return;
+
       // Fetch messages with profile info
-      const { data: messagesData, error: messagesError } = await supabase
+      const { data: messagesData, error: messagesError } = await db
         .from('chat_messages')
         .select('*')
         .eq('room_id', roomId)
@@ -153,7 +177,7 @@ const Chat = () => {
 
       // Fetch profiles for messages
       const userIds = [...new Set((messagesData || []).map(m => m.user_id))];
-      const { data: profiles } = await supabase
+      const { data: profiles } = await db
         .from('profiles')
         .select('id, full_name, avatar_url')
         .in('id', userIds);
@@ -167,7 +191,7 @@ const Chat = () => {
       setMessages(messagesWithProfiles);
 
       // Fetch members
-      const { data: membersData, error: membersError } = await supabase
+      const { data: membersData, error: membersError } = await db
         .from('chat_room_members')
         .select('*')
         .eq('room_id', roomId);
@@ -176,7 +200,7 @@ const Chat = () => {
 
       // Fetch profiles for members
       const memberUserIds = (membersData || []).map(m => m.user_id);
-      const { data: memberProfiles } = await supabase
+      const { data: memberProfiles } = await db
         .from('profiles')
         .select('id, full_name, email, avatar_url')
         .in('id', memberUserIds);
@@ -191,7 +215,7 @@ const Chat = () => {
     } catch (err) {
       console.error('Error fetching room data:', err);
     }
-  }, []);
+  }, [db]);
 
   useEffect(() => {
     if (selectedRoom) {
@@ -199,11 +223,10 @@ const Chat = () => {
     }
   }, [selectedRoom, fetchRoomData]);
 
-  // Real-time subscription for messages
   useEffect(() => {
-    if (!selectedRoom) return;
+    if (!selectedRoom || !db) return;
 
-    const channel = supabase
+    const channel = db
       .channel(`chat_${selectedRoom.id}`)
       .on(
         'postgres_changes',
@@ -215,14 +238,14 @@ const Chat = () => {
         },
         async (payload) => {
           // Fetch profile for new message
-          const { data: profile } = await supabase
+          const { data: profile } = await db
             .from('profiles')
             .select('id, full_name, avatar_url')
-            .eq('id', payload.new.user_id)
+            .eq('id', (payload.new as any).user_id)
             .single();
           
           const newMsg = {
-            ...payload.new as ChatMessage,
+            ...(payload.new as ChatMessage),
             profile
           };
           
@@ -232,9 +255,9 @@ const Chat = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      db.removeChannel(channel);
     };
-  }, [selectedRoom]);
+  }, [selectedRoom, db]);
 
   // Auto-scroll to bottom
   useEffect(() => {
