@@ -83,6 +83,7 @@ export type Database = {
           inv_number: string | null
           job_ticket_file_name: string | null
           name: string
+          status: string | null
           updated_at: string | null
           user_id: string
         }
@@ -95,6 +96,7 @@ export type Database = {
           inv_number?: string | null
           job_ticket_file_name?: string | null
           name: string
+          status?: string | null
           updated_at?: string | null
           user_id: string
         }
@@ -107,6 +109,7 @@ export type Database = {
           inv_number?: string | null
           job_ticket_file_name?: string | null
           name?: string
+          status?: string | null
           updated_at?: string | null
           user_id?: string
         }

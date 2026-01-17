@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useCloudTemplates, CloudTemplate, CloudSection } from '@/hooks/useCloudTemplates';
+import { useCloudTemplates, CloudTemplate, CloudSection, TemplateStatus } from '@/hooks/useCloudTemplates';
 import { useLocalFDA } from '@/hooks/useLocalFDA';
 import { toast } from 'sonner';
 import {
@@ -70,7 +70,8 @@ const Scan = () => {
     templates,
     isLoading: templatesLoading,
     getCostItemByNDC,
-    getSections
+    getSections,
+    updateTemplateStatus
   } = useCloudTemplates();
   
   const { lookupNDC: fdaLookup } = useLocalFDA();
@@ -631,12 +632,19 @@ const Scan = () => {
 
   // Template Selection View
   if (!selectedTemplate) {
-    // Sort templates by inv_date (newest first)
+    // Sort templates by inv_date (newest month first, then days ascending 1→31 within month)
     const sortedTemplates = [...templates].sort((a, b) => {
       if (!a.inv_date && !b.inv_date) return 0;
       if (!a.inv_date) return 1;
       if (!b.inv_date) return -1;
-      return new Date(b.inv_date).getTime() - new Date(a.inv_date).getTime();
+      const dateA = new Date(a.inv_date);
+      const dateB = new Date(b.inv_date);
+      // Compare year-month first (descending - newest month first)
+      const yearMonthA = dateA.getFullYear() * 12 + dateA.getMonth();
+      const yearMonthB = dateB.getFullYear() * 12 + dateB.getMonth();
+      if (yearMonthA !== yearMonthB) return yearMonthB - yearMonthA;
+      // Within same month, sort by day ascending (1, 2, 3...)
+      return dateA.getDate() - dateB.getDate();
     });
 
     // Group templates by month
@@ -650,6 +658,28 @@ const Scan = () => {
       }
       groupedByMonth[monthKey].push(template);
     });
+
+    const getStatusConfig = (status: TemplateStatus | null) => {
+      switch (status) {
+        case 'completed':
+          return { label: 'Completed', color: 'bg-green-500/10 text-green-600 border-green-500/20' };
+        case 'working':
+          return { label: 'Working', color: 'bg-amber-500/10 text-amber-600 border-amber-500/20' };
+        case 'active':
+        default:
+          return { label: 'Active', color: 'bg-blue-500/10 text-blue-600 border-blue-500/20' };
+      }
+    };
+
+    const handleStatusChange = async (e: React.MouseEvent, templateId: string, newStatus: TemplateStatus) => {
+      e.stopPropagation();
+      const result = await updateTemplateStatus(templateId, newStatus);
+      if (result.success) {
+        toast.success(`Status updated to ${newStatus}`);
+      } else {
+        toast.error('Failed to update status');
+      }
+    };
 
     return (
       <AppLayout>
@@ -700,6 +730,7 @@ const Scan = () => {
                       const weekday = template.inv_date 
                         ? new Date(template.inv_date).toLocaleDateString('en-US', { weekday: 'short' })
                         : null;
+                      const statusConfig = getStatusConfig(template.status);
                       
                       return (
                         <Card 
@@ -717,9 +748,33 @@ const Scan = () => {
                             )}
                             {/* Content */}
                             <div className="flex-1 p-3 min-w-0">
-                              <h3 className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
-                                {template.name}
-                              </h3>
+                              <div className="flex items-start justify-between gap-1">
+                                <h3 className="font-semibold text-sm truncate group-hover:text-primary transition-colors flex-1">
+                                  {template.name}
+                                </h3>
+                                {/* Status dropdown */}
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                                    <button className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded border ${statusConfig.color} hover:opacity-80 transition-opacity`}>
+                                      {statusConfig.label}
+                                    </button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-32">
+                                    <DropdownMenuItem onClick={(e) => handleStatusChange(e, template.id, 'active')}>
+                                      <span className="w-2 h-2 rounded-full bg-blue-500 mr-2" />
+                                      Active
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={(e) => handleStatusChange(e, template.id, 'working')}>
+                                      <span className="w-2 h-2 rounded-full bg-amber-500 mr-2" />
+                                      Working
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={(e) => handleStatusChange(e, template.id, 'completed')}>
+                                      <span className="w-2 h-2 rounded-full bg-green-500 mr-2" />
+                                      Completed
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
                               {template.facility_name && (
                                 <p className="text-xs text-muted-foreground mt-1 truncate">
                                   {template.facility_name}
