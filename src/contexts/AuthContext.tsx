@@ -44,6 +44,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return (data || []).map((r) => r.role as AppRole);
   };
 
+  // Ensure profile exists for the user (handles re-login after profile deletion)
+  const ensureProfileExists = async (user: User) => {
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', user.id)
+      .single();
+
+    if (!existingProfile) {
+      // Profile doesn't exist, create one
+      const { error } = await supabase.from('profiles').insert({
+        id: user.id,
+        email: user.email,
+        full_name: user.user_metadata?.full_name || user.user_metadata?.name || null,
+        avatar_url: user.user_metadata?.avatar_url || null,
+        profile_completed: false,
+      });
+
+      if (error) {
+        console.error('Error creating profile:', error);
+      }
+    }
+  };
+
   const refreshRoles = async () => {
     if (user) {
       const userRoles = await fetchUserRoles(user.id);
@@ -58,9 +82,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
 
-        // Defer role fetching to avoid deadlock
+        // Defer profile check and role fetching to avoid deadlock
         if (session?.user) {
           setTimeout(async () => {
+            // Ensure profile exists (handles re-login after deletion)
+            await ensureProfileExists(session.user);
             const userRoles = await fetchUserRoles(session.user.id);
             setRoles(userRoles);
             setIsLoading(false);
@@ -78,6 +104,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(session?.user ?? null);
 
       if (session?.user) {
+        // Ensure profile exists (handles re-login after deletion)
+        await ensureProfileExists(session.user);
         const userRoles = await fetchUserRoles(session.user.id);
         setRoles(userRoles);
       }
