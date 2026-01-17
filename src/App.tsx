@@ -13,7 +13,6 @@ import Users from "./pages/Users";
 import Scan from "./pages/Scan";
 import FDA from "./pages/FDA";
 import Dashboard from "./pages/Dashboard";
-import Schedule from "./pages/Schedule";
 import ScheduleHub from "./pages/ScheduleHub";
 import Timesheet from "./pages/Timesheet";
 import Issues from "./pages/Issues";
@@ -107,14 +106,6 @@ function AppRoutes() {
         />
         <Route
           path="/schedule"
-          element={
-            <ProtectedRoute>
-              <Schedule />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/schedule-hub"
           element={
             <ProtectedRoute>
               <ScheduleHub />
