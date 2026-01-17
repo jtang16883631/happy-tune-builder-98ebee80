@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { flushSync } from 'react-dom';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -101,10 +102,20 @@ const Index = () => {
   };
 
   const extractInvNumber = (fileName: string): string | null => {
-    // 更宽松：支持 6~12 位数字；取最长的一段作为 INV
+    const s = fileName.toLowerCase();
+
+    // 1) 优先从 "inv" / "invoice" 附近提取
+    const m1 = s.match(/(?:\binv\b|invoice)[^\d]{0,5}(\d{6,12})/i);
+    if (m1?.[1]) return m1[1];
+
+    // 2) 再优先 7~9 位（你们历史上多为 7-9 位）
+    const m2 = fileName.match(/\d{7,9}/g);
+    if (m2?.length) return m2[0];
+
+    // 3) 最后兜底：6~12 位里选“最像INV”的（长度最接近8）
     const matches = fileName.match(/\d{6,12}/g);
-    if (!matches || matches.length === 0) return null;
-    return matches.sort((a, b) => b.length - a.length)[0];
+    if (!matches?.length) return null;
+    return matches.sort((a, b) => Math.abs(a.length - 8) - Math.abs(b.length - 8))[0];
   };
 
   const isTicketFile = (fileName: string): boolean => {
@@ -167,6 +178,13 @@ const Index = () => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
+    // 先刷新一次session，避免中途JWT过期导致第二组直接失败
+    try {
+      await supabase.auth.refreshSession();
+    } catch {
+      // ignore - 如果离线等原因失败，后续会在请求时报错
+    }
+
     const groups = groupFiles(files);
 
     if (groups.length === 0) {
@@ -213,6 +231,28 @@ const Index = () => {
 
       // 让浏览器有机会渲染进度条（避免React 18批处理导致一直0）
       await new Promise((r) => setTimeout(r, 0));
+
+      // 每组开始前再刷新一次，防止长时间导入时JWT过期
+      try {
+        const { data } = await supabase.auth.refreshSession();
+        if (!data.session) {
+          throw new Error('Session expired, please re-login');
+        }
+      } catch (e: any) {
+        failed++;
+        errors.push(`${group.name}: ${e?.message || 'Session refresh failed'}`);
+
+        flushSync(() => {
+          setImportProgress((prev) => ({
+            ...prev,
+            processed: i + 1,
+            successful,
+            failed,
+            errors: errors.slice(-5),
+          }));
+        });
+        continue;
+      }
 
       try {
         const costData = await parseExcelFile(group.costFile!);
