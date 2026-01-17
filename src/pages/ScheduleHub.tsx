@@ -5,6 +5,12 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   Plus,
   ChevronLeft,
   ChevronRight,
@@ -13,6 +19,9 @@ import {
   LayoutGrid,
   Users,
   Download,
+  FileText,
+  Copy,
+  Loader2,
 } from 'lucide-react';
 import { ScheduleBuilder } from '@/components/schedule/ScheduleBuilder';
 import { ScheduleAgendaView } from '@/components/schedule/ScheduleAgendaView';
@@ -25,6 +34,7 @@ import {
   useTeamMembers,
   useDeleteScheduleEvent,
   ScheduleEvent,
+  TeamMember,
 } from '@/hooks/useScheduleEvents';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
@@ -35,6 +45,7 @@ export default function ScheduleHub() {
   const [teamDialogOpen, setTeamDialogOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  const [isExporting, setIsExporting] = useState(false);
   const weekEnd = endOfWeek(weekStart);
 
   const { data: weekEvents = [], isLoading } = useScheduleEvents(weekStart, weekEnd);
@@ -58,6 +69,61 @@ export default function ScheduleHub() {
     setBuilderOpen(true);
   };
 
+  const getTeamMemberNames = (memberIds: string[] | null): string[] => {
+    if (!memberIds) return [];
+    return memberIds
+      .map((id) => teamMembers.find((m) => m.id === id)?.name)
+      .filter(Boolean) as string[];
+  };
+
+  const handleExport = async (copyToClipboard: boolean = false) => {
+    setIsExporting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast({ title: 'Please log in to export', variant: 'destructive' });
+        return;
+      }
+
+      const eventsToExport = viewTab === 'agenda' ? weekEvents : allEvents;
+      const eventsWithNames = eventsToExport.map(event => ({
+        ...event,
+        team_member_names: getTeamMemberNames(event.team_members),
+      }));
+
+      const response = await supabase.functions.invoke('export-schedule-to-docs', {
+        body: { 
+          startDate: format(weekStart, 'yyyy-MM-dd'),
+          endDate: format(weekEnd, 'yyyy-MM-dd'),
+          events: eventsWithNames,
+        }
+      });
+
+      if (response.error) {
+        throw response.error;
+      }
+
+      if (copyToClipboard && response.data?.content) {
+        await navigator.clipboard.writeText(response.data.content);
+        toast({ title: 'Schedule copied to clipboard!', description: 'Paste into Google Docs or any text editor.' });
+      } else if (response.data?.documentUrl) {
+        window.open(response.data.documentUrl, '_blank');
+        toast({ title: 'Schedule exported to Google Docs!' });
+      } else if (response.data?.content) {
+        await navigator.clipboard.writeText(response.data.content);
+        toast({ 
+          title: 'Schedule copied to clipboard', 
+          description: 'Add GOOGLE_SERVICE_ACCOUNT_KEY to enable direct Google Docs export.' 
+        });
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      toast({ title: 'Export failed', description: 'Please try again', variant: 'destructive' });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <AppLayout fullWidth>
       <div className="space-y-6">
@@ -72,6 +138,28 @@ export default function ScheduleHub() {
               <Users className="h-4 w-4 mr-2" />
               Team
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" disabled={isExporting}>
+                  {isExporting ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4 mr-2" />
+                  )}
+                  Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-background">
+                <DropdownMenuItem onClick={() => handleExport(true)}>
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy to Clipboard
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleExport(false)}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Export to Google Docs
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button size="sm" onClick={() => { setEditingEvent(null); setBuilderOpen(true); }}>
               <Plus className="h-4 w-4 mr-2" />
               Add Event
