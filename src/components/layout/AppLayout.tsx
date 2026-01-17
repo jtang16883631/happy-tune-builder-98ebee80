@@ -2,7 +2,7 @@ import { ReactNode, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, Users, ScanBarcode, FolderOpen, Pill, LayoutDashboard, CalendarDays, Clock, PanelLeftClose, PanelLeft, Radio, ClipboardList, AlertTriangle, HardDrive, FileText, Database, ShieldX } from 'lucide-react';
+import { LogOut, Users, ScanBarcode, FolderOpen, Pill, LayoutDashboard, CalendarDays, Clock, PanelLeftClose, PanelLeft, Radio, ClipboardList, AlertTriangle, HardDrive, FileText, Database, ShieldX, MessageSquare } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { AnnouncementBell } from '@/components/announcements/AnnouncementBell';
@@ -62,6 +62,12 @@ const navSections: NavSection[] = [
     items: [
       { href: '/timesheet', label: 'Timesheet', icon: Clock, roles: allRoles },
       { href: '/users', label: 'Users', icon: Users, roles: ['developer'] },
+    ],
+  },
+  {
+    title: 'COMMUNICATION',
+    items: [
+      { href: '/chat', label: 'Group Chat', icon: MessageSquare, roles: allRoles },
     ],
   },
 ];

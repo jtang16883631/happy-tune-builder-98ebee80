@@ -16,6 +16,7 @@ import Schedule from "./pages/Schedule";
 import Timesheet from "./pages/Timesheet";
 import Issues from "./pages/Issues";
 import LiveTracker from "./pages/LiveTracker";
+import Chat from "./pages/Chat";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -114,6 +115,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <LiveTracker />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/chat"
+        element={
+          <ProtectedRoute>
+            <Chat />
           </ProtectedRoute>
         }
       />

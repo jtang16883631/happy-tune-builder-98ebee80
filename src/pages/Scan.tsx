@@ -181,12 +181,6 @@ const Scan = () => {
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Calculator dialog state
-  const [calculatorOpen, setCalculatorOpen] = useState(false);
-  const [calculatorRowIndex, setCalculatorRowIndex] = useState<number | null>(null);
-  const [calculatorExpression, setCalculatorExpression] = useState('');
-  const [calculatorResult, setCalculatorResult] = useState<number | null>(null);
-  
   const createEmptyRow = useCallback((sectionName?: string): ScanRow => ({
     id: crypto.randomUUID(),
     loc: sectionName || '',
@@ -1079,47 +1073,93 @@ const Scan = () => {
     }
   }, [selectedTemplate, sections, isOnline]);
 
-  // Calculator functions
-  const openCalculator = (rowIndex: number) => {
-    setCalculatorRowIndex(rowIndex);
-    setCalculatorExpression(scanRows[rowIndex].qty?.toString() || '');
-    setCalculatorResult(scanRows[rowIndex].qty);
-    setCalculatorOpen(true);
-  };
-
-  const handleCalculatorInput = (value: string) => {
-    setCalculatorExpression(prev => prev + value);
-  };
-
-  const calculateResult = () => {
+  // In-cell calculator: evaluate expression like Excel (e.g., "5+3" -> 8)
+  const evaluateQtyExpression = useCallback((expression: string): number | null => {
+    if (!expression.trim()) return null;
+    
+    // If it's just a number, return it directly
+    const numOnly = parseFloat(expression);
+    if (!isNaN(numOnly) && !/[+\-*/]/.test(expression.replace(/^-/, ''))) {
+      return numOnly;
+    }
+    
     try {
       // Safe eval - only allow numbers and basic operators
-      const sanitized = calculatorExpression.replace(/[^0-9+\-*/.()]/g, '');
-      if (!sanitized) {
-        setCalculatorResult(null);
-        return;
-      }
+      const sanitized = expression.replace(/[^0-9+\-*/.()]/g, '');
+      if (!sanitized) return null;
+      
       // eslint-disable-next-line no-eval
       const result = eval(sanitized);
-      setCalculatorResult(typeof result === 'number' ? result : null);
+      return typeof result === 'number' && !isNaN(result) ? result : null;
     } catch {
-      setCalculatorResult(null);
+      return null;
+    }
+  }, []);
+
+  // State for QTY expression input (showing raw expression while editing)
+  const [qtyExpressions, setQtyExpressions] = useState<Record<string, string>>({});
+  
+  // Handle QTY input change - store raw expression
+  const handleQtyInputChange = (value: string, rowIndex: number) => {
+    const rowId = scanRows[rowIndex].id;
+    setQtyExpressions(prev => ({ ...prev, [rowId]: value }));
+  };
+  
+  // Handle QTY blur - evaluate expression and update value
+  const handleQtyBlur = (rowIndex: number) => {
+    const rowId = scanRows[rowIndex].id;
+    const expression = qtyExpressions[rowId];
+    
+    if (expression !== undefined) {
+      const result = evaluateQtyExpression(expression);
+      if (result !== null) {
+        handleFieldChange('qty', result, rowIndex);
+      }
+      // Clear expression after blur
+      setQtyExpressions(prev => {
+        const next = { ...prev };
+        delete next[rowId];
+        return next;
+      });
+    }
+  };
+  
+  // Handle QTY Enter key - evaluate and move to next row
+  const handleQtyExpressionKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleQtyBlur(rowIndex);
+      
+      // Then run original QTY key handler logic
+      const currentRow = scanRows[rowIndex];
+      const { valid, errors } = validateRow(currentRow);
+      
+      if (!valid) {
+        toast.error('请先完成当前行的必填项', {
+          description: `缺少: ${errors.join(', ')}`,
+          duration: 5000,
+        });
+        return;
+      }
+      
+      if (rowIndex === scanRows.length - 1) {
+        setScanRows(prev => [...prev, createEmptyRow(selectedSection?.full_section || '')]);
+      }
+      
+      setTimeout(() => {
+        ndcInputRefs.current[rowIndex + 1]?.focus();
+        setActiveRowIndex(rowIndex + 1);
+      }, 100);
     }
   };
 
-  const applyCalculatorResult = () => {
-    if (calculatorRowIndex !== null && calculatorResult !== null) {
-      handleFieldChange('qty', calculatorResult, calculatorRowIndex);
+  // Get display value for QTY (expression if editing, calculated value otherwise)
+  const getQtyDisplayValue = (row: ScanRow, rowIndex: number): string => {
+    const rowId = row.id;
+    if (qtyExpressions[rowId] !== undefined) {
+      return qtyExpressions[rowId];
     }
-    setCalculatorOpen(false);
-    setCalculatorExpression('');
-    setCalculatorResult(null);
-    setCalculatorRowIndex(null);
-  };
-
-  const clearCalculator = () => {
-    setCalculatorExpression('');
-    setCalculatorResult(null);
+    return row.qty !== null && row.qty !== undefined ? row.qty.toString() : '';
   };
 
   // Filter rows by search query
@@ -1706,31 +1746,28 @@ const Scan = () => {
                               return undefined;
                             };
                             
-                            // Special handling for QTY - add calculator button
+                            // Special handling for QTY - in-cell calculator (type expression like "5+3")
                             if (col.key === 'qty') {
                               return (
                                 <TableCell key={col.key} className="p-1" style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
-                                  <div className="flex items-center gap-0.5">
+                                  <div className="relative">
                                     <Input
                                       ref={getRef()}
-                                      value={value !== null && value !== undefined ? value.toString() : ''}
-                                      onChange={(e) => {
-                                        const newValue = e.target.value ? parseFloat(e.target.value) : null;
-                                        handleFieldChange('qty', newValue, realIndex);
+                                      value={getQtyDisplayValue(row, realIndex)}
+                                      onChange={(e) => handleQtyInputChange(e.target.value, realIndex)}
+                                      onBlur={() => handleQtyBlur(realIndex)}
+                                      onKeyDown={(e) => handleQtyExpressionKeyDown(e, realIndex)}
+                                      onFocus={() => {
+                                        setActiveRowIndex(realIndex);
+                                        // Initialize expression with current value
+                                        if (qtyExpressions[row.id] === undefined && row.qty !== null) {
+                                          setQtyExpressions(prev => ({ ...prev, [row.id]: row.qty!.toString() }));
+                                        }
                                       }}
-                                      onKeyDown={getKeyDownHandler()}
-                                      onFocus={() => setActiveRowIndex(realIndex)}
-                                      type="number"
-                                      className="font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0 flex-1"
+                                      placeholder="e.g. 5+3"
+                                      className="font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0"
                                     />
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-6 w-6 shrink-0"
-                                      onClick={() => openCalculator(realIndex)}
-                                    >
-                                      <Calculator className="h-3 w-3 text-muted-foreground" />
-                                    </Button>
+                                    <Calculator className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
                                   </div>
                                 </TableCell>
                               );
@@ -1860,94 +1897,6 @@ const Scan = () => {
             <Button onClick={handleRenameSection}>
               <Check className="h-4 w-4 mr-1" />
               保存
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Calculator Dialog */}
-      <Dialog open={calculatorOpen} onOpenChange={setCalculatorOpen}>
-        <DialogContent className="sm:max-w-[320px]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Calculator className="h-5 w-5" />
-              计算器
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {/* Display */}
-            <div className="p-3 bg-muted rounded-lg font-mono text-right">
-              <div className="text-sm text-muted-foreground min-h-[20px]">
-                {calculatorExpression || '0'}
-              </div>
-              <div className="text-2xl font-bold">
-                {calculatorResult !== null ? calculatorResult : '—'}
-              </div>
-            </div>
-            
-            {/* Calculator buttons */}
-            <div className="grid grid-cols-4 gap-2">
-              {['7', '8', '9', '/'].map(btn => (
-                <Button
-                  key={btn}
-                  variant={btn === '/' ? 'secondary' : 'outline'}
-                  className="h-12 text-lg font-mono"
-                  onClick={() => handleCalculatorInput(btn)}
-                >
-                  {btn === '/' ? '÷' : btn}
-                </Button>
-              ))}
-              {['4', '5', '6', '*'].map(btn => (
-                <Button
-                  key={btn}
-                  variant={btn === '*' ? 'secondary' : 'outline'}
-                  className="h-12 text-lg font-mono"
-                  onClick={() => handleCalculatorInput(btn)}
-                >
-                  {btn === '*' ? '×' : btn}
-                </Button>
-              ))}
-              {['1', '2', '3', '-'].map(btn => (
-                <Button
-                  key={btn}
-                  variant={btn === '-' ? 'secondary' : 'outline'}
-                  className="h-12 text-lg font-mono"
-                  onClick={() => handleCalculatorInput(btn)}
-                >
-                  {btn}
-                </Button>
-              ))}
-              {['0', '.', '=', '+'].map(btn => (
-                <Button
-                  key={btn}
-                  variant={btn === '=' ? 'default' : btn === '+' ? 'secondary' : 'outline'}
-                  className="h-12 text-lg font-mono"
-                  onClick={() => btn === '=' ? calculateResult() : handleCalculatorInput(btn)}
-                >
-                  {btn}
-                </Button>
-              ))}
-            </div>
-            
-            {/* Clear button */}
-            <Button 
-              variant="outline" 
-              className="w-full" 
-              onClick={clearCalculator}
-            >
-              清除 (C)
-            </Button>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCalculatorOpen(false)}>
-              取消
-            </Button>
-            <Button 
-              onClick={applyCalculatorResult}
-              disabled={calculatorResult === null}
-            >
-              <Check className="h-4 w-4 mr-1" />
-              应用结果
             </Button>
           </DialogFooter>
         </DialogContent>
