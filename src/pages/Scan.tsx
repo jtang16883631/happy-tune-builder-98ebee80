@@ -3,7 +3,8 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff, Download, GripVertical, Eye, EyeOff, Settings2 } from 'lucide-react';
+import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff, Download, GripVertical, Eye, EyeOff, Settings2, FileUp } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useCloudTemplates, CloudTemplate, CloudSection, TemplateStatus } from '@/hooks/useCloudTemplates';
@@ -770,6 +771,110 @@ const Scan = () => {
     }
   };
 
+  // Export scan data to Excel - each section as a separate tab
+  const handleExportToExcel = useCallback(async () => {
+    if (!selectedTemplate || sections.length === 0) {
+      toast.error('No sections to export');
+      return;
+    }
+
+    try {
+      const workbook = XLSX.utils.book_new();
+
+      // Column headers matching the scan table
+      const headers = [
+        'LOC', 'Device', 'REC', 'TIME', 'NDC', 'Scanned NDC', 'QTY', 'MIS Divisor',
+        'MIS Count Method', 'Item Number', 'Med Desc', 'MERIDIAN DESC', 'TRADE',
+        'GENERIC', 'STRENGTH', 'PACK SZ', 'FDA SIZE', 'SIZE TXT', 'DOSE FORM',
+        'MANUFACTURER', 'GENERIC CODE', 'DEA CLASS', 'AHFS', 'SOURCE', 'Pack Cost',
+        'Unit Cost', 'Extended', '$-', 'Sheet Type', 'Audit Criteria', 'Original QTY',
+        'Auditor Initials', 'Results', 'Additional Notes'
+      ];
+
+      // Iterate through all sections
+      for (const section of sections) {
+        // Load scan records for this section from localStorage
+        const savedData = localStorage.getItem(`scan_records_${selectedTemplate.id}_${section.id}`);
+        
+        let rows: any[][] = [headers];
+        
+        if (savedData) {
+          try {
+            const savedRecords = JSON.parse(savedData) as ScanRow[];
+            
+            // Convert each record to a row array
+            savedRecords.forEach(record => {
+              rows.push([
+                record.loc || '',
+                record.device || '',
+                record.rec || '',
+                record.time || '',
+                record.ndc || '',
+                record.scannedNdc || '',
+                record.qty ?? '',
+                record.misDivisor ?? '',
+                record.misCountMethod || '',
+                record.itemNumber || '',
+                record.medDesc || '',
+                record.meridianDesc || '',
+                record.trade || '',
+                record.generic || '',
+                record.strength || '',
+                record.packSz || '',
+                record.fdaSize || '',
+                record.sizeTxt || '',
+                record.doseForm || '',
+                record.manufacturer || '',
+                record.genericCode || '',
+                record.deaClass || '',
+                record.ahfs || '',
+                record.source || '',
+                record.packCost ?? '',
+                record.unitCost ?? '',
+                record.extended ?? '',
+                record.blank || '',
+                record.sheetType || '',
+                record.auditCriteria || '',
+                record.originalQty ?? '',
+                record.auditorInitials || '',
+                record.results || '',
+                record.additionalNotes || '',
+              ]);
+            });
+          } catch (e) {
+            console.error('Error parsing section data:', e);
+          }
+        }
+
+        // Create worksheet
+        const worksheet = XLSX.utils.aoa_to_sheet(rows);
+
+        // Set column widths
+        worksheet['!cols'] = headers.map((_, i) => ({ wch: i === 10 || i === 11 ? 30 : 15 }));
+
+        // Sanitize sheet name (Excel has 31 char limit, no special chars)
+        let sheetName = section.full_section || section.sect || 'Sheet';
+        sheetName = sheetName.replace(/[\\/*?[\]:]/g, '-').substring(0, 31);
+
+        // Add worksheet to workbook
+        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+      }
+
+      // Generate filename with template name and date
+      const dateStr = selectedTemplate.inv_date 
+        ? new Date(selectedTemplate.inv_date).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0];
+      const filename = `${selectedTemplate.name}_${dateStr}_scan.xlsx`;
+
+      // Download the file
+      XLSX.writeFile(workbook, filename);
+      toast.success(`Exported ${sections.length} sections to Excel`);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export to Excel');
+    }
+  }, [selectedTemplate, sections]);
+
   const formatCurrency = (value: number | null) => {
     if (value === null) return '';
     return `$${value.toFixed(2)}`;
@@ -1209,6 +1314,16 @@ const Scan = () => {
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={handleExportToExcel}
+                disabled={sections.length === 0}
+              >
+                <FileUp className="h-4 w-4 mr-1" />
+                Export Excel
+              </Button>
               
               <Button 
                 variant="outline" 
