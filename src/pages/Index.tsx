@@ -38,12 +38,14 @@ interface FileGroup {
 
 interface ImportProgress {
   status: 'idle' | 'parsing' | 'importing' | 'complete' | 'error';
-  total: number;
-  processed: number;
+  total: number; // groups
+  processed: number; // completed groups
   successful: number;
   failed: number;
   errors: string[];
   currentGroup?: string;
+  subProcessed?: number; // current group internal progress (e.g. cost rows inserted)
+  subTotal?: number;
 }
 
 const Index = () => {
@@ -125,15 +127,23 @@ const Index = () => {
       s.includes('job ticket') ||
       s.includes('job_ticket') ||
       s.includes('jobtickettemplate') ||
+      s.includes('job ticket template') ||
       s.startsWith('jc ') ||
       s.startsWith('jt ') ||
+      s.startsWith('bljc ') ||
+      s.includes('bljc') ||
       s.includes(' ticket')
     );
   };
 
   const isCostFile = (fileName: string): boolean => {
     const s = fileName.toLowerCase();
-    return s.includes('cost data') || s.includes('costdata') || (s.includes('cost') && s.includes('data'));
+    return (
+      s.includes('cost data') ||
+      s.includes('costdata') ||
+      s.includes('all cost') ||
+      (s.includes('cost') && s.includes('data'))
+    );
   };
 
   const groupFiles = (files: FileList): FileGroup[] => {
@@ -157,8 +167,8 @@ const Index = () => {
     const invs = new Set([...Object.keys(costFiles), ...Object.keys(jobTicketFiles)]);
 
     for (const inv of Array.from(invs)) {
-      const costs = costFiles[inv] || [];
-      const tickets = jobTicketFiles[inv] || [];
+      const costs = (costFiles[inv] || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+      const tickets = (jobTicketFiles[inv] || []).slice().sort((a, b) => a.name.localeCompare(b.name));
       const pairCount = Math.min(costs.length, tickets.length);
 
       for (let i = 0; i < pairCount; i++) {
@@ -210,6 +220,8 @@ const Index = () => {
         failed: 0,
         errors: [],
         currentGroup: groups[0]?.name,
+        subProcessed: 0,
+        subTotal: 0,
       });
     });
 
@@ -226,6 +238,8 @@ const Index = () => {
           status: 'importing',
           processed: i,
           currentGroup: group.name,
+          subProcessed: 0,
+          subTotal: 0,
         }));
       });
 
@@ -264,7 +278,17 @@ const Index = () => {
           jobTicketData.rawData,
           group.costFile!.name,
           group.jobTicketFile!.name,
-          true
+          true,
+          (p) => {
+            if (p.stage !== 'cost') return;
+            flushSync(() => {
+              setImportProgress((prev) => ({
+                ...prev,
+                subProcessed: p.inserted,
+                subTotal: p.total,
+              }));
+            });
+          }
         );
 
         if (result.success) {
@@ -285,6 +309,8 @@ const Index = () => {
           successful,
           failed,
           errors: errors.slice(-5),
+          subProcessed: 0,
+          subTotal: 0,
         }));
       });
     }
@@ -412,9 +438,18 @@ const Index = () => {
     );
   }
 
-  const progressPercent = importProgress.total > 0
-    ? Math.round((importProgress.processed / importProgress.total) * 100)
-    : 0;
+  const progressPercent = (() => {
+    if (importProgress.total <= 0) return 0;
+
+    const base = importProgress.processed / importProgress.total;
+    const sub =
+      importProgress.status === 'importing' && (importProgress.subTotal || 0) > 0
+        ? (importProgress.subProcessed || 0) / (importProgress.subTotal as number)
+        : 0;
+
+    const effective = Math.min(1, base + sub / importProgress.total);
+    return Math.round(effective * 100);
+  })();
 
   return (
     <AppLayout>
@@ -491,7 +526,11 @@ const Index = () => {
                   <span>
                     {importProgress.status === 'parsing' && 'Parsing files...'}
                     {importProgress.status === 'importing' && (
-                      <>Importing {importProgress.processed} of {importProgress.total}{importProgress.currentGroup ? ` • ${importProgress.currentGroup}` : ''}</>
+                      <>
+                        Importing {Math.min(importProgress.processed + 1, importProgress.total)} of {importProgress.total}
+                        {importProgress.currentGroup ? ` • ${importProgress.currentGroup}` : ''}
+                        {(importProgress.subTotal || 0) > 0 ? ` • ${importProgress.subProcessed || 0}/${importProgress.subTotal}` : ''}
+                      </>
                     )}
                     {importProgress.status === 'complete' && 'Complete!'}
                     {importProgress.status === 'error' && 'Finished with errors'}
