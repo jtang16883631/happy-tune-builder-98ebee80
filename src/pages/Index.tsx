@@ -9,7 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useCloudTemplates, CloudTemplate, CloudSection } from '@/hooks/useCloudTemplates';
 import { 
   Upload, Loader2, CalendarDays, Trash2, RefreshCw, FileSpreadsheet, 
-  CheckCircle, XCircle, FolderOpen, ChevronDown, ChevronRight 
+  CheckCircle, XCircle, FolderOpen, ChevronDown, ChevronRight, Edit 
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -47,16 +47,20 @@ const Index = () => {
   const { isLoading: authLoading, roles } = useAuth();
   const { toast } = useToast();
   const bulkInputRef = useRef<HTMLInputElement>(null);
+  const costUpdateInputRef = useRef<HTMLInputElement>(null);
 
   const {
     templates,
     isLoading: dbLoading,
     isReady,
     importTemplate,
+    updateCostData,
     deleteTemplate,
     getSections,
     refetch,
   } = useCloudTemplates();
+
+  const [isUpdatingCost, setIsUpdatingCost] = useState(false);
 
   const [selectedTemplates, setSelectedTemplates] = useState<Set<string>>(new Set());
   const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
@@ -236,6 +240,46 @@ const Index = () => {
     toast({ title: 'Templates deleted' });
   };
 
+  const handleUpdateCostData = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || selectedTemplates.size === 0) return;
+
+    setIsUpdatingCost(true);
+
+    try {
+      const costData = await parseExcelFile(file);
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const templateId of Array.from(selectedTemplates)) {
+        const result = await updateCostData(templateId, costData.rows, file.name);
+        if (result.success) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      }
+
+      toast({
+        title: 'Cost data updated',
+        description: `${successCount} template(s) updated${failCount > 0 ? `, ${failCount} failed` : ''}.`,
+      });
+
+      setSelectedTemplates(new Set());
+    } catch (err: any) {
+      toast({
+        title: 'Update failed',
+        description: err.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsUpdatingCost(false);
+      if (costUpdateInputRef.current) {
+        costUpdateInputRef.current.value = '';
+      }
+    }
+  };
+
   const toggleSelectAll = () => {
     if (selectedTemplates.size === templates.length) {
       setSelectedTemplates(new Set());
@@ -309,15 +353,36 @@ const Index = () => {
                 className="hidden"
                 multiple
               />
+              <input
+                ref={costUpdateInputRef}
+                type="file"
+                accept=".xlsx,.xlsm,.xls,.csv"
+                onChange={handleUpdateCostData}
+                className="hidden"
+              />
 
               {selectedTemplates.size > 0 && (
-                <Button
-                  variant="destructive"
-                  onClick={() => setShowDeleteDialog(true)}
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete ({selectedTemplates.size})
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => costUpdateInputRef.current?.click()}
+                    disabled={isUpdatingCost}
+                  >
+                    {isUpdatingCost ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Edit className="mr-2 h-4 w-4" />
+                    )}
+                    Update Cost ({selectedTemplates.size})
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => setShowDeleteDialog(true)}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete ({selectedTemplates.size})
+                  </Button>
+                </>
               )}
 
               <Button onClick={() => bulkInputRef.current?.click()}>

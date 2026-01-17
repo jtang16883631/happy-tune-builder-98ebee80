@@ -297,6 +297,82 @@ export function useCloudTemplates() {
     [user, fetchTemplates]
   );
 
+  // Update cost data for a template - replaces all cost items
+  const updateCostData = useCallback(
+    async (
+      templateId: string,
+      costRows: any[],
+      costFileName: string
+    ): Promise<{ success: boolean; error?: string }> => {
+      if (!user) return { success: false, error: 'Not authenticated' };
+
+      try {
+        // Delete existing cost items for this template
+        const { error: deleteError } = await supabase
+          .from('template_cost_items')
+          .delete()
+          .eq('template_id', templateId);
+
+        if (deleteError) throw deleteError;
+
+        // Get column keys from first row (headers) to map by position
+        const columnKeys = costRows.length > 0 ? Object.keys(costRows[0]) : [];
+
+        // Insert new cost items
+        const costInserts = costRows
+          .filter((row) => {
+            const ndcValue = columnKeys[0] ? row[columnKeys[0]] : null;
+            return ndcValue && String(ndcValue).trim().length > 0;
+          })
+          .map((row) => {
+            const colA = columnKeys[0] ? row[columnKeys[0]] : null; // NDC
+            const colB = columnKeys[1] ? row[columnKeys[1]] : null; // material_description
+            const colC = columnKeys[2] ? row[columnKeys[2]] : null; // unit_price
+            const colD = columnKeys[3] ? row[columnKeys[3]] : null; // source
+            const colE = columnKeys[4] ? row[columnKeys[4]] : null; // material
+
+            return {
+              template_id: templateId,
+              ndc: String(colA || '').trim(),
+              material_description: colB ? String(colB).trim() : null,
+              unit_price: colC ? parseFloat(String(colC)) : null,
+              source: colD ? String(colD).trim() : null,
+              material: colE ? String(colE).trim() : null,
+              billing_date: null,
+              manufacturer: null,
+              generic: null,
+              strength: null,
+              size: null,
+              dose: null,
+            };
+          });
+
+        // Insert in batches of 500
+        const batchSize = 500;
+        for (let i = 0; i < costInserts.length; i += batchSize) {
+          const batch = costInserts.slice(i, i + batchSize);
+          const { error: costError } = await supabase.from('template_cost_items').insert(batch);
+          if (costError) throw costError;
+        }
+
+        // Update template's cost_file_name
+        const { error: updateError } = await supabase
+          .from('data_templates')
+          .update({ cost_file_name: costFileName, updated_at: new Date().toISOString() })
+          .eq('id', templateId);
+
+        if (updateError) console.error('Error updating template:', updateError);
+
+        await fetchTemplates();
+        return { success: true };
+      } catch (err: any) {
+        console.error('Update cost data error:', err);
+        return { success: false, error: err.message };
+      }
+    },
+    [user, fetchTemplates]
+  );
+
   // Delete a template
   const deleteTemplate = useCallback(
     async (templateId: string): Promise<{ success: boolean; error?: string }> => {
@@ -361,6 +437,7 @@ export function useCloudTemplates() {
     error,
     isReady: !isLoading && !!user,
     importTemplate,
+    updateCostData,
     deleteTemplate,
     getSections,
     getCostItemByNDC,
