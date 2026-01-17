@@ -639,6 +639,18 @@ const Scan = () => {
       return new Date(b.inv_date).getTime() - new Date(a.inv_date).getTime();
     });
 
+    // Group templates by month
+    const groupedByMonth: Record<string, CloudTemplate[]> = {};
+    sortedTemplates.forEach((template) => {
+      const monthKey = template.inv_date 
+        ? new Date(template.inv_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
+        : 'No Date';
+      if (!groupedByMonth[monthKey]) {
+        groupedByMonth[monthKey] = [];
+      }
+      groupedByMonth[monthKey].push(template);
+    });
+
     return (
       <AppLayout>
         <div className="space-y-8">
@@ -671,40 +683,55 @@ const Scan = () => {
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {sortedTemplates.map((template, index) => (
-                <Card 
-                  key={template.id}
-                  className="group cursor-pointer border-2 hover:border-primary hover:shadow-lg transition-all duration-200 overflow-hidden"
-                  onClick={() => handleSelectTemplate(template)}
-                >
-                  <div className="h-1.5 bg-gradient-to-r from-primary/60 to-primary" />
-                  <CardHeader className="pb-2 pt-4">
-                    <div className="flex items-start justify-between gap-2">
-                      <CardTitle className="text-base font-semibold line-clamp-1 group-hover:text-primary transition-colors">
-                        {template.name}
-                      </CardTitle>
-                      {index === 0 && template.inv_date && (
-                        <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                          Latest
-                        </span>
-                      )}
+            <div className="space-y-8">
+              {Object.entries(groupedByMonth).map(([month, monthTemplates]) => (
+                <div key={month} className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 rounded-full">
+                      <Calendar className="h-4 w-4 text-primary" />
+                      <span className="font-semibold text-primary">{month}</span>
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3 pb-4">
-                    {template.facility_name && (
-                      <p className="text-sm text-primary/80 font-medium truncate">
-                        {template.facility_name}
-                      </p>
-                    )}
-                    {template.inv_date && (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Calendar className="h-3.5 w-3.5" />
-                        <span>{formatDate(template.inv_date)}</span>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="text-xs text-muted-foreground">{monthTemplates.length} template{monthTemplates.length > 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {monthTemplates.map((template) => {
+                      const day = template.inv_date ? new Date(template.inv_date).getDate() : null;
+                      const weekday = template.inv_date 
+                        ? new Date(template.inv_date).toLocaleDateString('en-US', { weekday: 'short' })
+                        : null;
+                      
+                      return (
+                        <Card 
+                          key={template.id}
+                          className="group cursor-pointer border hover:border-primary hover:shadow-md transition-all duration-200 overflow-hidden"
+                          onClick={() => handleSelectTemplate(template)}
+                        >
+                          <div className="flex">
+                            {/* Calendar date badge */}
+                            {day && (
+                              <div className="flex flex-col items-center justify-center w-16 bg-primary/5 group-hover:bg-primary/10 border-r transition-colors">
+                                <span className="text-[10px] uppercase text-muted-foreground font-medium">{weekday}</span>
+                                <span className="text-2xl font-bold text-primary">{day}</span>
+                              </div>
+                            )}
+                            {/* Content */}
+                            <div className="flex-1 p-3 min-w-0">
+                              <h3 className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
+                                {template.name}
+                              </h3>
+                              {template.facility_name && (
+                                <p className="text-xs text-muted-foreground mt-1 truncate">
+                                  {template.facility_name}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </div>
               ))}
             </div>
           )}
