@@ -2,7 +2,7 @@ import { ReactNode, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, Users, ScanBarcode, FolderOpen, Pill, LayoutDashboard, CalendarDays, Clock, PanelLeftClose, PanelLeft, Radio, ClipboardList, AlertTriangle, HardDrive, FileText, Database } from 'lucide-react';
+import { LogOut, Users, ScanBarcode, FolderOpen, Pill, LayoutDashboard, CalendarDays, Clock, PanelLeftClose, PanelLeft, Radio, ClipboardList, AlertTriangle, HardDrive, FileText, Database, ShieldX } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { AnnouncementBell } from '@/components/announcements/AnnouncementBell';
@@ -64,10 +64,12 @@ const navSections: NavSection[] = [
 ];
 
 export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
-  const { user, roles, isPrivileged, signOut } = useAuth();
+  const { user, roles, isPrivileged, signOut, isLoading: authLoading } = useAuth();
   const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const { needsCompletion, isChecking, markCompleted } = useProfileCompletion();
+
+  const hasNoRole = !authLoading && roles.length === 0;
 
   const getInitials = (name?: string | null) => {
     if (!name) return 'U';
@@ -98,6 +100,43 @@ export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
   };
 
   const visibleSections = getVisibleSections();
+
+  // Show restricted access screen for users without any role
+  if (hasNoRole) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center max-w-md px-6">
+          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-destructive/10 mx-auto mb-6">
+            <ShieldX className="h-10 w-10 text-destructive" />
+          </div>
+          <h1 className="text-2xl font-bold mb-2">Access Restricted</h1>
+          <p className="text-muted-foreground mb-6">
+            Your account does not have an assigned role. Please contact a developer or administrator to get access to the system.
+          </p>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3 p-4 rounded-lg bg-muted/50 text-left">
+              <Avatar className="h-10 w-10">
+                <AvatarImage src={user?.user_metadata?.avatar_url} alt="Avatar" />
+                <AvatarFallback className="bg-primary text-primary-foreground text-sm">
+                  {user?.user_metadata?.full_name?.[0] || user?.email?.[0]?.toUpperCase() || 'U'}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">
+                  {user?.user_metadata?.full_name || 'User'}
+                </p>
+                <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+              </div>
+            </div>
+            <Button variant="outline" onClick={() => signOut()} className="w-full">
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign Out
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
