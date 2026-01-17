@@ -166,21 +166,29 @@ const Index = () => {
     let failed = 0;
     const errors: string[] = [];
 
+    // Process all groups sequentially
     for (let i = 0; i < groups.length; i++) {
       const group = groups[i];
 
-      try {
-        setImportProgress(prev => ({ ...prev, status: 'importing' }));
+      // Update progress before processing each group
+      setImportProgress(prev => ({
+        ...prev,
+        status: 'importing',
+        processed: i,
+      }));
 
+      try {
         const costData = await parseExcelFile(group.costFile!);
         const jobTicketData = await parseExcelFile(group.jobTicketFile!);
 
+        // Pass skipRefetch=true to avoid refetching templates after each import
         const result = await importTemplate(
           group.name,
           costData.rows,
           jobTicketData.rawData,
           group.costFile!.name,
-          group.jobTicketFile!.name
+          group.jobTicketFile!.name,
+          true // skipRefetch
         );
 
         if (result.success) {
@@ -194,6 +202,7 @@ const Index = () => {
         errors.push(`${group.name}: ${err.message}`);
       }
 
+      // Update progress after processing each group
       setImportProgress(prev => ({
         ...prev,
         processed: i + 1,
@@ -202,6 +211,9 @@ const Index = () => {
         errors: errors.slice(-5),
       }));
     }
+
+    // Refetch templates once after all imports are complete
+    await refetch();
 
     setImportProgress(prev => ({ ...prev, status: 'complete' }));
 

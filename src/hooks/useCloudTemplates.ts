@@ -194,7 +194,8 @@ export function useCloudTemplates() {
       costRows: any[],
       jobTicketRawData: any[][],
       costFileName: string,
-      jobTicketFileName: string
+      jobTicketFileName: string,
+      skipRefetch: boolean = false
     ): Promise<{ success: boolean; error?: string; templateId?: string }> => {
       if (!user) return { success: false, error: 'Not authenticated' };
 
@@ -283,7 +284,10 @@ export function useCloudTemplates() {
           if (costError) console.error('Error inserting cost items batch:', costError);
         }
 
-        await fetchTemplates();
+        // Only refetch if not in bulk import mode
+        if (!skipRefetch) {
+          await fetchTemplates();
+        }
         return { success: true, templateId };
       } catch (err: any) {
         console.error('Import template error:', err);
