@@ -2,7 +2,7 @@ import { ReactNode, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, Users, ScanBarcode, FolderOpen, Pill, LayoutDashboard, CalendarDays, Clock, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { LogOut, Users, ScanBarcode, FolderOpen, Pill, LayoutDashboard, CalendarDays, Clock, PanelLeftClose, PanelLeft, Radio, ClipboardList, AlertTriangle, HardDrive, FileText, Database } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 
@@ -11,14 +11,51 @@ interface AppLayoutProps {
   fullWidth?: boolean;
 }
 
-const navItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['scanner', 'manager'] },
-  { href: '/schedule', label: 'Schedule', icon: CalendarDays, roles: ['scanner', 'manager'] },
-  { href: '/timesheet', label: 'Timesheet', icon: Clock, roles: ['scanner', 'manager'] },
-  { href: '/data-template', label: 'Data Template', icon: FolderOpen, roles: ['scanner', 'manager'] },
-  { href: '/scan', label: 'Scanner', icon: ScanBarcode, roles: ['scanner', 'manager'] },
-  { href: '/fda', label: 'FDA', icon: Pill, roles: ['manager'] },
-  { href: '/users', label: 'Users', icon: Users, roles: ['manager'] },
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  roles: ('scanner' | 'manager')[];
+  disabled?: boolean;
+}
+
+interface NavSection {
+  title: string;
+  items: NavItem[];
+}
+
+const navSections: NavSection[] = [
+  {
+    title: 'OPERATIONS',
+    items: [
+      { href: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['scanner', 'manager'] },
+      { href: '/schedule', label: 'Schedule Hub', icon: CalendarDays, roles: ['scanner', 'manager'] },
+      { href: '#', label: 'Live Tracker', icon: Radio, roles: ['scanner', 'manager'], disabled: true },
+    ],
+  },
+  {
+    title: 'MANAGEMENT',
+    items: [
+      { href: '/scan', label: 'Audit Projects', icon: ClipboardList, roles: ['scanner', 'manager'] },
+      { href: '/data-template', label: 'Data Templates', icon: FolderOpen, roles: ['scanner', 'manager'] },
+      { href: '#', label: 'Field Issues', icon: AlertTriangle, roles: ['scanner', 'manager'], disabled: true },
+    ],
+  },
+  {
+    title: 'DATA CENTER',
+    items: [
+      { href: '#', label: 'OneDrive Files', icon: HardDrive, roles: ['scanner', 'manager'], disabled: true },
+      { href: '#', label: 'Reports', icon: FileText, roles: ['scanner', 'manager'], disabled: true },
+      { href: '/fda', label: 'Master Data', icon: Database, roles: ['manager'] },
+    ],
+  },
+  {
+    title: 'HR',
+    items: [
+      { href: '/timesheet', label: 'Timesheet', icon: Clock, roles: ['scanner', 'manager'] },
+      { href: '/users', label: 'Users', icon: Users, roles: ['manager'] },
+    ],
+  },
 ];
 
 export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
@@ -36,9 +73,16 @@ export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
       .slice(0, 2);
   };
 
-  const visibleNavItems = navItems.filter((item) =>
-    item.roles.some((role) => roles.includes(role as 'scanner' | 'manager'))
-  );
+  const getVisibleSections = () => {
+    return navSections.map(section => ({
+      ...section,
+      items: section.items.filter(item =>
+        item.roles.some(role => roles.includes(role))
+      )
+    })).filter(section => section.items.length > 0);
+  };
+
+  const visibleSections = getVisibleSections();
 
   return (
     <div className="min-h-screen flex bg-background">
@@ -60,26 +104,51 @@ export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 py-4 px-2 space-y-1">
-          {visibleNavItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = location.pathname === item.href;
-            return (
-              <Link key={item.href} to={item.href}>
-                <div
-                  className={cn(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors',
-                    isActive
-                      ? 'bg-white/20 text-white'
-                      : 'text-white/70 hover:bg-white/10 hover:text-white'
-                  )}
-                >
-                  <Icon className="h-5 w-5" />
-                  <span className="font-medium">{item.label}</span>
-                </div>
-              </Link>
-            );
-          })}
+        <nav className="flex-1 py-4 px-2 space-y-4 overflow-y-auto">
+          {visibleSections.map((section) => (
+            <div key={section.title}>
+              <div className="px-3 mb-2">
+                <span className="text-xs font-semibold text-white/50 tracking-wider">
+                  {section.title}
+                </span>
+              </div>
+              <div className="space-y-1">
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = location.pathname === item.href;
+                  const isDisabled = item.disabled;
+                  
+                  if (isDisabled) {
+                    return (
+                      <div
+                        key={item.href + item.label}
+                        className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-white/40 cursor-not-allowed"
+                      >
+                        <Icon className="h-5 w-5" />
+                        <span className="font-medium">{item.label}</span>
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <Link key={item.href} to={item.href}>
+                      <div
+                        className={cn(
+                          'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors',
+                          isActive
+                            ? 'bg-white/20 text-white'
+                            : 'text-white/70 hover:bg-white/10 hover:text-white'
+                        )}
+                      >
+                        <Icon className="h-5 w-5" />
+                        <span className="font-medium">{item.label}</span>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
 
         {/* User Section */}
