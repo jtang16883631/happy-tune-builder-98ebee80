@@ -195,7 +195,8 @@ export function useCloudTemplates() {
       jobTicketRawData: any[][],
       costFileName: string,
       jobTicketFileName: string,
-      skipRefetch: boolean = false
+      skipRefetch: boolean = false,
+      onProgress?: (p: { stage: 'template' | 'sections' | 'cost'; inserted: number; total: number }) => void
     ): Promise<{ success: boolean; error?: string; templateId?: string }> => {
       if (!user) return { success: false, error: 'Not authenticated' };
 
@@ -246,52 +247,58 @@ export function useCloudTemplates() {
           if (sectionsError) console.error('Error inserting sections:', sectionsError);
         }
 
-        // Get column keys from first row (headers) to map by position
+        // Stream cost items in batches of 500 (avoid blocking UI with huge arrays)
         const columnKeys = costRows.length > 0 ? Object.keys(costRows[0]) : [];
-        
-        // Insert cost items in batches - using column position (not names)
-        const costInserts = costRows
-          .filter((row) => {
-            // Column A (index 0) should have NDC
-            const ndcValue = columnKeys[0] ? row[columnKeys[0]] : null;
-            return ndcValue && String(ndcValue).trim().length > 0;
-          })
-          .map((row) => {
-            // Map by column position:
-            // Column A (0) = NDC
-            // Column B (1) = material_description
-            // Column C (2) = unit_price (Pack Cost)
-            // Column D (3) = source (SOURCE)
-            // Column E (4) = material (Item Number)
-            const colA = columnKeys[0] ? row[columnKeys[0]] : null; // NDC
-            const colB = columnKeys[1] ? row[columnKeys[1]] : null; // material_description
-            const colC = columnKeys[2] ? row[columnKeys[2]] : null; // unit_price
-            const colD = columnKeys[3] ? row[columnKeys[3]] : null; // source
-            const colE = columnKeys[4] ? row[columnKeys[4]] : null; // material (Item Number)
-            
-            return {
-              template_id: templateId,
-              ndc: String(colA || '').trim(),
-              material_description: colB ? String(colB).trim() : null,
-              unit_price: colC ? parseFloat(String(colC)) : null,
-              source: colD ? String(colD).trim() : null,
-              material: colE ? String(colE).trim() : null,
-              billing_date: null,
-              manufacturer: null,
-              generic: null,
-              strength: null,
-              size: null,
-              dose: null,
-            };
-          });
+        const totalRows = costRows.length;
+        onProgress?.({ stage: 'cost', inserted: 0, total: totalRows });
 
-        // Insert in batches of 500
         const batchSize = 500;
-        for (let i = 0; i < costInserts.length; i += batchSize) {
-          const batch = costInserts.slice(i, i + batchSize);
+        let inserted = 0;
+        let batch: any[] = [];
+
+        const flushBatch = async () => {
+          if (batch.length === 0) return;
           const { error: costError } = await supabase.from('template_cost_items').insert(batch);
           if (costError) throw costError;
+          inserted += batch.length;
+          onProgress?.({ stage: 'cost', inserted, total: totalRows });
+          batch = [];
+          // yield so React can paint progress updates
+          await new Promise((r) => setTimeout(r, 0));
+        };
+
+        for (const row of costRows) {
+          const ndcValue = columnKeys[0] ? row[columnKeys[0]] : null;
+          if (!ndcValue || String(ndcValue).trim().length === 0) continue;
+
+          const colA = columnKeys[0] ? row[columnKeys[0]] : null; // NDC
+          const colB = columnKeys[1] ? row[columnKeys[1]] : null; // material_description
+          const colC = columnKeys[2] ? row[columnKeys[2]] : null; // unit_price
+          const colD = columnKeys[3] ? row[columnKeys[3]] : null; // source
+          const colE = columnKeys[4] ? row[columnKeys[4]] : null; // material (Item Number)
+
+          batch.push({
+            template_id: templateId,
+            ndc: String(colA || '').trim(),
+            material_description: colB ? String(colB).trim() : null,
+            unit_price: colC ? parseFloat(String(colC)) : null,
+            source: colD ? String(colD).trim() : null,
+            material: colE ? String(colE).trim() : null,
+            billing_date: null,
+            manufacturer: null,
+            generic: null,
+            strength: null,
+            size: null,
+            dose: null,
+          });
+
+          if (batch.length >= batchSize) {
+            await flushBatch();
+          }
         }
+
+        await flushBatch();
+        onProgress?.({ stage: 'cost', inserted, total: totalRows });
 
         // Only refetch if not in bulk import mode
         if (!skipRefetch) {
@@ -304,7 +311,6 @@ export function useCloudTemplates() {
       }
     },
     [user, fetchTemplates]
-  );
 
   // Update cost data for a template - replaces all cost items
   const updateCostData = useCallback(
