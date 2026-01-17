@@ -158,8 +158,13 @@ const Users = () => {
 
       if (roleError) throw roleError;
 
-      // Note: Deleting from auth.users requires admin privileges
-      // For now, we just remove their roles which effectively removes their access
+      // Delete the user's profile
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', userToDelete.id);
+
+      if (profileError) throw profileError;
 
       toast({
         title: 'Success',
