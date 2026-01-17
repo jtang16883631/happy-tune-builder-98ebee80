@@ -247,58 +247,68 @@ export function useCloudTemplates() {
           if (sectionsError) console.error('Error inserting sections:', sectionsError);
         }
 
-        // Stream cost items in batches of 500 (avoid blocking UI with huge arrays)
+        // Prepare all cost items first, then insert in parallel batches
         const columnKeys = costRows.length > 0 ? Object.keys(costRows[0]) : [];
-        const totalRows = costRows.length;
-        onProgress?.({ stage: 'cost', inserted: 0, total: totalRows });
+        
+        // Build all cost items upfront
+        const allCostItems = costRows
+          .filter((row) => {
+            const ndcValue = columnKeys[0] ? row[columnKeys[0]] : null;
+            return ndcValue && String(ndcValue).trim().length > 0;
+          })
+          .map((row) => {
+            const colA = columnKeys[0] ? row[columnKeys[0]] : null;
+            const colB = columnKeys[1] ? row[columnKeys[1]] : null;
+            const colC = columnKeys[2] ? row[columnKeys[2]] : null;
+            const colD = columnKeys[3] ? row[columnKeys[3]] : null;
+            const colE = columnKeys[4] ? row[columnKeys[4]] : null;
 
-        const batchSize = 500;
-        let inserted = 0;
-        let batch: any[] = [];
-
-        const flushBatch = async () => {
-          if (batch.length === 0) return;
-          const { error: costError } = await supabase.from('template_cost_items').insert(batch);
-          if (costError) throw costError;
-          inserted += batch.length;
-          onProgress?.({ stage: 'cost', inserted, total: totalRows });
-          batch = [];
-          // yield so React can paint progress updates
-          await new Promise((r) => setTimeout(r, 0));
-        };
-
-        for (const row of costRows) {
-          const ndcValue = columnKeys[0] ? row[columnKeys[0]] : null;
-          if (!ndcValue || String(ndcValue).trim().length === 0) continue;
-
-          const colA = columnKeys[0] ? row[columnKeys[0]] : null; // NDC
-          const colB = columnKeys[1] ? row[columnKeys[1]] : null; // material_description
-          const colC = columnKeys[2] ? row[columnKeys[2]] : null; // unit_price
-          const colD = columnKeys[3] ? row[columnKeys[3]] : null; // source
-          const colE = columnKeys[4] ? row[columnKeys[4]] : null; // material (Item Number)
-
-          batch.push({
-            template_id: templateId,
-            ndc: String(colA || '').trim(),
-            material_description: colB ? String(colB).trim() : null,
-            unit_price: colC ? parseFloat(String(colC)) : null,
-            source: colD ? String(colD).trim() : null,
-            material: colE ? String(colE).trim() : null,
-            billing_date: null,
-            manufacturer: null,
-            generic: null,
-            strength: null,
-            size: null,
-            dose: null,
+            return {
+              template_id: templateId,
+              ndc: String(colA || '').trim(),
+              material_description: colB ? String(colB).trim() : null,
+              unit_price: colC ? parseFloat(String(colC)) : null,
+              source: colD ? String(colD).trim() : null,
+              material: colE ? String(colE).trim() : null,
+              billing_date: null,
+              manufacturer: null,
+              generic: null,
+              strength: null,
+              size: null,
+              dose: null,
+            };
           });
 
-          if (batch.length >= batchSize) {
-            await flushBatch();
-          }
+        const totalItems = allCostItems.length;
+        onProgress?.({ stage: 'cost', inserted: 0, total: totalItems });
+
+        // Use larger batch size (1000) and parallel insertion (4 concurrent batches)
+        const batchSize = 1000;
+        const concurrency = 4;
+        const batches: any[][] = [];
+        
+        for (let i = 0; i < allCostItems.length; i += batchSize) {
+          batches.push(allCostItems.slice(i, i + batchSize));
         }
 
-        await flushBatch();
-        onProgress?.({ stage: 'cost', inserted, total: totalRows });
+        let completedBatches = 0;
+        
+        // Process batches in parallel chunks
+        for (let i = 0; i < batches.length; i += concurrency) {
+          const chunk = batches.slice(i, i + concurrency);
+          const promises = chunk.map(async (batch) => {
+            const { error: costError } = await supabase.from('template_cost_items').insert(batch);
+            if (costError) throw costError;
+            return batch.length;
+          });
+          
+          const results = await Promise.all(promises);
+          completedBatches += chunk.length;
+          const inserted = Math.min(completedBatches * batchSize, totalItems);
+          onProgress?.({ stage: 'cost', inserted, total: totalItems });
+        }
+
+        onProgress?.({ stage: 'cost', inserted: totalItems, total: totalItems });
 
         // Only refetch if not in bulk import mode
         if (!skipRefetch) {
