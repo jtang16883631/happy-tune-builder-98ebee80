@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
-// Routes that are available offline
+// Routes that are available offline (no auth required when offline)
 const OFFLINE_ROUTES = ['/scan', '/issues', '/auth'];
 
 export function OfflineRedirect() {
@@ -10,7 +10,10 @@ export function OfflineRedirect() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
+    const handleOnline = () => {
+      setIsOnline(true);
+    };
+    
     const handleOffline = () => {
       setIsOnline(false);
       // When going offline, redirect to scan if not already on an offline-compatible route
@@ -34,4 +37,24 @@ export function OfflineRedirect() {
   }, [navigate, location.pathname]);
 
   return null;
+}
+
+// Helper hook to check online status
+export function useOnlineStatus() {
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  return isOnline;
 }

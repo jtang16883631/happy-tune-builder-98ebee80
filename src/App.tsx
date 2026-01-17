@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { UpdateNotification } from "@/components/UpdateNotification";
-import { OfflineRedirect } from "@/components/OfflineRedirect";
+import { OfflineRedirect, useOnlineStatus } from "@/components/OfflineRedirect";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Users from "./pages/Users";
@@ -22,10 +22,23 @@ import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+// Routes that work offline without auth
+const OFFLINE_ALLOWED_ROUTES = ['/scan', '/issues'];
+
+function ProtectedRoute({ children, allowOffline = false }: { children: React.ReactNode; allowOffline?: boolean }) {
   const { user, isLoading } = useAuth();
+  const isOnline = useOnlineStatus();
+
+  // If offline and this route allows offline access, skip auth check
+  if (!isOnline && allowOffline) {
+    return <>{children}</>;
+  }
 
   if (isLoading) {
+    // If offline while loading, just render the page (don't block)
+    if (!isOnline && allowOffline) {
+      return <>{children}</>;
+    }
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -34,6 +47,10 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
+    // If offline, redirect to scan instead of auth
+    if (!isOnline) {
+      return <Navigate to="/scan" replace />;
+    }
     return <Navigate to="/auth" replace />;
   }
 
@@ -46,86 +63,86 @@ function AppRoutes() {
       <OfflineRedirect />
       <Routes>
         <Route path="/auth" element={<Auth />} />
-      <Route
-        path="/"
-        element={
-          <ProtectedRoute>
-            <Dashboard />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/data-template"
-        element={
-          <ProtectedRoute>
-            <Index />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/users"
-        element={
-          <ProtectedRoute>
-            <Users />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/scan"
-        element={
-          <ProtectedRoute>
-            <Scan />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/fda"
-        element={
-          <ProtectedRoute>
-            <FDA />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/schedule"
-        element={
-          <ProtectedRoute>
-            <Schedule />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/timesheet"
-        element={
-          <ProtectedRoute>
-            <Timesheet />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/issues"
-        element={
-          <ProtectedRoute>
-            <Issues />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/live-tracker"
-        element={
-          <ProtectedRoute>
-            <LiveTracker />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/chat"
-        element={
-          <ProtectedRoute>
-            <Chat />
-          </ProtectedRoute>
-        }
-      />
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/data-template"
+          element={
+            <ProtectedRoute>
+              <Index />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/users"
+          element={
+            <ProtectedRoute>
+              <Users />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/scan"
+          element={
+            <ProtectedRoute allowOffline>
+              <Scan />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/fda"
+          element={
+            <ProtectedRoute>
+              <FDA />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/schedule"
+          element={
+            <ProtectedRoute>
+              <Schedule />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/timesheet"
+          element={
+            <ProtectedRoute>
+              <Timesheet />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/issues"
+          element={
+            <ProtectedRoute allowOffline>
+              <Issues />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/live-tracker"
+          element={
+            <ProtectedRoute>
+              <LiveTracker />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/chat"
+          element={
+            <ProtectedRoute>
+              <Chat />
+            </ProtectedRoute>
+          }
+        />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </>
