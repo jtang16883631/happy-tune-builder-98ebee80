@@ -245,8 +245,15 @@ const Chat = () => {
   const handleCreateRoom = async () => {
     if (!newRoomName.trim()) return;
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    const authedUserId = sessionData.session?.user?.id;
+    // Make sure the client has a fresh auth token before hitting RLS-protected tables
+    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+    const session = refreshed.session ?? (await supabase.auth.getSession()).data.session;
+
+    if (refreshError) {
+      console.warn('refreshSession error:', refreshError);
+    }
+
+    const authedUserId = session?.user?.id;
 
     if (!authedUserId) {
       toast.error('请先登录后再创建聊天室');
@@ -285,7 +292,6 @@ const Chat = () => {
       fetchRooms();
       setSelectedRoom(room);
     } catch (err: any) {
-      // Most common cause: user is not actually authenticated yet
       toast.error('Failed to create room: ' + (err?.message || 'Unknown error'));
     }
   };
