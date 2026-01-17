@@ -340,6 +340,157 @@ export type Database = {
         }
         Relationships: []
       }
+      scan_records: {
+        Row: {
+          additional_notes: string | null
+          ahfs: string | null
+          audit_criteria: string | null
+          auditor_initials: string | null
+          blank: string | null
+          created_at: string
+          dea_class: string | null
+          device: string | null
+          dose_form: string | null
+          extended: number | null
+          fda_size: string | null
+          generic: string | null
+          generic_code: string | null
+          id: string
+          item_number: string | null
+          loc: string | null
+          manufacturer: string | null
+          med_desc: string | null
+          meridian_desc: string | null
+          mis_count_method: string | null
+          mis_divisor: number | null
+          ndc: string | null
+          original_qty: number | null
+          pack_cost: number | null
+          pack_sz: string | null
+          qty: number | null
+          rec: string | null
+          results: string | null
+          scanned_ndc: string | null
+          section_id: string
+          sheet_type: string | null
+          size_txt: string | null
+          source: string | null
+          strength: string | null
+          template_id: string
+          time: string | null
+          trade: string | null
+          unit_cost: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          additional_notes?: string | null
+          ahfs?: string | null
+          audit_criteria?: string | null
+          auditor_initials?: string | null
+          blank?: string | null
+          created_at?: string
+          dea_class?: string | null
+          device?: string | null
+          dose_form?: string | null
+          extended?: number | null
+          fda_size?: string | null
+          generic?: string | null
+          generic_code?: string | null
+          id?: string
+          item_number?: string | null
+          loc?: string | null
+          manufacturer?: string | null
+          med_desc?: string | null
+          meridian_desc?: string | null
+          mis_count_method?: string | null
+          mis_divisor?: number | null
+          ndc?: string | null
+          original_qty?: number | null
+          pack_cost?: number | null
+          pack_sz?: string | null
+          qty?: number | null
+          rec?: string | null
+          results?: string | null
+          scanned_ndc?: string | null
+          section_id: string
+          sheet_type?: string | null
+          size_txt?: string | null
+          source?: string | null
+          strength?: string | null
+          template_id: string
+          time?: string | null
+          trade?: string | null
+          unit_cost?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          additional_notes?: string | null
+          ahfs?: string | null
+          audit_criteria?: string | null
+          auditor_initials?: string | null
+          blank?: string | null
+          created_at?: string
+          dea_class?: string | null
+          device?: string | null
+          dose_form?: string | null
+          extended?: number | null
+          fda_size?: string | null
+          generic?: string | null
+          generic_code?: string | null
+          id?: string
+          item_number?: string | null
+          loc?: string | null
+          manufacturer?: string | null
+          med_desc?: string | null
+          meridian_desc?: string | null
+          mis_count_method?: string | null
+          mis_divisor?: number | null
+          ndc?: string | null
+          original_qty?: number | null
+          pack_cost?: number | null
+          pack_sz?: string | null
+          qty?: number | null
+          rec?: string | null
+          results?: string | null
+          scanned_ndc?: string | null
+          section_id?: string
+          sheet_type?: string | null
+          size_txt?: string | null
+          source?: string | null
+          strength?: string | null
+          template_id?: string
+          time?: string | null
+          trade?: string | null
+          unit_cost?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scan_records_section_id_fkey"
+            columns: ["section_id"]
+            isOneToOne: false
+            referencedRelation: "template_sections"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scan_records_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "data_templates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scan_records_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scheduled_jobs: {
         Row: {
           address: string | null

@@ -3,7 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff, Download, GripVertical, Eye, EyeOff, Settings2, FileUp } from 'lucide-react';
+import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff, Download, GripVertical, Eye, EyeOff, Settings2, FileUp, Cloud, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -875,6 +875,201 @@ const Scan = () => {
     }
   }, [selectedTemplate, sections]);
 
+  // State for cloud sync
+  const [isSyncingScans, setIsSyncingScans] = useState(false);
+  const [isExportingMerged, setIsExportingMerged] = useState(false);
+
+  // Sync local scans to cloud database
+  const syncScansToCloud = useCallback(async () => {
+    if (!selectedTemplate || !user?.id || !isOnline) {
+      toast.error('Must be online to sync scans');
+      return;
+    }
+
+    setIsSyncingScans(true);
+    try {
+      let totalSynced = 0;
+
+      for (const section of sections) {
+        const savedData = localStorage.getItem(`scan_records_${selectedTemplate.id}_${section.id}`);
+        if (!savedData) continue;
+
+        try {
+          const savedRecords = JSON.parse(savedData) as ScanRow[];
+          const validRecords = savedRecords.filter(r => r.ndc || r.scannedNdc);
+          
+          if (validRecords.length === 0) continue;
+
+          // Delete existing records for this user/template/section first
+          await supabase
+            .from('scan_records')
+            .delete()
+            .eq('template_id', selectedTemplate.id)
+            .eq('section_id', section.id)
+            .eq('user_id', user.id);
+
+          // Insert new records
+          const recordsToInsert = validRecords.map(r => ({
+            template_id: selectedTemplate.id,
+            section_id: section.id,
+            user_id: user.id,
+            loc: r.loc,
+            device: r.device,
+            rec: r.rec,
+            time: r.time,
+            ndc: r.ndc,
+            scanned_ndc: r.scannedNdc,
+            qty: r.qty,
+            mis_divisor: r.misDivisor,
+            mis_count_method: r.misCountMethod,
+            item_number: r.itemNumber,
+            med_desc: r.medDesc,
+            meridian_desc: r.meridianDesc,
+            trade: r.trade,
+            generic: r.generic,
+            strength: r.strength,
+            pack_sz: r.packSz,
+            fda_size: r.fdaSize,
+            size_txt: r.sizeTxt,
+            dose_form: r.doseForm,
+            manufacturer: r.manufacturer,
+            generic_code: r.genericCode,
+            dea_class: r.deaClass,
+            ahfs: r.ahfs,
+            source: r.source,
+            pack_cost: r.packCost,
+            unit_cost: r.unitCost,
+            extended: r.extended,
+            blank: r.blank,
+            sheet_type: r.sheetType,
+            audit_criteria: r.auditCriteria,
+            original_qty: r.originalQty,
+            auditor_initials: r.auditorInitials,
+            results: r.results,
+            additional_notes: r.additionalNotes,
+          }));
+
+          const { error } = await supabase
+            .from('scan_records')
+            .insert(recordsToInsert);
+
+          if (error) throw error;
+          totalSynced += validRecords.length;
+        } catch (e) {
+          console.error('Error syncing section:', section.id, e);
+        }
+      }
+
+      toast.success(`Synced ${totalSynced} scan records to cloud`);
+    } catch (error) {
+      console.error('Sync error:', error);
+      toast.error('Failed to sync scans to cloud');
+    } finally {
+      setIsSyncingScans(false);
+    }
+  }, [selectedTemplate, sections, user?.id, isOnline]);
+
+  // Export merged scans from all users to Excel
+  const exportMergedToExcel = useCallback(async () => {
+    if (!selectedTemplate || !isOnline) {
+      toast.error('Must be online to export merged scans');
+      return;
+    }
+
+    setIsExportingMerged(true);
+    try {
+      const workbook = XLSX.utils.book_new();
+
+      const headers = [
+        'LOC', 'Device', 'REC', 'TIME', 'NDC', 'Scanned NDC', 'QTY', 'MIS Divisor',
+        'MIS Count Method', 'Item Number', 'Med Desc', 'MERIDIAN DESC', 'TRADE',
+        'GENERIC', 'STRENGTH', 'PACK SZ', 'FDA SIZE', 'SIZE TXT', 'DOSE FORM',
+        'MANUFACTURER', 'GENERIC CODE', 'DEA CLASS', 'AHFS', 'SOURCE', 'Pack Cost',
+        'Unit Cost', 'Extended', '$-', 'Sheet Type', 'Audit Criteria', 'Original QTY',
+        'Auditor Initials', 'Results', 'Additional Notes'
+      ];
+
+      for (const section of sections) {
+        // Fetch ALL users' scan records for this template/section
+        const { data: cloudRecords, error } = await supabase
+          .from('scan_records')
+          .select('*')
+          .eq('template_id', selectedTemplate.id)
+          .eq('section_id', section.id)
+          .order('created_at', { ascending: true });
+
+        if (error) {
+          console.error('Error fetching cloud records:', error);
+          continue;
+        }
+
+        let rows: any[][] = [headers];
+
+        if (cloudRecords && cloudRecords.length > 0) {
+          cloudRecords.forEach(record => {
+            rows.push([
+              record.loc || '',
+              record.device || '',
+              record.rec || '',
+              record.time || '',
+              record.ndc || '',
+              record.scanned_ndc || '',
+              record.qty ?? '',
+              record.mis_divisor ?? '',
+              record.mis_count_method || '',
+              record.item_number || '',
+              record.med_desc || '',
+              record.meridian_desc || '',
+              record.trade || '',
+              record.generic || '',
+              record.strength || '',
+              record.pack_sz || '',
+              record.fda_size || '',
+              record.size_txt || '',
+              record.dose_form || '',
+              record.manufacturer || '',
+              record.generic_code || '',
+              record.dea_class || '',
+              record.ahfs || '',
+              record.source || '',
+              record.pack_cost ?? '',
+              record.unit_cost ?? '',
+              record.extended ?? '',
+              record.blank || '',
+              record.sheet_type || '',
+              record.audit_criteria || '',
+              record.original_qty ?? '',
+              record.auditor_initials || '',
+              record.results || '',
+              record.additional_notes || '',
+            ]);
+          });
+        }
+
+        const worksheet = XLSX.utils.aoa_to_sheet(rows);
+        worksheet['!cols'] = headers.map((_, i) => ({ wch: i === 10 || i === 11 ? 30 : 15 }));
+
+        let sheetName = section.full_section || section.sect || 'Sheet';
+        sheetName = sheetName.replace(/[\\/*?[\]:]/g, '-').substring(0, 31);
+
+        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+      }
+
+      const dateStr = selectedTemplate.inv_date 
+        ? new Date(selectedTemplate.inv_date).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0];
+      const filename = `${selectedTemplate.name}_${dateStr}_merged_scan.xlsx`;
+
+      XLSX.writeFile(workbook, filename);
+      toast.success(`Exported merged scans from all users to Excel`);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export merged scans');
+    } finally {
+      setIsExportingMerged(false);
+    }
+  }, [selectedTemplate, sections, isOnline]);
+
   const formatCurrency = (value: number | null) => {
     if (value === null) return '';
     return `$${value.toFixed(2)}`;
@@ -1315,6 +1510,40 @@ const Scan = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
               
+              {/* Sync to Cloud button */}
+              {isOnline && (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={syncScansToCloud}
+                  disabled={isSyncingScans || sections.length === 0}
+                >
+                  {isSyncingScans ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <Cloud className="h-4 w-4 mr-1" />
+                  )}
+                  Sync to Cloud
+                </Button>
+              )}
+              
+              {/* Export Merged button - gets all users' scans */}
+              {isOnline && (
+                <Button 
+                  variant="default" 
+                  size="sm"
+                  onClick={exportMergedToExcel}
+                  disabled={isExportingMerged || sections.length === 0}
+                >
+                  {isExportingMerged ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-1" />
+                  )}
+                  Export Merged
+                </Button>
+              )}
+              
               <Button 
                 variant="outline" 
                 size="sm"
@@ -1322,7 +1551,7 @@ const Scan = () => {
                 disabled={sections.length === 0}
               >
                 <FileUp className="h-4 w-4 mr-1" />
-                Export Excel
+                Export My Scans
               </Button>
               
               <Button 
