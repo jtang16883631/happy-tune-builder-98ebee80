@@ -3,11 +3,14 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X } from 'lucide-react';
+import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useCloudTemplates, CloudTemplate, CloudSection, TemplateStatus } from '@/hooks/useCloudTemplates';
+import { useOfflineTemplates, OfflineTemplate } from '@/hooks/useOfflineTemplates';
 import { useLocalFDA } from '@/hooks/useLocalFDA';
+import { SyncButton } from '@/components/scanner/SyncButton';
+import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import {
   DropdownMenu,
@@ -66,15 +69,37 @@ interface ScanRow {
 const Scan = () => {
   const { isLoading: authLoading, roles } = useAuth();
   const navigate = useNavigate();
+  
+  // Cloud templates (primary when online)
   const { 
-    templates,
+    templates: cloudTemplates,
     isLoading: templatesLoading,
-    getCostItemByNDC,
-    getSections,
-    updateTemplateStatus
+    getCostItemByNDC: cloudGetCostItemByNDC,
+    getSections: cloudGetSections,
+    updateTemplateStatus: cloudUpdateTemplateStatus
   } = useCloudTemplates();
   
+  // Offline templates (for offline mode)
+  const {
+    templates: offlineTemplates,
+    isLoading: offlineLoading,
+    isOnline,
+    isSyncing,
+    syncMeta,
+    pendingChanges,
+    syncWithCloud,
+    getCostItemByNDC: offlineGetCostItemByNDC,
+    getSections: offlineGetSections,
+    updateTemplateStatus: offlineUpdateTemplateStatus,
+  } = useOfflineTemplates();
+  
   const { lookupNDC: fdaLookup } = useLocalFDA();
+
+  // Use cloud templates when online, offline templates when offline
+  const templates = isOnline ? cloudTemplates : offlineTemplates as unknown as CloudTemplate[];
+  const getCostItemByNDC = isOnline ? cloudGetCostItemByNDC : offlineGetCostItemByNDC as typeof cloudGetCostItemByNDC;
+  const getSections = isOnline ? cloudGetSections : offlineGetSections as typeof cloudGetSections;
+  const updateTemplateStatus = isOnline ? cloudUpdateTemplateStatus : offlineUpdateTemplateStatus as typeof cloudUpdateTemplateStatus;
 
   const [selectedTemplate, setSelectedTemplate] = useState<CloudTemplate | null>(null);
   const [sections, setSections] = useState<CloudSection[]>([]);
@@ -622,7 +647,7 @@ const Scan = () => {
     return `$${value.toFixed(2)}`;
   };
 
-  if (authLoading || templatesLoading) {
+  if (authLoading || templatesLoading || offlineLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -684,7 +709,18 @@ const Scan = () => {
     return (
       <AppLayout>
         <div className="space-y-8">
-          <div className="text-center py-4">
+          <div className="text-center py-4 relative">
+            {/* Sync button in top right */}
+            <div className="absolute right-0 top-0">
+              <SyncButton
+                isOnline={isOnline}
+                isSyncing={isSyncing}
+                pendingChanges={pendingChanges}
+                lastSyncedAt={syncMeta.lastSyncedAt}
+                onSync={syncWithCloud}
+              />
+            </div>
+            
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 mb-4">
               <ScanBarcode className="h-7 w-7 text-primary" />
             </div>
@@ -692,6 +728,14 @@ const Scan = () => {
             <p className="text-muted-foreground mt-2 max-w-md mx-auto">
               Select a data template to start scanning inventory
             </p>
+            
+            {/* Offline indicator */}
+            {!isOnline && (
+              <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 text-amber-600 rounded-full text-sm">
+                <CloudOff className="h-4 w-4" />
+                <span>Offline Mode - Data saved locally</span>
+              </div>
+            )}
           </div>
 
           {sortedTemplates.length === 0 ? (
