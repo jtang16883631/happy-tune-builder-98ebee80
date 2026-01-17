@@ -221,6 +221,15 @@ export function useCloudTemplates() {
 
         const templateId = templateData.id;
 
+        // In bulk mode we optimistically add the template so UI shows all created items
+        // even if a later refetch fails due to auth/token/network issues.
+        if (skipRefetch) {
+          setTemplates((prev) => {
+            if (prev.some((t) => t.id === templateId)) return prev;
+            return [templateData as CloudTemplate, ...prev];
+          });
+        }
+
         // Insert sections
         if (sections.length > 0) {
           const sectionInserts = sections.map((s) => ({

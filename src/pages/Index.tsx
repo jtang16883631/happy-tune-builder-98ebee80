@@ -306,7 +306,7 @@ const Index = () => {
     toast({
       title: failed > 0 ? 'Import finished with errors' : 'Import complete',
       description: `${successful} templates created, ${failed} failed.`,
-      variant: failed > 0 ? 'destructive' : 'default',
+      ...(failed > 0 ? { variant: 'destructive' as const } : {}),
     });
 
     if (bulkInputRef.current) {
