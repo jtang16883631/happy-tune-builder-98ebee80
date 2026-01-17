@@ -5,13 +5,16 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { LogOut, Users, ScanBarcode, FolderOpen, Pill, LayoutDashboard, CalendarDays, Clock, PanelLeftClose, PanelLeft, Radio, ClipboardList, AlertTriangle, HardDrive, FileText, Database } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { AnnouncementBell } from '@/components/announcements/AnnouncementBell';
+import { ProfileCompletionDialog } from '@/components/profile/ProfileCompletionDialog';
+import { useProfileCompletion } from '@/hooks/useProfileCompletion';
 
 interface AppLayoutProps {
   children: ReactNode;
   fullWidth?: boolean;
 }
 
-type AppRole = 'auditor' | 'developer' | 'coordinator' | 'owner';
+type AppRole = 'auditor' | 'developer' | 'coordinator' | 'owner' | 'office_admin';
 
 interface NavItem {
   href: string;
@@ -64,6 +67,7 @@ export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
   const { user, roles, isPrivileged, signOut } = useAuth();
   const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { needsCompletion, isChecking, markCompleted } = useProfileCompletion();
 
   const getInitials = (name?: string | null) => {
     if (!name) return 'U';
@@ -78,6 +82,7 @@ export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
   const getRoleLabel = () => {
     if (roles.includes('owner')) return 'Owner';
     if (roles.includes('developer')) return 'Developer';
+    if (roles.includes('office_admin')) return 'Office Admin';
     if (roles.includes('coordinator')) return 'Coordinator';
     if (roles.includes('auditor')) return 'Auditor';
     return null;
@@ -95,7 +100,11 @@ export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
   const visibleSections = getVisibleSections();
 
   return (
-    <div className="min-h-screen flex bg-background">
+    <>
+      {/* Profile Completion Dialog */}
+      <ProfileCompletionDialog open={needsCompletion && !isChecking} onComplete={markCompleted} />
+      
+      <div className="min-h-screen flex bg-background">
       {/* Left Sidebar */}
       <aside 
         className={cn(
@@ -196,6 +205,11 @@ export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
         "flex-1 transition-all duration-300",
         sidebarCollapsed ? "ml-0" : "ml-56"
       )}>
+        {/* Top Right Controls */}
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
+          <AnnouncementBell />
+        </div>
+        
         {/* Toggle Button */}
         <Button
           variant="ghost"
@@ -218,5 +232,6 @@ export function AppLayout({ children, fullWidth = false }: AppLayoutProps) {
         <main className={cn("p-6 pt-16", fullWidth ? "" : "max-w-7xl mx-auto")}>{children}</main>
       </div>
     </div>
+    </>
   );
 }
