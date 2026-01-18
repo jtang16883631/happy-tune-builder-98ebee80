@@ -180,7 +180,7 @@ const Index = () => {
       }
     }
 
-    // 稳定排序，保证顺序可预测
+    // Stable sort for predictable order
     return groups.sort((a, b) => a.name.localeCompare(b.name));
   };
 
@@ -188,11 +188,11 @@ const Index = () => {
     const files = event.target.files;
     if (!files || files.length === 0) return;
 
-    // 先刷新一次session，避免中途JWT过期导致第二组直接失败
+    // Refresh session first to avoid JWT expiration during upload
     try {
       await supabase.auth.refreshSession();
     } catch {
-      // ignore - 如果离线等原因失败，后续会在请求时报错
+      // ignore - if offline or other failure, error will show during request
     }
 
     const groups = groupFiles(files);
@@ -243,10 +243,10 @@ const Index = () => {
         }));
       });
 
-      // 让浏览器有机会渲染进度条（避免React 18批处理导致一直0）
+      // Give browser a chance to render progress bar (avoid React 18 batching causing stuck at 0)
       await new Promise((r) => setTimeout(r, 0));
 
-      // 每组开始前再刷新一次，防止长时间导入时JWT过期
+      // Refresh session before each group to prevent JWT expiration during long imports
       try {
         const { data } = await supabase.auth.refreshSession();
         if (!data.session) {

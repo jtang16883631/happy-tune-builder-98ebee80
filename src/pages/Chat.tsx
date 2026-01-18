@@ -271,7 +271,7 @@ const Chat = () => {
     if (!newRoomName.trim()) return;
 
     if (!db || !session?.user?.id) {
-      toast.error('请先登录后再创建聊天室');
+      toast.error('Please sign in to create a chat room');
       navigate('/auth');
       return;
     }

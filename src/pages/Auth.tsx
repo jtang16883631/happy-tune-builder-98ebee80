@@ -44,7 +44,7 @@ const Auth = () => {
             <ClipboardCheck className="h-8 w-8" />
           </div>
           <div>
-            <CardTitle className="text-2xl font-bold">Hospital Audit Scanner</CardTitle>
+            <CardTitle className="text-2xl font-bold">Meridian Portal</CardTitle>
             <CardDescription className="text-muted-foreground mt-2">
               Sign in to access the audit system
             </CardDescription>

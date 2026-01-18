@@ -178,14 +178,14 @@ export function TimesheetEntryDialog({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["timesheet-entries"] });
       toast({
-        title: isEditing ? "已更新" : "已添加",
-        description: `工时记录已${isEditing ? "更新" : "添加"}成功`,
+        title: isEditing ? "Updated" : "Added",
+        description: `Time entry has been ${isEditing ? "updated" : "added"} successfully`,
       });
       onOpenChange(false);
     },
     onError: (error) => {
       toast({
-        title: "保存失败",
+        title: "Failed to save",
         description: error.message,
         variant: "destructive",
       });
@@ -200,7 +200,7 @@ export function TimesheetEntryDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEditing ? "编辑工时" : "添加工时"}</DialogTitle>
+          <DialogTitle>{isEditing ? "Edit Time Entry" : "Add Time Entry"}</DialogTitle>
         </DialogHeader>
 
         <Form {...form}>
@@ -210,7 +210,7 @@ export function TimesheetEntryDialog({
               name="work_date"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>日期</FormLabel>
+                  <FormLabel>Date</FormLabel>
                   <FormControl>
                     <Input type="date" {...field} />
                   </FormControl>
@@ -224,11 +224,11 @@ export function TimesheetEntryDialog({
               name="team_member_id"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>团队成员</FormLabel>
+                  <FormLabel>Team Member</FormLabel>
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="选择团队成员（可选）" />
+                        <SelectValue placeholder="Select team member (optional)" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -250,7 +250,7 @@ export function TimesheetEntryDialog({
                 name="start_time"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>开始时间</FormLabel>
+                    <FormLabel>Start Time</FormLabel>
                     <FormControl>
                       <Input type="time" {...field} />
                     </FormControl>
@@ -264,7 +264,7 @@ export function TimesheetEntryDialog({
                 name="end_time"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>结束时间</FormLabel>
+                    <FormLabel>End Time</FormLabel>
                     <FormControl>
                       <Input type="time" {...field} />
                     </FormControl>
@@ -280,7 +280,7 @@ export function TimesheetEntryDialog({
                 name="break_minutes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>休息时间（分钟）</FormLabel>
+                    <FormLabel>Break (minutes)</FormLabel>
                     <FormControl>
                       <Input type="number" min="0" {...field} />
                     </FormControl>
@@ -294,7 +294,7 @@ export function TimesheetEntryDialog({
                 name="hours_worked"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>工作时长（小时）</FormLabel>
+                    <FormLabel>Hours Worked</FormLabel>
                     <FormControl>
                       <Input type="number" step="0.25" min="0" {...field} />
                     </FormControl>
@@ -309,9 +309,9 @@ export function TimesheetEntryDialog({
               name="client_name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>客户/项目名称</FormLabel>
+                  <FormLabel>Client/Project Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="输入客户或项目名称" {...field} />
+                    <Input placeholder="Enter client or project name" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -323,10 +323,10 @@ export function TimesheetEntryDialog({
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>备注</FormLabel>
+                  <FormLabel>Notes</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="工作内容描述..."
+                      placeholder="Work description..."
                       className="resize-none"
                       {...field}
                     />
@@ -342,10 +342,10 @@ export function TimesheetEntryDialog({
                 variant="outline"
                 onClick={() => onOpenChange(false)}
               >
-                取消
+                Cancel
               </Button>
               <Button type="submit" disabled={mutation.isPending}>
-                {mutation.isPending ? "保存中..." : "保存"}
+                {mutation.isPending ? "Saving..." : "Save"}
               </Button>
             </div>
           </form>

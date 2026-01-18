@@ -257,7 +257,7 @@ const Scan = () => {
     const hasMedDesc = row.medDesc && row.medDesc.trim() !== '';
     const hasMeridianDesc = row.meridianDesc && row.meridianDesc.trim() !== '';
     if (!hasMedDesc && !hasMeridianDesc) {
-      errors.push('Med Desc 或 MERIDIAN DESC (至少一个)');
+      errors.push('Med Desc or MERIDIAN DESC (at least one)');
     }
     
     return { valid: errors.length === 0, errors };
@@ -374,7 +374,7 @@ const Scan = () => {
   // Add new section
   const handleAddSection = async () => {
     if (!selectedTemplate || !newSectionCode.trim()) {
-      toast.error('请输入Section代码');
+      toast.error('Please enter a Section code');
       return;
     }
 
@@ -393,20 +393,20 @@ const Scan = () => {
 
       if (error) throw error;
 
-      toast.success('Section添加成功');
+      toast.success('Section added successfully');
       setAddSectionDialogOpen(false);
       setNewSectionCode('');
       setNewSectionDesc('');
       await loadSections(selectedTemplate.id);
     } catch (err: any) {
-      toast.error('添加失败: ' + err.message);
+      toast.error('Failed to add: ' + err.message);
     }
   };
 
   // Rename section (update description)
   const handleRenameSection = async () => {
     if (!editingSectionId || !editingSectionDesc.trim()) {
-      toast.error('请输入描述');
+      toast.error('Please enter a description');
       return;
     }
 
@@ -453,7 +453,7 @@ const Scan = () => {
         }
       }
 
-      toast.success('Section更新成功');
+      toast.success('Section updated successfully');
       setRenameSectionDialogOpen(false);
       setEditingSectionId(null);
       setEditingSectionDesc('');
@@ -470,7 +470,7 @@ const Scan = () => {
         }
       }
     } catch (err: any) {
-      toast.error('更新失败: ' + err.message);
+      toast.error('Failed to update: ' + err.message);
     }
   };
 
@@ -681,8 +681,8 @@ const Scan = () => {
         const prevRow = scanRows[rowIndex - 1];
         const { valid, errors } = validateRow(prevRow);
         if (!valid) {
-          toast.error('请先完成上一行的必填项', {
-            description: `缺少: ${errors.join(', ')}`,
+          toast.error('Please complete the required fields in the previous row', {
+            description: `Missing: ${errors.join(', ')}`,
             duration: 5000,
           });
           return; // Block scanning
@@ -714,8 +714,8 @@ const Scan = () => {
       const { valid, errors } = validateRow(currentRow);
       
       if (!valid) {
-        toast.error('请先完成当前行的必填项', {
-          description: `缺少: ${errors.join(', ')}`,
+        toast.error('Please complete the required fields in the current row', {
+          description: `Missing: ${errors.join(', ')}`,
           duration: 5000,
         });
         return; // Block moving to next row
@@ -751,8 +751,8 @@ const Scan = () => {
       const lastFilledRow = scanRows[lastFilledRowIndex];
       const { valid, errors } = validateRow(lastFilledRow);
       if (!valid) {
-        toast.error('请先完成当前行的必填项', {
-          description: `缺少: ${errors.join(', ')}`,
+        toast.error('Please complete the required fields in the current row', {
+          description: `Missing: ${errors.join(', ')}`,
           duration: 5000,
         });
         return; // Block adding new row
@@ -1166,8 +1166,8 @@ const Scan = () => {
       const { valid, errors } = validateRow(currentRow);
       
       if (!valid) {
-        toast.error('请先完成当前行的必填项', {
-          description: `缺少: ${errors.join(', ')}`,
+        toast.error('Please complete the required fields in the current row', {
+          description: `Missing: ${errors.join(', ')}`,
           duration: 5000,
         });
         return;
@@ -1600,7 +1600,7 @@ const Scan = () => {
           <Card className="border-warning bg-warning/10">
             <CardContent className="py-3 flex items-center gap-2">
               <AlertCircle className="h-4 w-4 text-warning" />
-              <span className="text-sm">请先选择一个Section才能开始扫描</span>
+              <span className="text-sm">Please select a Section first to start scanning</span>
             </CardContent>
           </Card>
         )}
@@ -1864,21 +1864,21 @@ const Scan = () => {
       <Dialog open={addSectionDialogOpen} onOpenChange={setAddSectionDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>添加新Section</DialogTitle>
+            <DialogTitle>Add New Section</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Section代码</label>
+              <label className="text-sm font-medium">Section Code</label>
               <Input
-                placeholder="例如: 0001"
+                placeholder="e.g., 0001"
                 value={newSectionCode}
                 onChange={(e) => setNewSectionCode(e.target.value)}
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">描述</label>
+              <label className="text-sm font-medium">Description</label>
               <Input
-                placeholder="例如: Topicals-EENT"
+                placeholder="e.g., Topicals-EENT"
                 value={newSectionDesc}
                 onChange={(e) => setNewSectionDesc(e.target.value)}
               />
@@ -1886,11 +1886,11 @@ const Scan = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddSectionDialogOpen(false)}>
-              取消
+              Cancel
             </Button>
             <Button onClick={handleAddSection}>
               <Plus className="h-4 w-4 mr-1" />
-              添加
+              Add
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1900,11 +1900,11 @@ const Scan = () => {
       <Dialog open={renameSectionDialogOpen} onOpenChange={setRenameSectionDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>修改Section描述</DialogTitle>
+            <DialogTitle>Edit Section Description</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">Section代码</label>
+              <label className="text-sm font-medium">Section Code</label>
               <Input
                 value={sections.find(s => s.id === editingSectionId)?.sect || ''}
                 disabled
@@ -1912,9 +1912,9 @@ const Scan = () => {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">描述</label>
+              <label className="text-sm font-medium">Description</label>
               <Input
-                placeholder="例如: Topicals-EENT"
+                placeholder="e.g., Topicals-EENT"
                 value={editingSectionDesc}
                 onChange={(e) => setEditingSectionDesc(e.target.value)}
               />
@@ -1922,11 +1922,11 @@ const Scan = () => {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRenameSectionDialogOpen(false)}>
-              取消
+              Cancel
             </Button>
             <Button onClick={handleRenameSection}>
               <Check className="h-4 w-4 mr-1" />
-              保存
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>

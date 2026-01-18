@@ -55,10 +55,10 @@ export function TimesheetDayView({
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <Clock className="h-12 w-12 text-muted-foreground/50 mb-4" />
-        <p className="text-muted-foreground mb-4">今天还没有工时记录</p>
+        <p className="text-muted-foreground mb-4">No time entries for today</p>
         <Button onClick={onAdd} variant="outline" className="gap-2">
           <Plus className="h-4 w-4" />
-          添加第一条记录
+          Add First Entry
         </Button>
       </div>
     );
@@ -69,10 +69,10 @@ export function TimesheetDayView({
       {/* Summary bar */}
       <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
         <span className="text-sm text-muted-foreground">
-          共 {entries.length} 条记录
+          {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
         </span>
         <span className="font-medium text-primary">
-          总计: {totalHours.toFixed(1)} 小时
+          Total: {totalHours.toFixed(1)} hours
         </span>
       </div>
 
@@ -104,7 +104,7 @@ export function TimesheetDayView({
 
                     {/* Hours */}
                     <span className="font-semibold text-lg">
-                      {Number(entry.hours_worked).toFixed(1)} 小时
+                      {Number(entry.hours_worked).toFixed(1)} hours
                     </span>
                   </div>
 
@@ -131,7 +131,7 @@ export function TimesheetDayView({
                   {/* Break time */}
                   {entry.break_minutes && entry.break_minutes > 0 && (
                     <div className="text-xs text-muted-foreground">
-                      休息: {entry.break_minutes} 分钟
+                      Break: {entry.break_minutes} min
                     </div>
                   )}
 

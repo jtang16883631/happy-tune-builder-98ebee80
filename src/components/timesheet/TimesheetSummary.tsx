@@ -1,7 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Clock, TrendingUp, Calendar } from "lucide-react";
-import { format } from "date-fns";
-import { zhCN } from "date-fns/locale";
 
 interface TimesheetEntry {
   id: string;
@@ -29,7 +27,7 @@ export function TimesheetSummary({
 
   // Group by client
   const hoursByClient = entries.reduce((acc, entry) => {
-    const client = entry.client_name || "未指定";
+    const client = entry.client_name || "Unspecified";
     acc[client] = (acc[client] || 0) + Number(entry.hours_worked);
     return acc;
   }, {} as Record<string, number>);
@@ -39,16 +37,16 @@ export function TimesheetSummary({
     .slice(0, 5);
 
   const viewModeLabels = {
-    day: "今日",
-    week: "本周",
-    month: "本月",
+    day: "Today",
+    week: "This Week",
+    month: "This Month",
   };
 
   return (
     <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">
-          {viewModeLabels[viewMode]}统计
+          {viewModeLabels[viewMode]} Summary
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -59,7 +57,7 @@ export function TimesheetSummary({
           </div>
           <div>
             <p className="text-2xl font-bold">{totalHours.toFixed(1)}</p>
-            <p className="text-xs text-muted-foreground">总工时（小时）</p>
+            <p className="text-xs text-muted-foreground">Total Hours</p>
           </div>
         </div>
 
@@ -71,7 +69,7 @@ export function TimesheetSummary({
             </div>
             <div>
               <p className="text-lg font-semibold">{avgHoursPerDay.toFixed(1)}</p>
-              <p className="text-xs text-muted-foreground">日均工时</p>
+              <p className="text-xs text-muted-foreground">Avg Hours/Day</p>
             </div>
           </div>
         )}
@@ -84,7 +82,7 @@ export function TimesheetSummary({
             </div>
             <div>
               <p className="text-lg font-semibold">{uniqueDays}</p>
-              <p className="text-xs text-muted-foreground">工作天数</p>
+              <p className="text-xs text-muted-foreground">Work Days</p>
             </div>
           </div>
         )}
@@ -92,7 +90,7 @@ export function TimesheetSummary({
         {/* By client/project */}
         {sortedClients.length > 0 && (
           <div className="pt-2 border-t">
-            <p className="text-xs text-muted-foreground mb-2">按客户/项目</p>
+            <p className="text-xs text-muted-foreground mb-2">By Client/Project</p>
             <div className="space-y-2">
               {sortedClients.map(([client, hours]) => {
                 const percentage = (hours / totalHours) * 100;
