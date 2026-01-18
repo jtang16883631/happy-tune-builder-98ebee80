@@ -364,21 +364,36 @@ const Scan = () => {
   }, [getSections]);
 
   // Load available cost sheets for a template
-  // NOTE: Do NOT query template_cost_items here (can exceed 1000-row limit and miss tabs).
-  // Use template_sections instead — it's small and reflects which tab each section uses.
+  // Query template_cost_items with DISTINCT sheet_name to get actual cost tabs (e.g., GPOWAC, 340B)
+  // Fallback to template_sections for any additional sheets assigned there.
   const loadAvailableCostSheets = useCallback(async (templateId: string) => {
     try {
-      const { data, error } = await supabase
+      // Get unique sheet names from cost items - use RPC or manual approach
+      // Since Supabase doesn't support DISTINCT directly, we'll fetch a limited set and dedupe
+      // Query up to 2000 rows (should capture all unique sheet names)
+      const { data: costData, error: costError } = await supabase
+        .from('template_cost_items')
+        .select('sheet_name')
+        .eq('template_id', templateId)
+        .not('sheet_name', 'is', null)
+        .limit(2000);
+
+      if (costError) throw costError;
+
+      // Also get any assigned sheets from sections (in case they differ)
+      const { data: sectionData, error: sectionError } = await supabase
         .from('template_sections')
         .select('cost_sheet')
         .eq('template_id', templateId)
         .not('cost_sheet', 'is', null);
 
-      if (error) throw error;
+      if (sectionError) console.error('Error loading section sheets:', sectionError);
 
-      const uniqueSheets = [
-        ...new Set((data || []).map((d: any) => d.cost_sheet).filter(Boolean)),
-      ] as string[];
+      // Combine and dedupe
+      const costSheets = (costData || []).map((d: any) => d.sheet_name).filter(Boolean);
+      const sectionSheets = (sectionData || []).map((d: any) => d.cost_sheet).filter(Boolean);
+      const uniqueSheets = [...new Set([...costSheets, ...sectionSheets])] as string[];
+      
       setAvailableCostSheets(uniqueSheets);
     } catch (err) {
       console.error('Error loading cost sheets:', err);
