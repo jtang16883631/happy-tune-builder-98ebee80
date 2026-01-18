@@ -314,35 +314,40 @@ export function useOfflineTemplates() {
   }, [db]);
 
   // Get cost item by NDC
-  const getCostItemByNDC = useCallback(async (templateId: string, ndc: string): Promise<OfflineCostItem | null> => {
-    if (!db) return null;
+  // sheetName is accepted for API compatibility with cloud mode; offline storage currently
+  // doesn't track cost tabs, so we ignore it.
+  const getCostItemByNDC = useCallback(
+    async (templateId: string, ndc: string, _sheetName?: string | null): Promise<OfflineCostItem | null> => {
+      if (!db) return null;
 
-    try {
-      const cleanNdc = ndc.replace(/\D/g, '');
-      const results = db.exec(`
-        SELECT id, template_id, ndc, material_description, unit_price, source, material
-        FROM cost_items
-        WHERE template_id = ? AND (ndc = ? OR ndc = ?)
-        LIMIT 1
-      `, [templateId, cleanNdc, ndc]);
+      try {
+        const cleanNdc = ndc.replace(/\D/g, '');
+        const results = db.exec(`
+          SELECT id, template_id, ndc, material_description, unit_price, source, material
+          FROM cost_items
+          WHERE template_id = ? AND (ndc = ? OR ndc = ?)
+          LIMIT 1
+        `, [templateId, cleanNdc, ndc]);
 
-      if (results.length === 0 || results[0].values.length === 0) return null;
+        if (results.length === 0 || results[0].values.length === 0) return null;
 
-      const row = results[0].values[0];
-      return {
-        id: row[0] as string,
-        template_id: row[1] as string,
-        ndc: row[2] as string | null,
-        material_description: row[3] as string | null,
-        unit_price: row[4] as number | null,
-        source: row[5] as string | null,
-        material: row[6] as string | null,
-      };
-    } catch (err) {
-      console.error('Get cost item error:', err);
-      return null;
-    }
-  }, [db]);
+        const row = results[0].values[0];
+        return {
+          id: row[0] as string,
+          template_id: row[1] as string,
+          ndc: row[2] as string | null,
+          material_description: row[3] as string | null,
+          unit_price: row[4] as number | null,
+          source: row[5] as string | null,
+          material: row[6] as string | null,
+        };
+      } catch (err) {
+        console.error('Get cost item error:', err);
+        return null;
+      }
+    },
+    [db]
+  );
 
   // Get list of synced template cloud IDs
   const getSyncedTemplateIds = useCallback((): string[] => {

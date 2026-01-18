@@ -363,17 +363,21 @@ const Scan = () => {
   }, [getSections]);
 
   // Load available cost sheets for a template
+  // NOTE: Do NOT query template_cost_items here (can exceed 1000-row limit and miss tabs).
+  // Use template_sections instead — it's small and reflects which tab each section uses.
   const loadAvailableCostSheets = useCallback(async (templateId: string) => {
     try {
       const { data, error } = await supabase
-        .from('template_cost_items')
-        .select('sheet_name')
+        .from('template_sections')
+        .select('cost_sheet')
         .eq('template_id', templateId)
-        .not('sheet_name', 'is', null);
-      
+        .not('cost_sheet', 'is', null);
+
       if (error) throw error;
-      
-      const uniqueSheets = [...new Set((data || []).map(d => d.sheet_name).filter(Boolean))] as string[];
+
+      const uniqueSheets = [
+        ...new Set((data || []).map((d: any) => d.cost_sheet).filter(Boolean)),
+      ] as string[];
       setAvailableCostSheets(uniqueSheets);
     } catch (err) {
       console.error('Error loading cost sheets:', err);
@@ -543,8 +547,8 @@ const Scan = () => {
 
     const cleanNdc = ndc.replace(/-/g, '');
     const fdaResult = fdaLookup(cleanNdc);
-    const costItem = await getCostItemByNDC(selectedTemplate.id, cleanNdc);
-    
+    const costItem = await getCostItemByNDC(selectedTemplate.id, cleanNdc, selectedSection?.cost_sheet ?? null);
+
     // MIS Count Method from FDA Column P (count_method)
     const misCountMethod = fdaResult?.count_method || '';
     

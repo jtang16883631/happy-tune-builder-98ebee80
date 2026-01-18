@@ -24,6 +24,7 @@ export interface CloudSection {
   sect: string;
   description: string | null;
   full_section: string | null;
+  cost_sheet?: string | null;
   created_at: string;
 }
 
@@ -462,15 +463,22 @@ export function useCloudTemplates() {
   }, []);
 
   // Get cost item by NDC - returns first match by import order (VLOOKUP logic)
+  // If sheetName is provided, we ONLY search within that cost tab.
   const getCostItemByNDC = useCallback(
-    async (templateId: string, ndc: string): Promise<CloudCostItem | null> => {
+    async (templateId: string, ndc: string, sheetName?: string | null): Promise<CloudCostItem | null> => {
       const cleanNdc = ndc.replace(/\D/g, '');
-      
-      const { data, error } = await supabase
+
+      let query = supabase
         .from('template_cost_items')
         .select('*')
         .eq('template_id', templateId)
-        .or(`ndc.eq.${cleanNdc},ndc.eq.${ndc}`)
+        .or(`ndc.eq.${cleanNdc},ndc.eq.${ndc}`);
+
+      if (sheetName) {
+        query = query.eq('sheet_name', sheetName);
+      }
+
+      const { data, error } = await query
         .order('created_at', { ascending: true }) // First imported = first match (VLOOKUP logic)
         .limit(1)
         .maybeSingle();
