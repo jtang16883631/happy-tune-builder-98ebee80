@@ -66,6 +66,7 @@ const navSections: NavSection[] = [
   {
     title: 'COMMUNICATION',
     items: [
+      { href: '/chat', label: 'Team Chat', icon: MessageSquare, roles: allRoles },
       { href: '/schedule', label: 'Schedule Hub', icon: CalendarDays, roles: allRoles },
     ],
   },
