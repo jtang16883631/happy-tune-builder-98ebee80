@@ -28,6 +28,7 @@ export interface TemplateSection {
   sect: string;
   description: string;
   full_section: string; // e.g., "0001-Topicals-EENT"
+  cost_sheet: string | null; // e.g., "GPO", "340B"
 }
 
 export interface ScanRecord {
@@ -54,6 +55,7 @@ export interface TemplateCostItem {
   strength: string | null;
   size: string | null;
   dose: string | null;
+  sheet_name: string | null; // Which tab/sheet this cost item came from
 }
 
 // IndexedDB helpers
@@ -141,6 +143,7 @@ export function useDataTemplates() {
               sect TEXT NOT NULL,
               description TEXT,
               full_section TEXT,
+              cost_sheet TEXT,
               FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
             );
             
@@ -158,6 +161,7 @@ export function useDataTemplates() {
               strength TEXT,
               size TEXT,
               dose TEXT,
+              sheet_name TEXT,
               FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
             );
             
@@ -231,12 +235,12 @@ export function useDataTemplates() {
     invDate: string | null; 
     invNumber: string | null; 
     facilityName: string | null; 
-    sections: { sect: string; description: string }[] 
+    sections: { sect: string; description: string; costSheet: string | null }[] 
   } => {
     let invDate: string | null = null;
     let invNumber: string | null = null;
     let facilityName: string | null = null;
-    const sections: { sect: string; description: string }[] = [];
+    const sections: { sect: string; description: string; costSheet: string | null }[] = [];
 
     // Scan raw data for metadata (like Python's applymap approach)
     for (let r = 0; r < rawData.length; r++) {
@@ -289,20 +293,23 @@ export function useDataTemplates() {
     }
 
     if (sectionListRowIndex >= 0) {
-      // Find header row with "sect" and "description" (within 30 rows)
+      // Find header row with "sect", "description", and optionally "cost sheet" (within 30 rows)
       let headerRowIndex = -1;
       let sectCol = 0;
       let descCol = 1;
+      let costSheetCol = -1;
 
       for (let r = sectionListRowIndex; r < Math.min(sectionListRowIndex + 30, rawData.length); r++) {
         const rowLower = rawData[r].map(c => String(c || '').toLowerCase());
         const sectIdx = rowLower.findIndex(v => v.includes('sect'));
         const descIdx = rowLower.findIndex(v => v.includes('description'));
+        const costSheetIdx = rowLower.findIndex(v => v.includes('cost') && v.includes('sheet'));
         
         if (sectIdx >= 0 && descIdx >= 0) {
           headerRowIndex = r;
           sectCol = sectIdx;
           descCol = descIdx;
+          costSheetCol = costSheetIdx;
           break;
         }
       }
@@ -315,6 +322,7 @@ export function useDataTemplates() {
       for (let r = headerRowIndex + 1; r < rawData.length; r++) {
         const sectRaw = String(rawData[r][sectCol] || '').trim();
         const descRaw = String(rawData[r][descCol] || '').trim();
+        const costSheetRaw = costSheetCol >= 0 ? String(rawData[r][costSheetCol] || '').trim() : null;
 
         // Stop only when BOTH are blank
         if (!sectRaw && !descRaw) {
@@ -337,23 +345,24 @@ export function useDataTemplates() {
         sections.push({
           sect: paddedSect || sectRaw,
           description: descRaw,
+          costSheet: costSheetRaw || null,
         });
       }
     }
 
     // Fallback: if no sections found, add a default
     if (sections.length === 0) {
-      sections.push({ sect: '0000', description: 'Default' });
+      sections.push({ sect: '0000', description: 'Default', costSheet: null });
     }
 
     return { invDate, invNumber, facilityName, sections };
   };
 
   // Import a template pair (cost data + job ticket)
+  // costSheets is an array of { rows, sheetName } to support multiple cost data tabs
   const importTemplate = useCallback(async (
     templateName: string,
-    costRows: any[],
-    jobTicketRows: any[],
+    costSheets: { rows: any[]; sheetName: string }[],
     jobTicketRawData: any[][],
     costFileName: string,
     jobTicketFileName: string
@@ -362,7 +371,7 @@ export function useDataTemplates() {
 
     try {
       // Parse job ticket with raw data for cell scanning
-      const { invDate, invNumber, facilityName, sections } = parseJobTicket(jobTicketRows, jobTicketRawData);
+      const { invDate, invNumber, facilityName, sections } = parseJobTicket([], jobTicketRawData);
 
       // Check if template already exists
       const existing = db.exec(`SELECT id FROM templates WHERE name = ?`, [templateName]);
@@ -380,42 +389,45 @@ export function useDataTemplates() {
       const result = db.exec(`SELECT last_insert_rowid()`);
       const templateId = result[0].values[0][0] as number;
 
-      // Insert sections
+      // Insert sections with cost sheet mapping
       const sectionStmt = db.prepare(`
-        INSERT INTO sections (template_id, sect, description, full_section)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO sections (template_id, sect, description, full_section, cost_sheet)
+        VALUES (?, ?, ?, ?, ?)
       `);
 
       for (const section of sections) {
         const fullSection = `${section.sect}-${section.description}`;
-        sectionStmt.run([templateId, section.sect, section.description, fullSection]);
+        sectionStmt.run([templateId, section.sect, section.description, fullSection, section.costSheet]);
       }
       sectionStmt.free();
 
-      // Insert cost items
+      // Insert cost items from ALL sheets
       const costStmt = db.prepare(`
-        INSERT INTO cost_items (template_id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO cost_items (template_id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
-      for (const row of costRows) {
-        const ndc = row['NDC 11'] || row['NDC'] || row['ndc'];
-        if (!ndc) continue;
+      for (const { rows, sheetName } of costSheets) {
+        for (const row of rows) {
+          const ndc = row['NDC 11'] || row['NDC'] || row['ndc'];
+          if (!ndc) continue;
 
-        costStmt.run([
-          templateId,
-          String(ndc).trim(),
-          row['Material Description'] || row['material_description'] || null,
-          row['Unit Price'] ? parseFloat(row['Unit Price']) : null,
-          row['Source'] || null,
-          row['Material'] || null,
-          row['Billing Date'] || row['Billing Da'] || null,
-          row['manu'] || row['Manufacturer'] || null,
-          row['generic'] || null,
-          row['strength'] || null,
-          row['size'] || null,
-          row['dose'] || null,
-        ]);
+          costStmt.run([
+            templateId,
+            String(ndc).trim(),
+            row['Material Description'] || row['material_description'] || null,
+            row['Unit Price'] ? parseFloat(row['Unit Price']) : null,
+            row['Source'] || null,
+            row['Material'] || null,
+            row['Billing Date'] || row['Billing Da'] || null,
+            row['manu'] || row['Manufacturer'] || null,
+            row['generic'] || null,
+            row['strength'] || null,
+            row['size'] || null,
+            row['dose'] || null,
+            sheetName, // Store which sheet this cost item came from
+          ]);
+        }
       }
       costStmt.free();
 
@@ -426,10 +438,10 @@ export function useDataTemplates() {
     }
   }, [db, saveDatabase]);
 
-  // Update cost data for existing template
+  // Update cost data for existing template (now supports multiple sheets)
   const updateTemplateCost = useCallback(async (
     templateId: number,
-    costRows: any[],
+    costSheets: { rows: any[]; sheetName: string }[],
     costFileName: string
   ): Promise<{ success: boolean; error?: string; updated: number }> => {
     if (!db) return { success: false, error: 'Database not initialized', updated: 0 };
@@ -441,32 +453,35 @@ export function useDataTemplates() {
       // Update cost file name
       db.run(`UPDATE templates SET cost_file_name = ? WHERE id = ?`, [costFileName, templateId]);
 
-      // Insert new cost items
+      // Insert new cost items from ALL sheets
       const costStmt = db.prepare(`
-        INSERT INTO cost_items (template_id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO cost_items (template_id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       let count = 0;
-      for (const row of costRows) {
-        const ndc = row['NDC 11'] || row['NDC'] || row['ndc'];
-        if (!ndc) continue;
+      for (const { rows, sheetName } of costSheets) {
+        for (const row of rows) {
+          const ndc = row['NDC 11'] || row['NDC'] || row['ndc'];
+          if (!ndc) continue;
 
-        costStmt.run([
-          templateId,
-          String(ndc).trim(),
-          row['Material Description'] || row['material_description'] || null,
-          row['Unit Price'] ? parseFloat(row['Unit Price']) : null,
-          row['Source'] || null,
-          row['Material'] || null,
-          row['Billing Date'] || row['Billing Da'] || null,
-          row['manu'] || row['Manufacturer'] || null,
-          row['generic'] || null,
-          row['strength'] || null,
-          row['size'] || null,
-          row['dose'] || null,
-        ]);
-        count++;
+          costStmt.run([
+            templateId,
+            String(ndc).trim(),
+            row['Material Description'] || row['material_description'] || null,
+            row['Unit Price'] ? parseFloat(row['Unit Price']) : null,
+            row['Source'] || null,
+            row['Material'] || null,
+            row['Billing Date'] || row['Billing Da'] || null,
+            row['manu'] || row['Manufacturer'] || null,
+            row['generic'] || null,
+            row['strength'] || null,
+            row['size'] || null,
+            row['dose'] || null,
+            sheetName,
+          ]);
+          count++;
+        }
       }
       costStmt.free();
 
@@ -512,7 +527,7 @@ export function useDataTemplates() {
 
     try {
       const results = db.exec(`
-        SELECT id, template_id, sect, description, full_section
+        SELECT id, template_id, sect, description, full_section, cost_sheet
         FROM sections
         WHERE template_id = ?
         ORDER BY sect
@@ -526,6 +541,7 @@ export function useDataTemplates() {
         sect: row[2] as string,
         description: row[3] as string,
         full_section: row[4] as string,
+        cost_sheet: row[5] as string | null,
       }));
     } catch (err) {
       console.error('Get sections error:', err);
@@ -631,20 +647,30 @@ export function useDataTemplates() {
     }
   }, [db]);
 
-  // Get cost item by NDC for a template
-  const getCostItemByNDC = useCallback((templateId: number, ndc: string): TemplateCostItem | null => {
+  // Get cost item by NDC for a template (optionally filtered by cost sheet)
+  const getCostItemByNDC = useCallback((templateId: number, ndc: string, costSheet?: string | null): TemplateCostItem | null => {
     if (!db) return null;
 
     try {
       // Clean NDC - remove dashes
       const cleanNdc = ndc.replace(/-/g, '');
       
-      const results = db.exec(`
-        SELECT id, template_id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose
+      let query = `
+        SELECT id, template_id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name
         FROM cost_items
         WHERE template_id = ? AND REPLACE(ndc, '-', '') = ?
-        LIMIT 1
-      `, [templateId, cleanNdc]);
+      `;
+      const params: any[] = [templateId, cleanNdc];
+      
+      // If costSheet is specified, filter by it
+      if (costSheet) {
+        query += ` AND (sheet_name = ? OR sheet_name IS NULL)`;
+        params.push(costSheet);
+      }
+      
+      query += ` LIMIT 1`;
+      
+      const results = db.exec(query, params);
 
       if (results.length === 0 || results[0].values.length === 0) return null;
 
@@ -663,10 +689,31 @@ export function useDataTemplates() {
         strength: row[10] as string | null,
         size: row[11] as string | null,
         dose: row[12] as string | null,
+        sheet_name: row[13] as string | null,
       };
     } catch (err) {
       console.error('Get cost item error:', err);
       return null;
+    }
+  }, [db]);
+
+  // Get available cost sheets for a template
+  const getCostSheets = useCallback((templateId: number): string[] => {
+    if (!db) return [];
+
+    try {
+      const results = db.exec(`
+        SELECT DISTINCT sheet_name FROM cost_items 
+        WHERE template_id = ? AND sheet_name IS NOT NULL
+        ORDER BY sheet_name
+      `, [templateId]);
+
+      if (results.length === 0) return [];
+
+      return results[0].values.map((row: any[]) => row[0] as string);
+    } catch (err) {
+      console.error('Get cost sheets error:', err);
+      return [];
     }
   }, [db]);
 
@@ -686,5 +733,6 @@ export function useDataTemplates() {
     saveScanRecords,
     loadScanRecords,
     getCostItemByNDC,
+    getCostSheets,
   };
 }

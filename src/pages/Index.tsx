@@ -103,6 +103,33 @@ const Index = () => {
     });
   };
 
+  // Parse ALL sheets from an Excel file (for cost data with multiple tabs like GPO, 340B)
+  const parseExcelFileAllSheets = (file: File): Promise<{ rows: any[]; sheetName: string }[]> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: 'array' });
+          
+          const allSheets: { rows: any[]; sheetName: string }[] = [];
+          
+          for (const sheetName of workbook.SheetNames) {
+            const sheet = workbook.Sheets[sheetName];
+            const jsonData = XLSX.utils.sheet_to_json(sheet, { defval: null });
+            allSheets.push({ rows: jsonData, sheetName });
+          }
+          
+          resolve(allSheets);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
   const extractInvNumber = (fileName: string): string | null => {
     const s = fileName.toLowerCase();
 
@@ -269,26 +296,15 @@ const Index = () => {
       }
 
       try {
-        const costData = await parseExcelFile(group.costFile!);
+        const costSheets = await parseExcelFileAllSheets(group.costFile!);
         const jobTicketData = await parseExcelFile(group.jobTicketFile!);
 
         const result = await importTemplate(
           group.name,
-          costData.rows,
+          costSheets,
           jobTicketData.rawData,
           group.costFile!.name,
-          group.jobTicketFile!.name,
-          true,
-          (p) => {
-            if (p.stage !== 'cost') return;
-            flushSync(() => {
-              setImportProgress((prev) => ({
-                ...prev,
-                subProcessed: p.inserted,
-                subTotal: p.total,
-              }));
-            });
-          }
+          group.jobTicketFile!.name
         );
 
         if (result.success) {
