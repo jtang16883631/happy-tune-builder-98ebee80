@@ -86,12 +86,12 @@ export function useCloudTemplates() {
     invDate: string | null;
     invNumber: string | null;
     facilityName: string | null;
-    sections: { sect: string; description: string }[];
+    sections: { sect: string; description: string; costSheet: string | null }[];
   } => {
     let invDate: string | null = null;
     let invNumber: string | null = null;
     let facilityName: string | null = null;
-    const sections: { sect: string; description: string }[] = [];
+    const sections: { sect: string; description: string; costSheet: string | null }[] = [];
 
     // Scan raw data for metadata
     for (let r = 0; r < rawData.length; r++) {
@@ -143,16 +143,19 @@ export function useCloudTemplates() {
       let headerRowIndex = -1;
       let sectCol = 0;
       let descCol = 1;
+      let costSheetCol = -1;
 
       for (let r = sectionListRowIndex; r < Math.min(sectionListRowIndex + 30, rawData.length); r++) {
         const rowLower = rawData[r].map((c) => String(c || '').toLowerCase());
         const sectIdx = rowLower.findIndex((v) => v.includes('sect'));
         const descIdx = rowLower.findIndex((v) => v.includes('description'));
+        const costSheetIdx = rowLower.findIndex((v) => v.includes('cost') && v.includes('sheet'));
 
         if (sectIdx >= 0 && descIdx >= 0) {
           headerRowIndex = r;
           sectCol = sectIdx;
           descCol = descIdx;
+          costSheetCol = costSheetIdx;
           break;
         }
       }
@@ -164,6 +167,7 @@ export function useCloudTemplates() {
       for (let r = headerRowIndex + 1; r < rawData.length; r++) {
         const sectRaw = String(rawData[r][sectCol] || '').trim();
         const descRaw = String(rawData[r][descCol] || '').trim();
+        const costSheetRaw = costSheetCol >= 0 ? String(rawData[r][costSheetCol] || '').trim() : null;
 
         if (!sectRaw && !descRaw) {
           break;
@@ -175,12 +179,13 @@ export function useCloudTemplates() {
         sections.push({
           sect: paddedSect || sectRaw,
           description: descRaw,
+          costSheet: costSheetRaw || null,
         });
       }
     }
 
     if (sections.length === 0) {
-      sections.push({ sect: '0000', description: 'Default' });
+      sections.push({ sect: '0000', description: 'Default', costSheet: null });
     }
 
     return { invDate, invNumber, facilityName, sections };
@@ -235,13 +240,14 @@ export function useCloudTemplates() {
           });
         }
 
-        // Insert sections
+        // Insert sections with cost_sheet mapping
         if (sections.length > 0) {
           const sectionInserts = sections.map((s) => ({
             template_id: templateId,
             sect: s.sect,
             description: s.description,
             full_section: `${s.sect}-${s.description}`,
+            cost_sheet: s.costSheet,
           }));
 
           const { error: sectionsError } = await supabase
