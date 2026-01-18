@@ -321,6 +321,12 @@ export function useDataTemplates() {
           break;
         }
 
+        // Skip marker rows like "NO NEW SECTIONS AFTER THIS"
+        const combinedText = `${sectRaw} ${descRaw}`.toLowerCase();
+        if (combinedText.includes('no new sections') || combinedText.includes('after this')) {
+          continue;
+        }
+
         // Extract digits and pad to 4 digits
         const sectDigits = sectRaw.replace(/\D/g, '');
         const paddedSect = sectDigits ? sectDigits.padStart(4, '0') : '';

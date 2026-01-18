@@ -787,6 +787,11 @@ const Scan = () => {
 
     try {
       const workbook = XLSX.utils.book_new();
+      // Remove default Sheet1 if it exists (xlsx may add it automatically)
+      if (workbook.SheetNames.includes('Sheet1')) {
+        delete workbook.Sheets['Sheet1'];
+        workbook.SheetNames = workbook.SheetNames.filter(name => name !== 'Sheet1');
+      }
 
       // Column headers matching the scan table
       const headers = [
