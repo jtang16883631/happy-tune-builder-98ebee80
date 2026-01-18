@@ -401,35 +401,38 @@ export function useDataTemplates() {
       }
       sectionStmt.free();
 
-      // Insert cost items from ALL sheets
-      const costStmt = db.prepare(`
-        INSERT INTO cost_items (template_id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
+      // Insert cost items from ALL sheets - truncate long strings to avoid SQLite row size limits
+      const truncate = (val: any, maxLen: number = 255): string | null => {
+        if (val == null) return null;
+        const str = String(val).trim();
+        return str.length > maxLen ? str.substring(0, maxLen) : str;
+      };
 
       for (const { rows, sheetName } of costSheets) {
         for (const row of rows) {
           const ndc = row['NDC 11'] || row['NDC'] || row['ndc'];
           if (!ndc) continue;
 
-          costStmt.run([
+          db.run(`
+            INSERT INTO cost_items (template_id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [
             templateId,
-            String(ndc).trim(),
-            row['Material Description'] || row['material_description'] || null,
+            truncate(ndc, 50),
+            truncate(row['Material Description'] || row['material_description'], 255),
             row['Unit Price'] ? parseFloat(row['Unit Price']) : null,
-            row['Source'] || null,
-            row['Material'] || null,
-            row['Billing Date'] || row['Billing Da'] || null,
-            row['manu'] || row['Manufacturer'] || null,
-            row['generic'] || null,
-            row['strength'] || null,
-            row['size'] || null,
-            row['dose'] || null,
-            sheetName, // Store which sheet this cost item came from
+            truncate(row['Source'], 50),
+            truncate(row['Material'], 50),
+            truncate(row['Billing Date'] || row['Billing Da'], 50),
+            truncate(row['manu'] || row['Manufacturer'], 100),
+            truncate(row['generic'], 200),
+            truncate(row['strength'], 50),
+            truncate(row['size'], 50),
+            truncate(row['dose'], 50),
+            truncate(sheetName, 50),
           ]);
         }
       }
-      costStmt.free();
 
       await saveDatabase();
       return { success: true };
@@ -453,11 +456,12 @@ export function useDataTemplates() {
       // Update cost file name
       db.run(`UPDATE templates SET cost_file_name = ? WHERE id = ?`, [costFileName, templateId]);
 
-      // Insert new cost items from ALL sheets
-      const costStmt = db.prepare(`
-        INSERT INTO cost_items (template_id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
+      // Insert new cost items from ALL sheets - truncate long strings to avoid SQLite row size limits
+      const truncate = (val: any, maxLen: number = 255): string | null => {
+        if (val == null) return null;
+        const str = String(val).trim();
+        return str.length > maxLen ? str.substring(0, maxLen) : str;
+      };
 
       let count = 0;
       for (const { rows, sheetName } of costSheets) {
@@ -465,25 +469,27 @@ export function useDataTemplates() {
           const ndc = row['NDC 11'] || row['NDC'] || row['ndc'];
           if (!ndc) continue;
 
-          costStmt.run([
+          db.run(`
+            INSERT INTO cost_items (template_id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `, [
             templateId,
-            String(ndc).trim(),
-            row['Material Description'] || row['material_description'] || null,
+            truncate(ndc, 50),
+            truncate(row['Material Description'] || row['material_description'], 255),
             row['Unit Price'] ? parseFloat(row['Unit Price']) : null,
-            row['Source'] || null,
-            row['Material'] || null,
-            row['Billing Date'] || row['Billing Da'] || null,
-            row['manu'] || row['Manufacturer'] || null,
-            row['generic'] || null,
-            row['strength'] || null,
-            row['size'] || null,
-            row['dose'] || null,
-            sheetName,
+            truncate(row['Source'], 50),
+            truncate(row['Material'], 50),
+            truncate(row['Billing Date'] || row['Billing Da'], 50),
+            truncate(row['manu'] || row['Manufacturer'], 100),
+            truncate(row['generic'], 200),
+            truncate(row['strength'], 50),
+            truncate(row['size'], 50),
+            truncate(row['dose'], 50),
+            truncate(sheetName, 50),
           ]);
           count++;
         }
       }
-      costStmt.free();
 
       await saveDatabase();
       return { success: true, updated: count };
