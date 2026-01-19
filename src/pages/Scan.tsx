@@ -967,7 +967,7 @@ const Scan = () => {
     }
   };
 
-  // Export scan data to Excel - each section as a separate tab
+  // Export scan data to Excel - each section as a separate tab + Summary sheet
   const handleExportToExcel = useCallback(async () => {
     if (!selectedTemplate || sections.length === 0) {
       toast.error('No sections to export');
@@ -981,6 +981,9 @@ const Scan = () => {
         delete workbook.Sheets['Sheet1'];
         workbook.SheetNames = workbook.SheetNames.filter(name => name !== 'Sheet1');
       }
+
+      // Track section totals for summary
+      const sectionTotals: { section: string; value: number }[] = [];
 
       // Column headers matching the scan table
       const headers = [
@@ -998,6 +1001,7 @@ const Scan = () => {
         const savedData = localStorage.getItem(`scan_records_${selectedTemplate.id}_${section.id}`);
         
         let rows: any[][] = [headers];
+        let sectionTotal = 0;
         
         if (savedData) {
           try {
@@ -1005,6 +1009,11 @@ const Scan = () => {
             
             // Convert each record to a row array
             savedRecords.forEach(record => {
+              // Sum up Extended values for this section
+              if (record.extended !== null && record.extended !== undefined) {
+                sectionTotal += record.extended;
+              }
+              
               rows.push([
                 record.loc || '',
                 record.device || '',
@@ -1047,6 +1056,12 @@ const Scan = () => {
           }
         }
 
+        // Store section total for summary
+        sectionTotals.push({
+          section: section.full_section || section.sect || 'Unknown',
+          value: sectionTotal
+        });
+
         // Create worksheet
         const worksheet = XLSX.utils.aoa_to_sheet(rows);
 
@@ -1061,15 +1076,53 @@ const Scan = () => {
         XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
       }
 
-      // Generate filename with template name and date
+      // Create Summary sheet
       const dateStr = selectedTemplate.inv_date 
         ? new Date(selectedTemplate.inv_date).toISOString().split('T')[0]
         : new Date().toISOString().split('T')[0];
+      
+      const grandTotal = sectionTotals.reduce((sum, s) => sum + s.value, 0);
+      
+      // Build summary sheet content
+      const summaryRows: any[][] = [
+        // Header info
+        [selectedTemplate.name],
+        [selectedTemplate.facility_name || ''],
+        [dateStr],
+        [], // Empty row
+        // Section table headers
+        ['Sections', 'Value'],
+      ];
+      
+      // Add each section row
+      sectionTotals.forEach(st => {
+        summaryRows.push([st.section, st.value]);
+      });
+      
+      // Empty row before total
+      summaryRows.push([]);
+      // Grand total row
+      summaryRows.push(['', grandTotal]);
+      
+      const summaryWorksheet = XLSX.utils.aoa_to_sheet(summaryRows);
+      
+      // Set column widths for summary
+      summaryWorksheet['!cols'] = [{ wch: 40 }, { wch: 15 }];
+      
+      // Insert Summary as the first sheet
+      // XLSX doesn't have a direct "insert at beginning" so we rebuild SheetNames
+      const existingSheetNames = [...workbook.SheetNames];
+      const existingSheets = { ...workbook.Sheets };
+      
+      workbook.SheetNames = ['Summary', ...existingSheetNames];
+      workbook.Sheets = { 'Summary': summaryWorksheet, ...existingSheets };
+
+      // Generate filename with template name and date
       const filename = `${selectedTemplate.name}_${dateStr}_scan.xlsx`;
 
       // Download the file
       XLSX.writeFile(workbook, filename);
-      toast.success(`Exported ${sections.length} sections to Excel`);
+      toast.success(`Exported ${sections.length} sections + Summary to Excel`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export to Excel');
