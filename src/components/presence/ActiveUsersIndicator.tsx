@@ -13,25 +13,6 @@ import {
 } from '@/components/ui/hover-card';
 import { Users } from 'lucide-react';
 
-const COLORS = [
-  'bg-blue-500',
-  'bg-green-500',
-  'bg-purple-500',
-  'bg-orange-500',
-  'bg-pink-500',
-  'bg-teal-500',
-  'bg-indigo-500',
-  'bg-red-500',
-];
-
-function getColorForUser(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = id.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return COLORS[Math.abs(hash) % COLORS.length];
-}
-
 function getInitials(name: string): string {
   return name
     .split(' ')
@@ -41,9 +22,15 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
-function UserAvatar({ user, showBorder = true, isCurrentUser = false }: { user: PresenceUser; showBorder?: boolean; isCurrentUser?: boolean }) {
-  const color = getColorForUser(user.id);
-  
+function UserAvatar({
+  user,
+  showBorder = true,
+  isCurrentUser = false,
+}: {
+  user: PresenceUser;
+  showBorder?: boolean;
+  isCurrentUser?: boolean;
+}) {
   return (
     <TooltipProvider>
       <Tooltip>
@@ -54,13 +41,15 @@ function UserAvatar({ user, showBorder = true, isCurrentUser = false }: { user: 
             {user.avatarUrl ? (
               <AvatarImage src={user.avatarUrl} alt={user.fullName} />
             ) : null}
-            <AvatarFallback className={`${color} text-white text-xs font-medium`}>
+            <AvatarFallback className="bg-primary text-primary-foreground text-xs font-medium">
               {getInitials(user.fullName)}
             </AvatarFallback>
           </Avatar>
         </TooltipTrigger>
         <TooltipContent side="bottom" className="text-sm">
-          <p className="font-medium">{user.fullName} {isCurrentUser && '(you)'}</p>
+          <p className="font-medium">
+            {user.fullName} {isCurrentUser && '(you)'}
+          </p>
           <p className="text-xs text-muted-foreground">{user.email}</p>
         </TooltipContent>
       </Tooltip>
@@ -125,8 +114,8 @@ export function ActiveUsersIndicator() {
       {/* Live indicator dot */}
       <div className="flex items-center gap-1 text-xs text-muted-foreground">
         <span className="relative flex h-2 w-2">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary/40 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
         </span>
         <span className="font-medium">{totalOnline}</span>
       </div>

@@ -16,7 +16,26 @@ export function usePresence() {
   const [currentUserPresence, setCurrentUserPresence] = useState<PresenceUser | null>(null);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setPresentUsers([]);
+      setCurrentUserPresence(null);
+      return;
+    }
+
+    // Always show at least the current user immediately (even if realtime is slow/blocked)
+    const basePresence: PresenceUser = {
+      id: user.id,
+      email: user.email || '',
+      fullName:
+        user.user_metadata?.full_name ||
+        user.user_metadata?.name ||
+        user.email?.split('@')[0] ||
+        'User',
+      avatarUrl: user.user_metadata?.avatar_url || undefined,
+      onlineAt: new Date().toISOString(),
+    };
+
+    setCurrentUserPresence(basePresence);
 
     const channel = supabase.channel('app-presence', {
       config: { presence: { key: user.id } },
@@ -26,7 +45,7 @@ export function usePresence() {
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState();
         const users: PresenceUser[] = [];
-        
+
         Object.values(state).forEach((presences: any[]) => {
           presences.forEach((presence) => {
             users.push({
@@ -39,39 +58,19 @@ export function usePresence() {
           });
         });
 
-        // Separate current user from others
-        const me = users.find(u => u.id === user.id);
-        const others = users.filter(u => u.id !== user.id);
-        
-        setCurrentUserPresence(me || null);
+        const me = users.find((u) => u.id === user.id) || basePresence;
+        const others = users.filter((u) => u.id !== user.id);
+
+        setCurrentUserPresence(me);
         setPresentUsers(others);
       })
-      .subscribe(async (status) => {
+      .subscribe((status) => {
         if (status !== 'SUBSCRIBED') return;
 
-        // Fetch current user's profile for display
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('full_name, avatar_url')
-          .eq('id', user.id)
-          .single();
-
-        const myPresence: PresenceUser = {
-          id: user.id,
-          email: user.email || '',
-          fullName: profile?.full_name || user.email?.split('@')[0] || 'User',
-          avatarUrl: profile?.avatar_url || undefined,
+        // Track presence (no profile DB call needed)
+        channel.track({
+          ...basePresence,
           onlineAt: new Date().toISOString(),
-        };
-
-        setCurrentUserPresence(myPresence);
-
-        await channel.track({
-          id: user.id,
-          email: user.email || '',
-          fullName: myPresence.fullName,
-          avatarUrl: myPresence.avatarUrl,
-          onlineAt: myPresence.onlineAt,
         });
       });
 
