@@ -10,6 +10,11 @@ interface FDAMeta {
   lastUpdated: string;
   rowCount: number;
   fileName: string;
+  mapping?: {
+    agCount: number; // rows with innerpack_outer_left9 ("Left 9" / AG)
+    aeCount: number; // rows with outerpack_ndc ("Outerpack NDC" / AE)
+    pairCount: number; // rows with both AG+AE present
+  };
 }
 
 export interface FDADrug {
@@ -305,10 +310,28 @@ export function useLocalFDA() {
     const dbData = newDb.export();
     const dbArray = new Uint8Array(dbData);
     
+    const getScalar = (sql: string, params: any[] = []): number => {
+      const r = newDb.exec(sql, params);
+      const v = r?.[0]?.values?.[0]?.[0];
+      const n = typeof v === 'number' ? v : Number(v ?? 0);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const agCount = getScalar(
+      "SELECT COUNT(*) FROM drugs WHERE innerpack_outer_left9 IS NOT NULL AND TRIM(innerpack_outer_left9) != ''"
+    );
+    const aeCount = getScalar(
+      "SELECT COUNT(*) FROM drugs WHERE outerpack_ndc IS NOT NULL AND TRIM(outerpack_ndc) != ''"
+    );
+    const pairCount = getScalar(
+      "SELECT COUNT(*) FROM drugs WHERE innerpack_outer_left9 IS NOT NULL AND TRIM(innerpack_outer_left9) != '' AND outerpack_ndc IS NOT NULL AND TRIM(outerpack_ndc) != ''"
+    );
+
     const newMeta: FDAMeta = {
       lastUpdated: new Date().toISOString(),
       rowCount: success,
       fileName,
+      mapping: { agCount, aeCount, pairCount },
     };
 
     await saveToIndexedDB(DB_KEY, dbArray);
