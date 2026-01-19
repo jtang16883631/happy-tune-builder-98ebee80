@@ -61,9 +61,14 @@ export function ActiveUsersIndicator() {
   const { presentUsers, currentUserPresence, totalOnline } = usePresence();
   const MAX_VISIBLE = 3;
 
-  // Show nothing if we haven't connected yet
+  // While auth/presence is still initializing, show a placeholder so the UI never looks "missing".
   if (!currentUserPresence) {
-    return null;
+    return (
+      <div className="flex items-center gap-2 rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
+        <Users className="h-4 w-4" />
+        <span className="font-medium">Online…</span>
+      </div>
+    );
   }
 
   // All users including current user for display
