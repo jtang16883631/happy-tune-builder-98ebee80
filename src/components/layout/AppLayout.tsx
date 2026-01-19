@@ -11,6 +11,7 @@ import { useProfileCompletion } from '@/hooks/useProfileCompletion';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { MobileBottomNav } from './MobileNav';
 import { MobileHeader } from './MobileHeader';
+import { ActiveUsersIndicator } from '@/components/presence/ActiveUsersIndicator';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -281,7 +282,8 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
         sidebarCollapsed ? "ml-0" : "ml-56"
       )}>
         {/* Top Right Controls */}
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
+          <ActiveUsersIndicator />
           <AnnouncementBell />
         </div>
         
