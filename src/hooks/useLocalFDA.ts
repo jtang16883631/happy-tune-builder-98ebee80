@@ -277,11 +277,21 @@ export function useLocalFDA() {
       return null;
     };
 
+    // Log sample row keys to help debug header detection
+    if (rows.length > 0) {
+      const sampleRow = rows[0];
+      const keys = Object.keys(sampleRow);
+      console.log('[FDA Import] Sample row keys:', keys);
+      console.log('[FDA Import] AE value:', sampleRow['AE']);
+      console.log('[FDA Import] AG value:', sampleRow['AG']);
+      console.log('[FDA Import] Sample row:', sampleRow);
+    }
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       
       try {
-        const ndc = getVal(row, 'NDC', 'ndc');
+        const ndc = getVal(row, 'NDC', 'ndc', 'A');
         
         if (!ndc) {
           failed++;
