@@ -212,10 +212,29 @@ export function useLocalFDA() {
     // Begin transaction for faster inserts
     newDb.run('BEGIN TRANSACTION');
 
+    const normalizeKey = (k: string) =>
+      String(k)
+        .replace(/\u00A0/g, ' ')
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim();
+
     const getVal = (row: any, ...keys: string[]): string | null => {
+      const rowKeys = Object.keys(row ?? {});
+
       for (const key of keys) {
-        if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+        if (!key) continue;
+
+        // 1) Exact match
+        if (row?.[key] !== undefined && row?.[key] !== null && row?.[key] !== '') {
           return String(row[key]).trim();
+        }
+
+        // 2) Case/whitespace-insensitive match (handles headers like "Left 9", trailing spaces, NBSP)
+        const wanted = normalizeKey(key);
+        const actual = rowKeys.find((rk) => normalizeKey(rk) === wanted);
+        if (actual && row?.[actual] !== undefined && row?.[actual] !== null && row?.[actual] !== '') {
+          return String(row[actual]).trim();
         }
       }
       return null;
