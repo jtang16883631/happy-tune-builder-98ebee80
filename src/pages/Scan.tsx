@@ -705,16 +705,26 @@ const Scan = () => {
   // 3. Get unique outerpack_ndc values (column AE)
   // 4. If 0: show error, if 1: auto-use, if >1: show selection dialog
   const initiateNDCLookup = useCallback(async (scannedNdc: string, rowIndex: number): Promise<boolean> => {
-    if (!scannedNdc || scannedNdc.length < 10) return false;
+    // Scanner input may contain dashes/spaces or be shorter than 10 chars.
+    // Business rule only requires the first 9 digits (NDC9 key).
+    const cleanNdc = (scannedNdc ?? '').replace(/\D/g, '');
 
-    const cleanNdc = scannedNdc.replace(/-/g, '');
-    
+    if (!cleanNdc) return false;
+
+    if (cleanNdc.length < 9) {
+      toast.error('Invalid NDC', {
+        description: `Scanned value: ${scannedNdc}`,
+        duration: 5000,
+      });
+      return false;
+    }
+
     console.log('[NDC Lookup] Starting lookup for:', cleanNdc);
     console.log('[NDC Lookup] NDC9 key:', cleanNdc.slice(0, 9));
-    
+
     // Find outer NDCs using NDC9 key
     const { outerNDCs, drugs } = findOuterNDCsByNDC9(cleanNdc);
-    
+
     console.log('[NDC Lookup] Found outer NDCs:', outerNDCs);
     console.log('[NDC Lookup] Found drugs count:', drugs.length);
 
@@ -723,13 +733,13 @@ const Scan = () => {
       // No outer NDCs found - try direct lookup as fallback
       const directResult = fdaLookup(cleanNdc);
       console.log('[NDC Lookup] Direct lookup result:', directResult ? 'found' : 'not found');
-      
+
       if (directResult) {
         // Use the scanned NDC directly
         await lookupNDC(cleanNdc, cleanNdc, rowIndex);
         return true;
       }
-      
+
       toast.error('NDC not found in FDA data', {
         description: `Scanned NDC: ${cleanNdc}`,
         duration: 5000,
@@ -763,7 +773,7 @@ const Scan = () => {
     setOuterNDCOptions(options);
     setPendingNDCLookup({ scannedNDC: cleanNdc, rowIndex });
     setOuterNDCDialogOpen(true);
-    
+
     return false; // Indicate that we're waiting for user selection
   }, [findOuterNDCsByNDC9, fdaLookup, getDrugByOuterNDC, lookupNDC]);
 
@@ -845,7 +855,7 @@ const Scan = () => {
       }
 
       const ndc = scanRows[rowIndex].scannedNdc || scanRows[rowIndex].ndc;
-      if (ndc && ndc.length >= 10) {
+      if (ndc) {
         // Initiate the outer NDC lookup flow
         // This may show a selection dialog if multiple outer NDCs are found
         const completed = await initiateNDCLookup(ndc, rowIndex);
