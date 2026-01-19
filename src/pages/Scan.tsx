@@ -232,6 +232,7 @@ const Scan = () => {
   const [activeRowIndex, setActiveRowIndex] = useState(0);
   const ndcInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const qtyInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const ndcAutoLookupTimersRef = useRef<Record<string, NodeJS.Timeout | null>>({});
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const hasRole = roles.length > 0;
@@ -776,6 +777,30 @@ const Scan = () => {
 
     return false; // Indicate that we're waiting for user selection
   }, [findOuterNDCsByNDC9, fdaLookup, getDrugByOuterNDC, lookupNDC]);
+
+  // Auto-trigger lookup for scanners that do NOT send Enter/Tab.
+  // Wait a short time after the last keystroke; then run the same flow as Enter.
+  const scheduleAutoNdcLookup = useCallback((rowId: string, rowIndex: number, rawValue: string) => {
+    const digits = (rawValue ?? '').replace(/\D/g, '');
+    if (digits.length < 9) return;
+
+    const existing = ndcAutoLookupTimersRef.current[rowId];
+    if (existing) clearTimeout(existing);
+
+    ndcAutoLookupTimersRef.current[rowId] = setTimeout(async () => {
+      const currentRow = scanRows[rowIndex];
+      if (!currentRow || currentRow.id !== rowId) return;
+
+      // If the row already has a resolved outer NDC + a stored scanned inner NDC, don't re-run.
+      if (currentRow.scannedNdc && currentRow.ndc) {
+        const resolvedDigits = currentRow.ndc.replace(/\D/g, '');
+        const scannedDigits = currentRow.scannedNdc.replace(/\D/g, '');
+        if (resolvedDigits.length >= 10 && scannedDigits.length >= 9) return;
+      }
+
+      await initiateNDCLookup(rawValue, rowIndex);
+    }, 250);
+  }, [initiateNDCLookup, scanRows]);
 
   // Handle outer NDC selection from dialog
   const handleOuterNDCSelect = useCallback(async (selectedOuterNDC: string) => {
@@ -1981,6 +2006,13 @@ const Scan = () => {
                                   ref={getRef()}
                                   value={col.type === 'currency' ? (value !== null && value !== undefined ? Number(value).toFixed(2) : '') : (value?.toString() || '')}
                                   onChange={(e) => {
+                                    if (col.isNdcInput) {
+                                      const raw = e.target.value;
+                                      handleFieldChange(col.key as keyof ScanRow, raw, realIndex);
+                                      scheduleAutoNdcLookup(row.id, realIndex, raw);
+                                      return;
+                                    }
+
                                     const newValue = col.type === 'number' || col.type === 'currency'
                                       ? (e.target.value ? parseFloat(e.target.value) : null)
                                       : e.target.value;
@@ -1988,7 +2020,7 @@ const Scan = () => {
                                   }}
                                   onKeyDown={getKeyDownHandler()}
                                   onFocus={() => setActiveRowIndex(realIndex)}
-                                  type={col.type === 'number' || col.type === 'currency' ? 'number' : 'text'}
+                                  type={col.isNdcInput ? 'text' : (col.type === 'number' || col.type === 'currency' ? 'number' : 'text')}
                                   step={col.type === 'currency' ? '0.01' : undefined}
                                   placeholder={col.type === 'currency' ? '$0.00' : undefined}
                                   className="font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0"
