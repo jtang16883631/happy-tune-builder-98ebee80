@@ -58,8 +58,22 @@ const FDA = () => {
           const data = new Uint8Array(e.target?.result as ArrayBuffer);
           const workbook = XLSX.read(data, { type: 'array' });
           const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-          const jsonData = XLSX.utils.sheet_to_json(firstSheet);
-          resolve(jsonData);
+
+          // Parse twice:
+          // 1) default header-based objects (what we had before)
+          // 2) column-letter-based objects (A, B, C... / AE / AG...) so column *order* works even if header text differs
+          const byHeader = XLSX.utils.sheet_to_json(firstSheet, { defval: '' }) as any[];
+          const byCol = XLSX.utils.sheet_to_json(firstSheet, { header: 'A', defval: '' }) as any[];
+
+          // byCol includes the header row as the first entry; align it with byHeader (which excludes the header row)
+          const byColData = byCol.slice(1);
+
+          const merged = byHeader.map((row, idx) => ({
+            ...row,
+            ...(byColData[idx] ?? {}),
+          }));
+
+          resolve(merged);
         } catch (error) {
           reject(error);
         }
