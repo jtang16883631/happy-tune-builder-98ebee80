@@ -2065,8 +2065,12 @@ const Scan = () => {
                               );
                             }
                             
+                            // Flag empty medDesc or meridianDesc cells with yellow background
+                            const isEmptyCell = value === null || value === undefined || value === '';
+                            const shouldHighlightEmptyCell = (col.key === 'medDesc' || col.key === 'meridianDesc') && isEmptyCell && (row.ndc || row.scannedNdc);
+                            
                             return (
-                              <TableCell key={col.key} className="p-1" style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
+                              <TableCell key={col.key} className={`p-1 ${shouldHighlightEmptyCell ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''}`} style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
                                 <Input
                                   ref={getRef()}
                                   value={col.type === 'currency' ? (value !== null && value !== undefined ? Number(value).toFixed(2) : '') : (value?.toString() || '')}
@@ -2094,10 +2098,14 @@ const Scan = () => {
                             );
                           }
                           
+                          // Flag empty medDesc or meridianDesc cells with yellow background
+                          const isEmpty = value === null || value === undefined || value === '';
+                          const shouldHighlightEmpty = (col.key === 'medDesc' || col.key === 'meridianDesc') && isEmpty && (row.ndc || row.scannedNdc);
+                          
                           return (
                             <TableCell 
                               key={col.key} 
-                              className={`text-xs ${row.source === 'not_found' && (col.key === 'medDesc' || col.key === 'source') ? 'text-destructive' : ''}`}
+                              className={`text-xs ${row.source === 'not_found' && (col.key === 'medDesc' || col.key === 'source') ? 'text-destructive' : ''} ${shouldHighlightEmpty ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''}`}
                             >
                               {col.type === 'currency' 
                                 ? formatCurrency(value as number | null)
