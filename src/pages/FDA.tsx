@@ -261,8 +261,17 @@ const FDA = () => {
                   <p className="font-medium">Local (this device)</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground">Columns</p>
-                  <p className="font-medium">All 32 columns</p>
+                  <p className="text-muted-foreground">AG→AE Mappings</p>
+                  <p className="font-medium">
+                    {meta?.mapping
+                      ? `${meta.mapping.pairCount.toLocaleString()} rows`
+                      : '—'}
+                  </p>
+                  {meta?.mapping && (
+                    <p className="text-xs text-muted-foreground">
+                      AG: {meta.mapping.agCount.toLocaleString()} • AE: {meta.mapping.aeCount.toLocaleString()}
+                    </p>
+                  )}
                 </div>
               </div>
             </CardContent>
