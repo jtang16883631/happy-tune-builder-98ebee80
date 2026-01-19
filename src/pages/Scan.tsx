@@ -3,7 +3,9 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff, Download, GripVertical, Eye, EyeOff, Settings2, FileUp, Cloud, RefreshCw, Search, Calculator, DollarSign } from 'lucide-react';
+import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff, Download, GripVertical, Eye, EyeOff, Settings2, FileUp, Cloud, RefreshCw, Search, Calculator, DollarSign, ShieldCheck } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -193,6 +195,9 @@ const Scan = () => {
   
   // Cost data lookup dialog state
   const [costLookupDialogOpen, setCostLookupDialogOpen] = useState(false);
+  
+  // Audit mode state
+  const [auditMode, setAuditMode] = useState(false);
   
   const createEmptyRow = useCallback((sectionName?: string): ScanRow => ({
     id: crypto.randomUUID(),
@@ -1938,6 +1943,19 @@ const Scan = () => {
                 Export My Scans
               </Button>
               
+              {/* Audit Mode Toggle */}
+              <div className="flex items-center gap-2 ml-2 border-l pl-3">
+                <Switch
+                  id="audit-mode"
+                  checked={auditMode}
+                  onCheckedChange={setAuditMode}
+                />
+                <Label htmlFor="audit-mode" className="text-sm font-medium flex items-center gap-1 cursor-pointer">
+                  <ShieldCheck className="h-4 w-4" />
+                  Audit Mode
+                </Label>
+              </div>
+              
               {/* Column visibility settings */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -2017,7 +2035,20 @@ const Scan = () => {
                           </Button>
                         </TableCell>
                         {visibleColumns.map((col) => {
-                          const value = row[col.key as keyof ScanRow];
+                          // Compute audit criteria dynamically when audit mode is on
+                          let value = row[col.key as keyof ScanRow];
+                          if (col.key === 'auditCriteria' && auditMode && (row.ndc || row.scannedNdc)) {
+                            const needsAttention: string[] = [];
+                            if (row.qty !== null && row.qty > 2000) {
+                              needsAttention.push('QTY > 2000');
+                            }
+                            if (row.extended !== null && row.extended > 3000) {
+                              needsAttention.push('Extended > $3000');
+                            }
+                            if (needsAttention.length > 0) {
+                              value = 'need attention: ' + needsAttention.join(', ');
+                            }
+                          }
                           
                           if (col.editable) {
                             // For currency fields, display with $ format but edit as number
@@ -2068,9 +2099,11 @@ const Scan = () => {
                             // Flag empty medDesc or meridianDesc cells with yellow background
                             const isEmptyCell = value === null || value === undefined || value === '';
                             const shouldHighlightEmptyCell = (col.key === 'medDesc' || col.key === 'meridianDesc') && isEmptyCell && (row.ndc || row.scannedNdc);
+                            // Highlight audit criteria when it has "need attention"
+                            const isAuditAttention = col.key === 'auditCriteria' && typeof value === 'string' && value.includes('need attention');
                             
                             return (
-                              <TableCell key={col.key} className={`p-1 ${shouldHighlightEmptyCell ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''}`} style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
+                              <TableCell key={col.key} className={`p-1 ${shouldHighlightEmptyCell ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''} ${isAuditAttention ? 'bg-orange-200 dark:bg-orange-900/50' : ''}`} style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
                                 <Input
                                   ref={getRef()}
                                   value={col.type === 'currency' ? (value !== null && value !== undefined ? Number(value).toFixed(2) : '') : (value?.toString() || '')}
@@ -2101,11 +2134,13 @@ const Scan = () => {
                           // Flag empty medDesc or meridianDesc cells with yellow background
                           const isEmpty = value === null || value === undefined || value === '';
                           const shouldHighlightEmpty = (col.key === 'medDesc' || col.key === 'meridianDesc') && isEmpty && (row.ndc || row.scannedNdc);
+                          // Highlight audit criteria when it has "need attention"
+                          const isAuditAttentionCell = col.key === 'auditCriteria' && typeof value === 'string' && value.includes('need attention');
                           
                           return (
                             <TableCell 
                               key={col.key} 
-                              className={`text-xs ${row.source === 'not_found' && (col.key === 'medDesc' || col.key === 'source') ? 'text-destructive' : ''} ${shouldHighlightEmpty ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''}`}
+                              className={`text-xs ${row.source === 'not_found' && (col.key === 'medDesc' || col.key === 'source') ? 'text-destructive' : ''} ${shouldHighlightEmpty ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''} ${isAuditAttentionCell ? 'bg-orange-200 dark:bg-orange-900/50 font-medium' : ''}`}
                             >
                               {col.type === 'currency' 
                                 ? formatCurrency(value as number | null)
