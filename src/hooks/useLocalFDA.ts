@@ -262,8 +262,9 @@ export function useLocalFDA() {
           getVal(row, 'ENTRY UPDATED FROM FDA', 'entry_updated_fda'),
           getVal(row, 'Cardinal UPC pulled from FDA site since 2022', 'cardinal_upc'),
           getVal(row, 'NDC9Outer', 'ndc9_outer'),
-          getVal(row, 'Outerpack NDC', 'outerpack_ndc'),
-          getVal(row, 'Innerpack - Outer Left 9', 'innerpack_outer_left9'),
+          getVal(row, 'Outerpack NDC', 'Outer Pack NDC', 'OUTERPACK NDC', 'outerpack_ndc'),
+          // Column AG is often labeled "Left 9" in some exports
+          getVal(row, 'Innerpack - Outer Left 9', 'Innerpack-Outer Left 9', 'Left 9', 'LEFT 9', 'innerpack_outer_left9'),
           getVal(row, 'McKesson UPC', 'mckesson_upc'),
         ]);
 
