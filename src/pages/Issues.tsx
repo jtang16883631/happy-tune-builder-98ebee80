@@ -29,9 +29,11 @@ import {
   Edit,
   Clock,
   CheckCircle2,
+  Home,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { Link } from 'react-router-dom';
 
 export default function Issues() {
   const {
@@ -57,6 +59,24 @@ export default function Issues() {
   const [notes, setNotes] = useState('');
   const [editingIssue, setEditingIssue] = useState<TemplateIssue | null>(null);
   const [showResolved, setShowResolved] = useState(false);
+
+  // Auto-sync on mount when online
+  useEffect(() => {
+    if (!isLoading && isOnline) {
+      syncWithCloud();
+    }
+  }, [isLoading, isOnline]);
+
+  // Auto-sync every 30 seconds when online
+  useEffect(() => {
+    if (!isOnline || isLoading) return;
+
+    const interval = setInterval(() => {
+      syncWithCloud();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [isOnline, isLoading, syncWithCloud]);
 
   // Refresh issues when tab changes or after sync
   useEffect(() => {
@@ -156,8 +176,14 @@ export default function Issues() {
               </div>
             </div>
 
-            {/* Status indicators */}
+            {/* Status indicators + Home */}
             <div className="flex items-center gap-2">
+              <Button variant="outline" size="icon" asChild>
+                <Link to="/">
+                  <Home className="h-4 w-4" />
+                </Link>
+              </Button>
+              
               <Badge variant={isOnline ? 'default' : 'secondary'} className="gap-1">
                 {isOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
                 {isOnline ? 'Online' : 'Offline'}
@@ -192,15 +218,15 @@ export default function Issues() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as IssueType)} className="space-y-4">
-          <div className="flex items-center justify-between">
-            <TabsList className="grid w-[300px] grid-cols-2">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <TabsList className="grid w-full sm:w-[300px] grid-cols-2">
               <TabsTrigger value="office" className="gap-2">
                 <Building2 className="h-4 w-4" />
-                Office Issues
+                Office
               </TabsTrigger>
               <TabsTrigger value="field" className="gap-2">
                 <MapPin className="h-4 w-4" />
-                Field Issues
+                Field
               </TabsTrigger>
             </TabsList>
 

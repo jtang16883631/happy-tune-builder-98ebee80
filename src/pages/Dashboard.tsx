@@ -426,9 +426,11 @@ function ScheduleAndIssuesSection() {
       if (error) throw error;
       return data;
     },
+    refetchInterval: 30000, // Auto-refresh every 30 seconds
+    refetchOnWindowFocus: true,
   });
 
-  // Fetch open issues
+  // Fetch open issues - auto-refresh every 30s
   const { data: openIssues, isLoading: issuesLoading } = useQuery({
     queryKey: ['dashboard-open-issues'],
     queryFn: async () => {
@@ -441,6 +443,8 @@ function ScheduleAndIssuesSection() {
       if (error) throw error;
       return data;
     },
+    refetchInterval: 30000, // Auto-refresh every 30 seconds
+    refetchOnWindowFocus: true,
   });
 
   const formatJobDate = (dateStr: string) => {
