@@ -1995,8 +1995,8 @@ const Scan = () => {
           </div>
         </div>
 
-        {/* Section required warning */}
-        {!selectedSection && (
+        {/* Section required warning - only show on scan tab */}
+        {!selectedSection && activeTab === 'scan' && (
           <Card className="border-warning bg-warning/10">
             <CardContent className="py-3 flex items-center gap-2">
               <AlertCircle className="h-4 w-4 text-warning" />
