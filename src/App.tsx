@@ -64,7 +64,7 @@ function AppRoutes() {
     <>
       <OfflineRedirect />
       <Routes>
-        <Route path="/auth" element={<ProtectedRoute allowOffline><Auth /></ProtectedRoute>} />
+        <Route path="/auth" element={<Auth />} />
         <Route
           path="/profile"
           element={
