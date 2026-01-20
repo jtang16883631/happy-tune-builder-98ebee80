@@ -64,6 +64,7 @@ const navSections: NavSection[] = [
     title: 'HR',
     items: [
       { href: '/timesheet', label: 'Timesheet', icon: Clock, roles: allRoles },
+      { href: '/profile', label: 'Profile', icon: UserCog, roles: allRoles },
       { href: '/users', label: 'Users', icon: Users, roles: ['developer'] },
     ],
   },
@@ -248,7 +249,7 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
 
         {/* User Section */}
         <div className="p-4 border-t border-white/10">
-          <Link to="/auth" className="flex items-center gap-3 mb-3 p-2 -m-2 rounded-lg hover:bg-white/10 transition-colors cursor-pointer">
+          <Link to="/profile" className="flex items-center gap-3 mb-3 p-2 -m-2 rounded-lg hover:bg-white/10 transition-colors cursor-pointer">
             <Avatar className="h-9 w-9">
               <AvatarImage src={user?.user_metadata?.avatar_url} alt="Avatar" />
               <AvatarFallback className="bg-white/20 text-white text-sm">

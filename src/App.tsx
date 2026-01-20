@@ -9,6 +9,7 @@ import { UpdateNotification } from "@/components/UpdateNotification";
 import { OfflineRedirect, useOnlineStatus } from "@/components/OfflineRedirect";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
+import Profile from "./pages/Profile";
 import Users from "./pages/Users";
 import Scan from "./pages/Scan";
 import FDA from "./pages/FDA";
@@ -64,6 +65,14 @@ function AppRoutes() {
       <OfflineRedirect />
       <Routes>
         <Route path="/auth" element={<Auth />} />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Profile />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/"
           element={
