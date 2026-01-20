@@ -25,7 +25,7 @@ import { Loader2 } from "lucide-react";
 const queryClient = new QueryClient();
 
 // Routes that work offline without auth
-const OFFLINE_ALLOWED_ROUTES = ['/scan', '/issues'];
+const OFFLINE_ALLOWED_ROUTES = ['/scan', '/issues', '/auth'];
 
 function ProtectedRoute({ children, allowOffline = false }: { children: React.ReactNode; allowOffline?: boolean }) {
   const { user, isLoading } = useAuth();
@@ -64,7 +64,7 @@ function AppRoutes() {
     <>
       <OfflineRedirect />
       <Routes>
-        <Route path="/auth" element={<Auth />} />
+        <Route path="/auth" element={<ProtectedRoute allowOffline><Auth /></ProtectedRoute>} />
         <Route
           path="/profile"
           element={

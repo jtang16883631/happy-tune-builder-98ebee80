@@ -54,6 +54,10 @@ export default defineConfig(({ mode }) => ({
         ],
         navigateFallback: "/index.html",
         navigateFallbackAllowlist: [/^(?!\/__).*/],
+        // Ensure offline works - pre-cache all navigation routes
+        cleanupOutdatedCaches: true,
+        skipWaiting: true,
+        clientsClaim: true,
       },
       manifest: {
         name: "Inventory Scanner",
