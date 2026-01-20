@@ -246,7 +246,7 @@ const Scan = () => {
   const [activeRowIndex, setActiveRowIndex] = useState(0);
   const ndcInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const qtyInputRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const ndcAutoLookupTimersRef = useRef<Record<string, NodeJS.Timeout | null>>({});
+  
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Collect all section records from localStorage for summary
@@ -808,29 +808,6 @@ const Scan = () => {
     return false; // Indicate that we're waiting for user selection
   }, [findOuterNDCsByNDC9, fdaLookup, getDrugByOuterNDC, lookupNDC]);
 
-  // Auto-trigger lookup for scanners that do NOT send Enter/Tab.
-  // Wait a short time after the last keystroke; then run the same flow as Enter.
-  const scheduleAutoNdcLookup = useCallback((rowId: string, rowIndex: number, rawValue: string) => {
-    const digits = (rawValue ?? '').replace(/\D/g, '');
-    if (digits.length < 9) return;
-
-    const existing = ndcAutoLookupTimersRef.current[rowId];
-    if (existing) clearTimeout(existing);
-
-    ndcAutoLookupTimersRef.current[rowId] = setTimeout(async () => {
-      const currentRow = scanRows[rowIndex];
-      if (!currentRow || currentRow.id !== rowId) return;
-
-      // If the row already has a resolved outer NDC + a stored scanned inner NDC, don't re-run.
-      if (currentRow.scannedNdc && currentRow.ndc) {
-        const resolvedDigits = currentRow.ndc.replace(/\D/g, '');
-        const scannedDigits = currentRow.scannedNdc.replace(/\D/g, '');
-        if (resolvedDigits.length >= 10 && scannedDigits.length >= 9) return;
-      }
-
-      await initiateNDCLookup(rawValue, rowIndex);
-    }, 250);
-  }, [initiateNDCLookup, scanRows]);
 
   // Handle outer NDC selection from dialog
   const handleOuterNDCSelect = useCallback(async (selectedOuterNDC: string) => {
@@ -2293,7 +2270,6 @@ const Scan = () => {
                                     if (col.isNdcInput) {
                                       const raw = e.target.value;
                                       handleFieldChange(col.key as keyof ScanRow, raw, realIndex);
-                                      scheduleAutoNdcLookup(row.id, realIndex, raw);
                                       return;
                                     }
 
