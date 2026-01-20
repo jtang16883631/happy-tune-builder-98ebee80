@@ -3,12 +3,12 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff, Download, GripVertical, Eye, EyeOff, Settings2, FileUp, Cloud, RefreshCw, Search, Calculator, DollarSign, ShieldCheck } from 'lucide-react';
+import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff, Download, GripVertical, Eye, EyeOff, Settings2, FileUp, Cloud, RefreshCw, Search, Calculator, DollarSign, ShieldCheck, BarChart3 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useCloudTemplates, CloudTemplate, CloudSection, TemplateStatus } from '@/hooks/useCloudTemplates';
 import { useOfflineTemplates, OfflineTemplate } from '@/hooks/useOfflineTemplates';
 import { useLocalFDA } from '@/hooks/useLocalFDA';
@@ -16,6 +16,7 @@ import { SyncButton } from '@/components/scanner/SyncButton';
 import { OfflineSyncDialog } from '@/components/scanner/OfflineSyncDialog';
 import { OuterNDCSelectionDialog, OuterNDCOption } from '@/components/scanner/OuterNDCSelectionDialog';
 import { CostDataLookupDialog } from '@/components/scanner/CostDataLookupDialog';
+import { ScanSummaryTab } from '@/components/scanner/ScanSummaryTab';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import {
@@ -42,6 +43,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface ScanRow {
   id: string;
@@ -199,6 +201,9 @@ const Scan = () => {
   // Audit mode state
   const [auditMode, setAuditMode] = useState(false);
   
+  // Active tab state (scan or summary)
+  const [activeTab, setActiveTab] = useState<'scan' | 'summary'>('scan');
+  
   const createEmptyRow = useCallback((sectionName?: string): ScanRow => ({
     id: crypto.randomUUID(),
     loc: sectionName || '',
@@ -243,6 +248,25 @@ const Scan = () => {
   const qtyInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const ndcAutoLookupTimersRef = useRef<Record<string, NodeJS.Timeout | null>>({});
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Collect all section records from localStorage for summary
+  const allSectionRecords = useMemo(() => {
+    if (!selectedTemplate) return {};
+    
+    const records: Record<string, ScanRow[]> = {};
+    sections.forEach(section => {
+      const savedData = localStorage.getItem(`scan_records_${selectedTemplate.id}_${section.id}`);
+      if (savedData) {
+        try {
+          const savedRecords = JSON.parse(savedData) as ScanRow[];
+          records[section.id] = savedRecords;
+        } catch {
+          // Ignore parse errors
+        }
+      }
+    });
+    return records;
+  }, [selectedTemplate, sections, scanRows]); // Re-calculate when scanRows changes to reflect current edits
 
   const hasRole = roles.length > 0;
 
@@ -1861,10 +1885,24 @@ const Scan = () => {
           </Card>
         )}
 
-        {/* Scan Input */}
-        <Card className="w-full">
-          <CardContent className="p-4">
-            {/* Toolbar - search and buttons on left */}
+        {/* Tabs for Scan and Summary */}
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'scan' | 'summary')} className="w-full">
+          <TabsList className="mb-4">
+            <TabsTrigger value="scan" className="gap-2">
+              <ScanBarcode className="h-4 w-4" />
+              Scan
+            </TabsTrigger>
+            <TabsTrigger value="summary" className="gap-2">
+              <BarChart3 className="h-4 w-4" />
+              Summary
+            </TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="scan" className="mt-0">
+            {/* Scan Input */}
+            <Card className="w-full">
+              <CardContent className="p-4">
+                {/* Toolbar - search and buttons on left */}
             <div className="flex items-center gap-2 mb-4 flex-wrap">
               {/* Search on left */}
               <div className="relative">
@@ -2170,6 +2208,16 @@ const Scan = () => {
             </div>
           </CardContent>
         </Card>
+          </TabsContent>
+          
+          <TabsContent value="summary" className="mt-0">
+            <ScanSummaryTab 
+              scanRows={scanRows}
+              sections={sections}
+              allSectionRecords={allSectionRecords}
+            />
+          </TabsContent>
+        </Tabs>
       </div>
 
       {/* Add Section Dialog */}
