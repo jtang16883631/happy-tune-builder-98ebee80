@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -12,10 +12,11 @@ const Auth = () => {
   const { toast } = useToast();
 
   // Redirect to dashboard if already logged in
-  if (user && !isLoading) {
-    navigate('/');
-    return null;
-  }
+  useEffect(() => {
+    if (user && !isLoading) {
+      navigate('/', { replace: true });
+    }
+  }, [user, isLoading, navigate]);
 
   const handleGoogleLogin = async () => {
     const { error } = await signInWithGoogle();
