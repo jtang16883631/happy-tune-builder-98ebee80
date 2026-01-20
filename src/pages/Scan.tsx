@@ -1016,7 +1016,7 @@ const Scan = () => {
       }
 
       // Track section totals for summary
-      const sectionTotals: { section: string; value: number }[] = [];
+      const sectionTotals: { section: string; count: number; value: number }[] = [];
 
       // Column headers matching the scan table
       const headers = [
@@ -1090,8 +1090,10 @@ const Scan = () => {
         }
 
         // Store section total for summary
+        const recordCount = rows.length - 1; // Subtract header row
         sectionTotals.push({
           section: section.full_section || section.sect || 'Unknown',
+          count: recordCount,
           value: sectionTotal
         });
 
@@ -1115,6 +1117,7 @@ const Scan = () => {
         : new Date().toISOString().split('T')[0];
       
       const grandTotal = sectionTotals.reduce((sum, s) => sum + s.value, 0);
+      const totalScans = sectionTotals.reduce((sum, s) => sum + s.count, 0);
       
       // Build summary sheet content
       const summaryRows: any[][] = [
@@ -1124,38 +1127,92 @@ const Scan = () => {
         [dateStr],
         [], // Empty row
         // Section table headers
-        ['Sections', 'Value'],
+        ['Sections', 'Scans', 'Value'],
       ];
       
       // Add each section row with $ formatting
       sectionTotals.forEach(st => {
-        summaryRows.push([st.section, `$${st.value.toFixed(2)}`]);
+        summaryRows.push([st.section, st.count, `$${st.value.toFixed(2)}`]);
       });
       
       // Empty row before total
       summaryRows.push([]);
       // Grand total row with $ formatting
-      summaryRows.push(['', `$${grandTotal.toFixed(2)}`]);
+      summaryRows.push(['Total', totalScans, `$${grandTotal.toFixed(2)}`]);
       
       const summaryWorksheet = XLSX.utils.aoa_to_sheet(summaryRows);
       
       // Set column widths for summary
-      summaryWorksheet['!cols'] = [{ wch: 40 }, { wch: 15 }];
+      summaryWorksheet['!cols'] = [{ wch: 40 }, { wch: 10 }, { wch: 15 }];
+
+      // Create Master sheet - combine all sections
+      const masterRows: any[][] = [headers];
       
-      // Insert Summary as the first sheet
-      // XLSX doesn't have a direct "insert at beginning" so we rebuild SheetNames
+      for (const section of sections) {
+        const savedData = localStorage.getItem(`scan_records_${selectedTemplate.id}_${section.id}`);
+        if (savedData) {
+          try {
+            const savedRecords = JSON.parse(savedData) as ScanRow[];
+            savedRecords.forEach(record => {
+              masterRows.push([
+                record.loc || '',
+                record.device || '',
+                record.rec || '',
+                record.time || '',
+                record.ndc || '',
+                record.scannedNdc || '',
+                record.qty ?? '',
+                record.misDivisor ?? '',
+                record.misCountMethod || '',
+                record.itemNumber || '',
+                record.medDesc || '',
+                record.meridianDesc || '',
+                record.trade || '',
+                record.generic || '',
+                record.strength || '',
+                record.packSz || '',
+                record.fdaSize || '',
+                record.sizeTxt || '',
+                record.doseForm || '',
+                record.manufacturer || '',
+                record.genericCode || '',
+                record.deaClass || '',
+                record.ahfs || '',
+                record.source || '',
+                record.packCost ?? '',
+                record.unitCost ?? '',
+                record.extended ?? '',
+                record.blank || '',
+                record.sheetType || '',
+                record.auditCriteria || '',
+                record.originalQty ?? '',
+                record.auditorInitials || '',
+                record.results || '',
+                record.additionalNotes || '',
+              ]);
+            });
+          } catch (e) {
+            console.error('Error parsing section data for master:', e);
+          }
+        }
+      }
+      
+      const masterWorksheet = XLSX.utils.aoa_to_sheet(masterRows);
+      masterWorksheet['!cols'] = headers.map((_, i) => ({ wch: i === 10 || i === 11 ? 30 : 15 }));
+      
+      // Insert Summary and Master as first two sheets
       const existingSheetNames = [...workbook.SheetNames];
       const existingSheets = { ...workbook.Sheets };
       
-      workbook.SheetNames = ['Summary', ...existingSheetNames];
-      workbook.Sheets = { 'Summary': summaryWorksheet, ...existingSheets };
+      workbook.SheetNames = ['Summary', 'Master', ...existingSheetNames];
+      workbook.Sheets = { 'Summary': summaryWorksheet, 'Master': masterWorksheet, ...existingSheets };
 
       // Generate filename with template name and date
       const filename = `${selectedTemplate.name}_${dateStr}_scan.xlsx`;
 
       // Download the file
       XLSX.writeFile(workbook, filename);
-      toast.success(`Exported ${sections.length} sections + Summary to Excel`);
+      toast.success(`Exported ${sections.length} sections + Summary + Master to Excel`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export to Excel');
@@ -1276,6 +1333,12 @@ const Scan = () => {
         'Auditor Initials', 'Results', 'Additional Notes'
       ];
 
+      // Track section totals for summary
+      const sectionTotals: { section: string; count: number; value: number }[] = [];
+      
+      // Collect all records for Master sheet
+      const allMasterRows: any[][] = [];
+
       for (const section of sections) {
         // Fetch ALL users' scan records for this template/section
         const { data: cloudRecords, error } = await supabase
@@ -1291,10 +1354,16 @@ const Scan = () => {
         }
 
         let rows: any[][] = [headers];
+        let sectionTotal = 0;
 
         if (cloudRecords && cloudRecords.length > 0) {
           cloudRecords.forEach(record => {
-            rows.push([
+            // Sum up Extended values for this section
+            if (record.extended !== null && record.extended !== undefined) {
+              sectionTotal += Number(record.extended);
+            }
+            
+            const rowData = [
               record.loc || '',
               record.device || '',
               record.rec || '',
@@ -1329,9 +1398,19 @@ const Scan = () => {
               record.auditor_initials || '',
               record.results || '',
               record.additional_notes || '',
-            ]);
+            ];
+            rows.push(rowData);
+            allMasterRows.push(rowData);
           });
         }
+
+        // Store section total for summary
+        const recordCount = cloudRecords?.length || 0;
+        sectionTotals.push({
+          section: section.full_section || section.sect || 'Unknown',
+          count: recordCount,
+          value: sectionTotal
+        });
 
         const worksheet = XLSX.utils.aoa_to_sheet(rows);
         worksheet['!cols'] = headers.map((_, i) => ({ wch: i === 10 || i === 11 ? 30 : 15 }));
@@ -1342,13 +1421,54 @@ const Scan = () => {
         XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
       }
 
+      // Create Summary sheet
       const dateStr = selectedTemplate.inv_date 
         ? new Date(selectedTemplate.inv_date).toISOString().split('T')[0]
         : new Date().toISOString().split('T')[0];
+      
+      const grandTotal = sectionTotals.reduce((sum, s) => sum + s.value, 0);
+      const totalScans = sectionTotals.reduce((sum, s) => sum + s.count, 0);
+      
+      // Build summary sheet content
+      const summaryRows: any[][] = [
+        // Header info
+        [selectedTemplate.name],
+        [selectedTemplate.facility_name || ''],
+        [dateStr],
+        [], // Empty row
+        // Section table headers
+        ['Sections', 'Scans', 'Value'],
+      ];
+      
+      // Add each section row with $ formatting
+      sectionTotals.forEach(st => {
+        summaryRows.push([st.section, st.count, `$${st.value.toFixed(2)}`]);
+      });
+      
+      // Empty row before total
+      summaryRows.push([]);
+      // Grand total row with $ formatting
+      summaryRows.push(['Total', totalScans, `$${grandTotal.toFixed(2)}`]);
+      
+      const summaryWorksheet = XLSX.utils.aoa_to_sheet(summaryRows);
+      summaryWorksheet['!cols'] = [{ wch: 40 }, { wch: 10 }, { wch: 15 }];
+
+      // Create Master sheet - combine all sections
+      const masterRows: any[][] = [headers, ...allMasterRows];
+      const masterWorksheet = XLSX.utils.aoa_to_sheet(masterRows);
+      masterWorksheet['!cols'] = headers.map((_, i) => ({ wch: i === 10 || i === 11 ? 30 : 15 }));
+      
+      // Insert Summary and Master as first two sheets
+      const existingSheetNames = [...workbook.SheetNames];
+      const existingSheets = { ...workbook.Sheets };
+      
+      workbook.SheetNames = ['Summary', 'Master', ...existingSheetNames];
+      workbook.Sheets = { 'Summary': summaryWorksheet, 'Master': masterWorksheet, ...existingSheets };
+
       const filename = `${selectedTemplate.name}_${dateStr}_merged_scan.xlsx`;
 
       XLSX.writeFile(workbook, filename);
-      toast.success(`Exported merged scans from all users to Excel`);
+      toast.success(`Exported merged scans with Summary + Master to Excel`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export merged scans');
