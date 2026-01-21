@@ -66,7 +66,7 @@ export function OuterNDCSelectionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl p-0 overflow-hidden">
+      <DialogContent className="sm:max-w-4xl p-0 overflow-hidden">
         <DialogHeader className="px-4 pt-4 pb-2 border-b bg-muted/30">
           <div className="flex items-center gap-2 text-sm">
             <span className="text-muted-foreground">Scanned Inner NDC:</span>
