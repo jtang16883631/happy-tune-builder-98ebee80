@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
@@ -12,10 +12,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useAllScheduleEvents, useTeamMembers, ScheduleEvent } from '@/hooks/useScheduleEvents';
 import { useLiveTracker, STAGE_CONFIG } from '@/hooks/useLiveTracker';
-import { format } from 'date-fns';
-import { Search, Ticket, Loader2, ArrowLeft, Printer, Radio } from 'lucide-react';
+import { format, getYear } from 'date-fns';
+import { Search, Loader2, ArrowLeft, Printer, Radio, Database, Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TicketDetail } from '@/components/tickets/TicketDetail';
 
@@ -24,6 +31,7 @@ export default function Tickets() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEvent, setSelectedEvent] = useState<ScheduleEvent | null>(null);
+  const [selectedYear, setSelectedYear] = useState<string>('all');
 
   const { data: allEvents = [], isLoading: eventsLoading } = useAllScheduleEvents();
   const { data: teamMembers = [] } = useTeamMembers();
@@ -33,6 +41,28 @@ export default function Tickets() {
   const tickets = allEvents.filter(
     (e) => e.event_type === 'work' && e.invoice_number
   );
+
+  // Get unique years from tickets
+  const availableYears = useMemo(() => {
+    const years = new Set<number>();
+    tickets.forEach((ticket) => {
+      const year = getYear(new Date(ticket.job_date));
+      years.add(year);
+    });
+    return Array.from(years).sort((a, b) => b - a); // Sort descending (newest first)
+  }, [tickets]);
+
+  // Set default year to current year if available
+  useEffect(() => {
+    if (availableYears.length > 0 && selectedYear === 'all') {
+      const currentYear = new Date().getFullYear();
+      if (availableYears.includes(currentYear)) {
+        setSelectedYear(String(currentYear));
+      } else {
+        setSelectedYear(String(availableYears[0]));
+      }
+    }
+  }, [availableYears, selectedYear]);
 
   // Handle direct link via URL parameter
   useEffect(() => {
@@ -46,16 +76,35 @@ export default function Tickets() {
     }
   }, [searchParams, tickets, setSearchParams]);
 
-  // Filter tickets by search
-  const filteredTickets = tickets.filter((ticket) => {
-    if (!searchQuery.trim()) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      ticket.invoice_number?.toLowerCase().includes(query) ||
-      ticket.client_name?.toLowerCase().includes(query) ||
-      ticket.address?.toLowerCase().includes(query)
-    );
-  });
+  // Filter tickets by search and year
+  const filteredTickets = useMemo(() => {
+    return tickets.filter((ticket) => {
+      // Year filter
+      if (selectedYear !== 'all') {
+        const ticketYear = getYear(new Date(ticket.job_date));
+        if (ticketYear !== parseInt(selectedYear)) return false;
+      }
+
+      // Search filter
+      if (!searchQuery.trim()) return true;
+      const query = searchQuery.toLowerCase();
+      return (
+        ticket.invoice_number?.toLowerCase().includes(query) ||
+        ticket.client_name?.toLowerCase().includes(query) ||
+        ticket.address?.toLowerCase().includes(query)
+      );
+    });
+  }, [tickets, selectedYear, searchQuery]);
+
+  // Get ticket counts by year
+  const ticketCountsByYear = useMemo(() => {
+    const counts: Record<number, number> = {};
+    tickets.forEach((ticket) => {
+      const year = getYear(new Date(ticket.job_date));
+      counts[year] = (counts[year] || 0) + 1;
+    });
+    return counts;
+  }, [tickets]);
 
   // Get linked tracker job for a ticket
   const getTrackerJob = (ticketId: string) => {
@@ -86,7 +135,7 @@ export default function Tickets() {
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="sm" onClick={handleBack} className="gap-2">
               <ArrowLeft className="h-4 w-4" />
-              Back to Tickets
+              Back to Database
             </Button>
             <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-2">
               <Printer className="h-4 w-4" />
@@ -121,27 +170,62 @@ export default function Tickets() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <Ticket className="h-6 w-6" />
-              Job Tickets
+              <Database className="h-6 w-6" />
+              Ticket Database
             </h1>
             <p className="text-muted-foreground">
-              View all scheduled work tickets
+              All scheduled work tickets organized by year
             </p>
           </div>
-          <Badge variant="secondary" className="text-sm">
-            {tickets.length} tickets
-          </Badge>
+          <div className="flex items-center gap-2">
+            {availableYears.map((year) => (
+              <Badge 
+                key={year} 
+                variant={selectedYear === String(year) ? "default" : "secondary"} 
+                className="text-sm cursor-pointer"
+                onClick={() => setSelectedYear(String(year))}
+              >
+                {year}: {ticketCountsByYear[year] || 0}
+              </Badge>
+            ))}
+          </div>
         </div>
 
-        {/* Search */}
-        <div className="relative max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search by invoice, client, or address..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
-          />
+        {/* Filters */}
+        <div className="flex flex-col sm:flex-row gap-4">
+          {/* Year Selector */}
+          <div className="flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+            <Select value={selectedYear} onValueChange={setSelectedYear}>
+              <SelectTrigger className="w-[140px]">
+                <SelectValue placeholder="Select Year" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Years</SelectItem>
+                {availableYears.map((year) => (
+                  <SelectItem key={year} value={String(year)}>
+                    {year} ({ticketCountsByYear[year] || 0})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Search */}
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by invoice, client, or address..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+
+          {/* Results count */}
+          <Badge variant="outline" className="text-sm self-center">
+            {filteredTickets.length} tickets
+          </Badge>
         </div>
 
         {/* Tickets Table */}
@@ -153,7 +237,7 @@ export default function Tickets() {
           <div className="text-center py-12 text-muted-foreground">
             {tickets.length === 0
               ? 'No tickets found. Create a work event with an invoice number in Schedule Hub.'
-              : 'No tickets match your search.'}
+              : 'No tickets match your filters.'}
           </div>
         ) : (
           <div className="border rounded-lg overflow-hidden">
