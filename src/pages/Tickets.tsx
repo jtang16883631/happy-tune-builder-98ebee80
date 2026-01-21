@@ -4,7 +4,6 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
   TableBody,
@@ -13,24 +12,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { useAllScheduleEvents, useTeamMembers, ScheduleEvent } from '@/hooks/useScheduleEvents';
-import { useLiveTracker, LiveTrackerJob, STAGE_CONFIG } from '@/hooks/useLiveTracker';
+import { useLiveTracker, STAGE_CONFIG } from '@/hooks/useLiveTracker';
 import { format } from 'date-fns';
-import { Search, Ticket, Radio, CalendarDays, Loader2, MapPin, Phone, Mail, Users } from 'lucide-react';
+import { Search, Ticket, Loader2, ArrowLeft, Printer, Radio } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TicketDetail } from '@/components/tickets/TicketDetail';
 
 export default function Tickets() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEvent, setSelectedEvent] = useState<ScheduleEvent | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
 
   const { data: allEvents = [], isLoading: eventsLoading } = useAllScheduleEvents();
   const { data: teamMembers = [] } = useTeamMembers();
@@ -48,7 +41,6 @@ export default function Tickets() {
       const ticket = tickets.find((t) => t.id === ticketId);
       if (ticket) {
         setSelectedEvent(ticket);
-        setDetailOpen(true);
         setSearchParams({});
       }
     }
@@ -66,7 +58,7 @@ export default function Tickets() {
   });
 
   // Get linked tracker job for a ticket
-  const getTrackerJob = (ticketId: string): LiveTrackerJob | undefined => {
+  const getTrackerJob = (ticketId: string) => {
     return jobs?.find((job) => job.schedule_job_id === ticketId);
   };
 
@@ -80,12 +72,47 @@ export default function Tickets() {
 
   const handleViewTicket = (ticket: ScheduleEvent) => {
     setSelectedEvent(ticket);
-    setDetailOpen(true);
   };
 
-  const handleGoToTracker = (jobId: string) => {
-    navigate(`/live-tracker`);
+  const handleBack = () => {
+    setSelectedEvent(null);
   };
+
+  // If a ticket is selected, show the detail view
+  if (selectedEvent) {
+    return (
+      <AppLayout fullWidth>
+        <div className="space-y-4">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="sm" onClick={handleBack} className="gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Tickets
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-2">
+              <Printer className="h-4 w-4" />
+              Print
+            </Button>
+            {getTrackerJob(selectedEvent.id) && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => navigate('/live-tracker')}
+                className="gap-2"
+              >
+                <Radio className="h-4 w-4" />
+                View in Tracker
+              </Button>
+            )}
+          </div>
+          <TicketDetail 
+            event={selectedEvent} 
+            teamMembers={teamMembers}
+            trackerJob={getTrackerJob(selectedEvent.id)}
+          />
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
@@ -95,10 +122,10 @@ export default function Tickets() {
           <div>
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
               <Ticket className="h-6 w-6" />
-              Tickets
+              Job Tickets
             </h1>
             <p className="text-muted-foreground">
-              View all scheduled work tickets with invoice numbers
+              View all scheduled work tickets
             </p>
           </div>
           <Badge variant="secondary" className="text-sm">
@@ -132,14 +159,13 @@ export default function Tickets() {
           <div className="border rounded-lg overflow-hidden">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Invoice #</TableHead>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Address</TableHead>
-                  <TableHead>Team</TableHead>
-                  <TableHead>Tracker Status</TableHead>
-                  <TableHead className="w-[100px]"></TableHead>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="font-semibold">Invoice #</TableHead>
+                  <TableHead className="font-semibold">Facility Name</TableHead>
+                  <TableHead className="font-semibold">Job Date</TableHead>
+                  <TableHead className="font-semibold">Address</TableHead>
+                  <TableHead className="font-semibold">Team</TableHead>
+                  <TableHead className="font-semibold">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -153,27 +179,20 @@ export default function Tickets() {
                       className="cursor-pointer hover:bg-muted/50"
                       onClick={() => handleViewTicket(ticket)}
                     >
-                      <TableCell className="font-mono font-medium">
+                      <TableCell className="font-mono font-bold text-primary">
                         {ticket.invoice_number}
                       </TableCell>
                       <TableCell className="font-medium">
                         {ticket.client_name}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {format(new Date(ticket.job_date), 'MMM d, yyyy')}
+                      <TableCell>
+                        {format(new Date(ticket.job_date), 'M/d/yyyy')}
                       </TableCell>
-                      <TableCell className="text-muted-foreground max-w-[200px] truncate">
+                      <TableCell className="text-muted-foreground max-w-[250px] truncate">
                         {ticket.address || '-'}
                       </TableCell>
                       <TableCell>
-                        {teamNames.length > 0 ? (
-                          <div className="flex items-center gap-1">
-                            <Users className="h-3 w-3 text-muted-foreground" />
-                            <span className="text-sm">{teamNames.length}</span>
-                          </div>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
+                        {teamNames.length > 0 ? teamNames.join(', ') : '-'}
                       </TableCell>
                       <TableCell>
                         {trackerJob ? (
@@ -183,23 +202,11 @@ export default function Tickets() {
                               STAGE_CONFIG[trackerJob.stage].color
                             )}
                           >
-                            {STAGE_CONFIG[trackerJob.stage].label.substring(0, 15)}...
+                            {STAGE_CONFIG[trackerJob.stage].label.substring(0, 20)}...
                           </Badge>
                         ) : (
-                          <span className="text-muted-foreground text-sm">Not linked</span>
+                          <Badge variant="outline">Scheduled</Badge>
                         )}
-                      </TableCell>
-                      <TableCell>
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleViewTicket(ticket);
-                          }}
-                        >
-                          View
-                        </Button>
                       </TableCell>
                     </TableRow>
                   );
@@ -209,170 +216,6 @@ export default function Tickets() {
           </div>
         )}
       </div>
-
-      {/* Ticket Detail Dialog */}
-      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Ticket className="h-5 w-5" />
-              Ticket Details
-            </DialogTitle>
-          </DialogHeader>
-          
-          {selectedEvent && (
-            <div className="space-y-6">
-              {/* Invoice & Client */}
-              <div className="grid grid-cols-2 gap-4">
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm text-muted-foreground">Invoice Number</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-xl font-mono font-bold">{selectedEvent.invoice_number}</p>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm text-muted-foreground">Client</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-xl font-bold">{selectedEvent.client_name}</p>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Date & Time */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
-                    <CalendarDays className="h-4 w-4" />
-                    Schedule
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-1">
-                  <p className="font-medium">
-                    {format(new Date(selectedEvent.job_date), 'EEEE, MMMM d, yyyy')}
-                  </p>
-                  {selectedEvent.start_time && (
-                    <p className="text-muted-foreground">Start: {selectedEvent.start_time}</p>
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Location */}
-              {selectedEvent.address && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
-                      <MapPin className="h-4 w-4" />
-                      Location
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p>{selectedEvent.address}</p>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Contact Info */}
-              {(selectedEvent.onsite_contact || selectedEvent.phone || selectedEvent.email_data_to) && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm text-muted-foreground">Contact Info</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {selectedEvent.onsite_contact && (
-                      <p>Contact: {selectedEvent.onsite_contact}</p>
-                    )}
-                    {selectedEvent.phone && (
-                      <p className="flex items-center gap-2">
-                        <Phone className="h-4 w-4 text-muted-foreground" />
-                        {selectedEvent.phone}
-                      </p>
-                    )}
-                    {selectedEvent.email_data_to && (
-                      <p className="flex items-center gap-2">
-                        <Mail className="h-4 w-4 text-muted-foreground" />
-                        {selectedEvent.email_data_to}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Team Members */}
-              {selectedEvent.team_members && selectedEvent.team_members.length > 0 && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
-                      <Users className="h-4 w-4" />
-                      Team Members
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex flex-wrap gap-2">
-                      {getTeamMemberNames(selectedEvent.team_members).map((name) => (
-                        <Badge key={name} variant="secondary">{name}</Badge>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Notes */}
-              {selectedEvent.special_notes && (
-                <Card>
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm text-muted-foreground">Notes</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="whitespace-pre-wrap">{selectedEvent.special_notes}</p>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Linked Tracker Job */}
-              {(() => {
-                const trackerJob = getTrackerJob(selectedEvent.id);
-                if (!trackerJob) return null;
-                
-                return (
-                  <Card className="border-primary/50">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
-                        <Radio className="h-4 w-4" />
-                        Live Tracker Status
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <Badge 
-                          className={cn(
-                            "text-white",
-                            STAGE_CONFIG[trackerJob.stage].color
-                          )}
-                        >
-                          {STAGE_CONFIG[trackerJob.stage].label}
-                        </Badge>
-                      </div>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => handleGoToTracker(trackerJob.id)}
-                        className="gap-2"
-                      >
-                        <Radio className="h-4 w-4" />
-                        View in Live Tracker
-                      </Button>
-                    </CardContent>
-                  </Card>
-                );
-              })()}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </AppLayout>
   );
 }
