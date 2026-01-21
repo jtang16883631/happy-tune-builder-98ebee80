@@ -112,7 +112,7 @@ export function LiveTrackerTable({
                           <Badge 
                             variant="outline" 
                             className="text-[9px] border-primary/50 text-primary cursor-pointer hover:bg-primary/10 shrink-0 px-1 py-0 gap-0.5"
-                            onClick={() => navigate(`/schedule?jobId=${job.schedule_job_id}`)}
+                            onClick={() => navigate(`/tickets?id=${job.schedule_job_id}`)}
                           >
                             <CalendarDays className="h-2.5 w-2.5" />
                             Ticket
