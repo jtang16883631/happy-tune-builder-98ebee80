@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { createClient, type SupabaseClient, type RealtimeChannel } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/integrations/supabase/types';
 import { toast } from 'sonner';
 
@@ -54,8 +54,12 @@ interface OnlineMember {
 }
 
 function createAuthedDb(accessToken: string): SupabaseClient<Database> {
+  // Important: use the official `accessToken` callback.
+  // This ensures the client uses the user's JWT for BOTH database + realtime,
+  // avoiding `auth.uid()` being null (which triggers RLS failures).
   return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    accessToken: async () => accessToken,
+    // When accessToken is provided, the auth namespace can't be used (that's fine here).
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
 }
