@@ -69,6 +69,9 @@ export default function Tickets() {
   const ticketInputRef = useRef<HTMLInputElement>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
+  const [editValue, setEditValue] = useState('');
 
   const { data: allEvents = [], isLoading: eventsLoading, refetch: refetchEvents } = useAllScheduleEvents();
   const { data: teamMembers = [] } = useTeamMembers();
@@ -579,13 +582,83 @@ export default function Tickets() {
     return Math.round((importProgress.processed / importProgress.total) * 100);
   })();
 
-  // Handle delete confirmation
+  // Handle delete confirmation (for detail view)
   const handleDeleteTicket = async () => {
     if (!selectedEvent) return;
     await deleteEvent.mutateAsync(selectedEvent.id);
     setDeleteDialogOpen(false);
     setSelectedEvent(null);
     refetchEvents();
+  };
+
+  // Handle delete from table (list view)
+  const handleDeleteFromTable = async () => {
+    if (!deleteTargetId) return;
+    try {
+      await deleteEvent.mutateAsync(deleteTargetId);
+      setDeleteTargetId(null);
+      refetchEvents();
+      toast({ title: 'Ticket deleted successfully' });
+    } catch (err) {
+      toast({ title: 'Failed to delete ticket', variant: 'destructive' });
+    }
+  };
+
+  // Handle inline cell edit
+  const startEditing = (id: string, field: string, currentValue: string) => {
+    setEditingCell({ id, field });
+    setEditValue(currentValue || '');
+  };
+
+  const cancelEditing = () => {
+    setEditingCell(null);
+    setEditValue('');
+  };
+
+  const saveInlineEdit = async () => {
+    if (!editingCell) return;
+    
+    try {
+      const updateData: Record<string, any> = {};
+      
+      if (editingCell.field === 'invoice_number') {
+        updateData.invoice_number = editValue.trim() || null;
+      } else if (editingCell.field === 'client_name') {
+        updateData.client_name = editValue.trim() || null;
+      } else if (editingCell.field === 'job_date') {
+        // Validate date format
+        const dateValue = new Date(editValue);
+        if (isNaN(dateValue.getTime())) {
+          toast({ title: 'Invalid date format', variant: 'destructive' });
+          return;
+        }
+        updateData.job_date = editValue;
+      } else if (editingCell.field === 'address') {
+        updateData.address = editValue.trim() || null;
+      }
+
+      const { error } = await supabase
+        .from('scheduled_jobs')
+        .update(updateData)
+        .eq('id', editingCell.id);
+
+      if (error) throw error;
+
+      cancelEditing();
+      refetchEvents();
+      toast({ title: 'Updated successfully' });
+    } catch (err: any) {
+      toast({ title: 'Update failed', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveInlineEdit();
+    } else if (e.key === 'Escape') {
+      cancelEditing();
+    }
   };
 
   // Handle edit save callback
@@ -877,41 +950,123 @@ export default function Tickets() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50">
-                  <TableHead className="font-semibold">Invoice #</TableHead>
+                  <TableHead className="font-semibold w-[100px]">Invoice #</TableHead>
                   <TableHead className="font-semibold">Facility Name</TableHead>
-                  <TableHead className="font-semibold">Job Date</TableHead>
+                  <TableHead className="font-semibold w-[110px]">Job Date</TableHead>
                   <TableHead className="font-semibold">Address</TableHead>
-                  <TableHead className="font-semibold">Team</TableHead>
-                  <TableHead className="font-semibold">Status</TableHead>
+                  <TableHead className="font-semibold w-[100px]">Status</TableHead>
+                  <TableHead className="font-semibold w-[80px] text-center">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredTickets.map((ticket) => {
                   const trackerJob = getTrackerJob(ticket.id);
-                  const teamNames = getTeamMemberNames(ticket.team_members);
+                  const isEditingInvoice = editingCell?.id === ticket.id && editingCell?.field === 'invoice_number';
+                  const isEditingClient = editingCell?.id === ticket.id && editingCell?.field === 'client_name';
+                  const isEditingDate = editingCell?.id === ticket.id && editingCell?.field === 'job_date';
+                  const isEditingAddress = editingCell?.id === ticket.id && editingCell?.field === 'address';
                   
                   return (
-                    <TableRow 
-                      key={ticket.id}
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => handleViewTicket(ticket)}
-                    >
-                      <TableCell className="font-mono font-bold text-primary">
-                        {ticket.invoice_number}
+                    <TableRow key={ticket.id} className="group">
+                      {/* Invoice Number - Editable */}
+                      <TableCell 
+                        className="font-mono font-bold text-primary p-0"
+                        onDoubleClick={() => startEditing(ticket.id, 'invoice_number', ticket.invoice_number || '')}
+                      >
+                        {isEditingInvoice ? (
+                          <Input
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            onBlur={saveInlineEdit}
+                            autoFocus
+                            className="h-8 text-sm font-mono border-primary"
+                          />
+                        ) : (
+                          <div 
+                            className="px-4 py-3 cursor-text hover:bg-muted/30 min-h-[44px] flex items-center"
+                            onClick={() => startEditing(ticket.id, 'invoice_number', ticket.invoice_number || '')}
+                          >
+                            {ticket.invoice_number || <span className="text-muted-foreground italic">-</span>}
+                          </div>
+                        )}
                       </TableCell>
-                      <TableCell className="font-medium">
-                        {ticket.client_name}
+
+                      {/* Client Name - Editable */}
+                      <TableCell 
+                        className="p-0"
+                        onDoubleClick={() => startEditing(ticket.id, 'client_name', ticket.client_name || '')}
+                      >
+                        {isEditingClient ? (
+                          <Input
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            onBlur={saveInlineEdit}
+                            autoFocus
+                            className="h-8 text-sm border-primary"
+                          />
+                        ) : (
+                          <div 
+                            className="px-4 py-3 cursor-text hover:bg-muted/30 min-h-[44px] flex items-center font-medium"
+                            onClick={() => startEditing(ticket.id, 'client_name', ticket.client_name || '')}
+                          >
+                            {ticket.client_name || <span className="text-muted-foreground italic">-</span>}
+                          </div>
+                        )}
                       </TableCell>
-                      <TableCell>
-                        {format(new Date(ticket.job_date), 'M/d/yyyy')}
+
+                      {/* Job Date - Editable */}
+                      <TableCell 
+                        className="p-0"
+                        onDoubleClick={() => startEditing(ticket.id, 'job_date', ticket.job_date)}
+                      >
+                        {isEditingDate ? (
+                          <Input
+                            type="date"
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            onBlur={saveInlineEdit}
+                            autoFocus
+                            className="h-8 text-sm border-primary"
+                          />
+                        ) : (
+                          <div 
+                            className="px-4 py-3 cursor-text hover:bg-muted/30 min-h-[44px] flex items-center"
+                            onClick={() => startEditing(ticket.id, 'job_date', ticket.job_date)}
+                          >
+                            {format(new Date(ticket.job_date), 'M/d/yyyy')}
+                          </div>
+                        )}
                       </TableCell>
-                      <TableCell className="text-muted-foreground max-w-[250px] truncate">
-                        {ticket.address || '-'}
+
+                      {/* Address - Editable */}
+                      <TableCell 
+                        className="p-0 max-w-[250px]"
+                        onDoubleClick={() => startEditing(ticket.id, 'address', ticket.address || '')}
+                      >
+                        {isEditingAddress ? (
+                          <Input
+                            value={editValue}
+                            onChange={(e) => setEditValue(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            onBlur={saveInlineEdit}
+                            autoFocus
+                            className="h-8 text-sm border-primary"
+                          />
+                        ) : (
+                          <div 
+                            className="px-4 py-3 cursor-text hover:bg-muted/30 min-h-[44px] flex items-center text-muted-foreground truncate"
+                            onClick={() => startEditing(ticket.id, 'address', ticket.address || '')}
+                          >
+                            {ticket.address || <span className="italic">-</span>}
+                          </div>
+                        )}
                       </TableCell>
-                      <TableCell>
-                        {teamNames.length > 0 ? teamNames.join(', ') : '-'}
-                      </TableCell>
-                      <TableCell>
+
+                      {/* Status - Not editable, click to view */}
+                      <TableCell onClick={() => handleViewTicket(ticket)} className="cursor-pointer">
                         {trackerJob ? (
                           <Badge 
                             className={cn(
@@ -919,11 +1074,39 @@ export default function Tickets() {
                               STAGE_CONFIG[trackerJob.stage].color
                             )}
                           >
-                            {STAGE_CONFIG[trackerJob.stage].label.substring(0, 20)}...
+                            {STAGE_CONFIG[trackerJob.stage].label.substring(0, 12)}
                           </Badge>
                         ) : (
                           <Badge variant="outline">Scheduled</Badge>
                         )}
+                      </TableCell>
+
+                      {/* Actions */}
+                      <TableCell className="text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleViewTicket(ticket);
+                            }}
+                          >
+                            <FileText className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteTargetId(ticket.id);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -932,6 +1115,27 @@ export default function Tickets() {
             </Table>
           </div>
         ) : null}
+
+        {/* Delete Confirmation Dialog for Table */}
+        <AlertDialog open={!!deleteTargetId} onOpenChange={(open) => !open && setDeleteTargetId(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Ticket?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will permanently delete this ticket and all its associated sections. This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction 
+                onClick={handleDeleteFromTable}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppLayout>
   );
