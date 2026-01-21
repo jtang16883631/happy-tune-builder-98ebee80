@@ -28,6 +28,9 @@ import {
   FileText,
   AlertTriangle,
   X,
+  Search,
+  Loader2,
+  Link,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -37,6 +40,7 @@ import {
   useScheduleEventMutation,
   EVENT_TYPE_CONFIG,
 } from '@/hooks/useScheduleEvents';
+import { usePreviousInvoiceLookup } from '@/hooks/usePreviousInvoiceLookup';
 
 interface FormData {
   event_type: ScheduleEventType;
@@ -91,6 +95,9 @@ export function ScheduleBuilder({
 }: ScheduleBuilderProps) {
   const [startDateOpen, setStartDateOpen] = useState(false);
   const [endDateOpen, setEndDateOpen] = useState(false);
+  const [previousInvoiceInput, setPreviousInvoiceInput] = useState('');
+  
+  const { isSearching, foundJob, searchPreviousInvoice, clearFoundJob } = usePreviousInvoiceLookup();
 
   const { register, handleSubmit, watch, setValue, reset, formState: { isSubmitting } } = useForm<FormData>({
     defaultValues: {
@@ -129,6 +136,30 @@ export function ScheduleBuilder({
   const endDate = watch('end_date');
 
   const mutation = useScheduleEventMutation();
+
+  const handleLookupPreviousInvoice = async () => {
+    if (!previousInvoiceInput) return;
+    
+    const result = await searchPreviousInvoice(previousInvoiceInput);
+    if (result) {
+      // Auto-populate form fields with found data
+      setValue('client_name', result.client_name || '');
+      setValue('client_id', result.client_id || '');
+      setValue('address', result.address || '');
+      setValue('phone', result.phone || '');
+      setValue('previous_inventory_value', result.previous_inventory_value || '');
+      setValue('onsite_contact', result.onsite_contact || '');
+      setValue('corporate_contact', result.corporate_contact || '');
+      setValue('email_data_to', result.email_data_to || '');
+      setValue('final_invoice_to', result.final_invoice_to || '');
+      setValue('notes', result.notes || '');
+      setValue('special_notes', result.special_notes || '');
+      setValue('exact_count_required', result.exact_count_required || false);
+      setValue('partial_inventory', result.partial_inventory || false);
+      setValue('client_onsite', result.client_onsite || false);
+      setValue('hotel_info', result.hotel_info || '');
+    }
+  };
 
   const onSubmit = async (data: FormData) => {
     const payload: Partial<ScheduleEvent> = {
@@ -336,14 +367,77 @@ export function ScheduleBuilder({
             {/* Work-specific fields */}
             {eventType === 'work' && (
               <>
+                {/* Previous Invoice Lookup Card */}
+                <Card className="border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20">
+                  <CardHeader className="py-3">
+                    <CardTitle className="text-sm flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
+                      <Link className="h-4 w-4" />
+                      Link to Previous Year Ticket
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <Input
+                          value={previousInvoiceInput}
+                          onChange={(e) => setPreviousInvoiceInput(e.target.value)}
+                          placeholder="Enter previous invoice # (e.g., 25090182)"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleLookupPreviousInvoice();
+                            }
+                          }}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleLookupPreviousInvoice}
+                        disabled={isSearching || !previousInvoiceInput}
+                        className="gap-2"
+                      >
+                        {isSearching ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Search className="h-4 w-4" />
+                        )}
+                        Lookup
+                      </Button>
+                    </div>
+                    {foundJob && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">
+                          Found: {foundJob.client_name}
+                        </Badge>
+                        <span className="text-muted-foreground">
+                          from {foundJob.source === 'scheduled_jobs' ? 'previous schedule' : 'template'} ({foundJob.original_invoice})
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={clearFoundJob}
+                          className="h-6 w-6 p-0"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Enter a previous invoice number to auto-fill client info from last year's ticket
+                    </p>
+                  </CardContent>
+                </Card>
+
                 <Separator />
                 <div className="space-y-4">
                   <h3 className="font-semibold text-lg">Job Details</h3>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Invoice Number</Label>
-                      <Input {...register('invoice_number')} placeholder="e.g., 25120378" />
+                      <Label>New Invoice Number</Label>
+                      <Input {...register('invoice_number')} placeholder="e.g., 26010001" />
                     </div>
                     <div className="space-y-2">
                       <Label>Start Time</Label>
