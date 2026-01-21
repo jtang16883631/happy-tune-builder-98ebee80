@@ -200,7 +200,7 @@ export function ScheduleBuilder({
   };
 
   const onSubmit = async (data: FormData) => {
-    const payload: Partial<ScheduleEvent> = {
+    const payload: Partial<ScheduleEvent> & { _sections?: any[] } = {
       event_type: data.event_type,
       job_date: format(data.job_date, 'yyyy-MM-dd'),
       end_date: data.end_date ? format(data.end_date, 'yyyy-MM-dd') : null,
@@ -233,6 +233,11 @@ export function ScheduleBuilder({
 
     if (event?.id) {
       payload.id = event.id;
+    }
+
+    // If we found a previous job with sections, include them for the new event
+    if (foundJob && foundJob.sections && foundJob.sections.length > 0 && !event?.id) {
+      payload._sections = foundJob.sections;
     }
 
     await mutation.mutateAsync(payload);

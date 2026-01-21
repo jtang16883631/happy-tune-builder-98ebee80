@@ -106,18 +106,49 @@ export function useTeamMembers() {
   });
 }
 
-// Create/Update event mutation
+// Section type for scheduled job sections
+export interface ScheduledJobSection {
+  id?: string;
+  schedule_job_id?: string;
+  sect: string;
+  description: string | null;
+  full_section: string | null;
+  cost_sheet: string | null;
+}
+
+// Fetch sections for a specific schedule event
+export function useScheduleEventSections(scheduleJobId: string | undefined) {
+  return useQuery({
+    queryKey: ['schedule-event-sections', scheduleJobId],
+    enabled: !!scheduleJobId,
+    queryFn: async () => {
+      if (!scheduleJobId) return [];
+      const { data, error } = await supabase
+        .from('scheduled_job_sections')
+        .select('*')
+        .eq('schedule_job_id', scheduleJobId)
+        .order('sect');
+      
+      if (error) throw error;
+      return data as ScheduledJobSection[];
+    },
+  });
+}
+
+// Create/Update event mutation with optional sections
 export function useScheduleEventMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (event: Partial<ScheduleEvent> & { id?: string }) => {
-      const { id, created_at, updated_at, ...payload } = event;
+    mutationFn: async (eventWithSections: Partial<ScheduleEvent> & { id?: string; _sections?: ScheduledJobSection[] }) => {
+      const { id, created_at, updated_at, _sections, ...payload } = eventWithSections;
 
       // Ensure event_type is set based on is_travel_day for backwards compatibility
       if (payload.is_travel_day && !payload.event_type) {
         payload.event_type = 'travel';
       }
+
+      let eventId = id;
 
       if (id) {
         const { error } = await supabase
@@ -126,10 +157,39 @@ export function useScheduleEventMutation() {
           .eq('id', id);
         if (error) throw error;
       } else {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from('scheduled_jobs')
-          .insert(payload as any);
+          .insert(payload as any)
+          .select('id')
+          .single();
         if (error) throw error;
+        eventId = data.id;
+      }
+
+      // If sections are provided, insert them (for new events from previous lookup)
+      if (_sections && _sections.length > 0 && eventId) {
+        // First, delete any existing sections for this event (in case of update)
+        await supabase
+          .from('scheduled_job_sections')
+          .delete()
+          .eq('schedule_job_id', eventId);
+
+        // Insert the new sections
+        const sectionsToInsert = _sections.map((s) => ({
+          schedule_job_id: eventId,
+          sect: s.sect,
+          description: s.description,
+          full_section: s.full_section,
+          cost_sheet: s.cost_sheet,
+        }));
+
+        const { error: sectError } = await supabase
+          .from('scheduled_job_sections')
+          .insert(sectionsToInsert);
+
+        if (sectError) {
+          console.error('Error inserting sections:', sectError);
+        }
       }
     },
     onSuccess: () => {
@@ -137,6 +197,7 @@ export function useScheduleEventMutation() {
       queryClient.invalidateQueries({ queryKey: ['schedule-events-all'] });
       queryClient.invalidateQueries({ queryKey: ['scheduled-jobs'] });
       queryClient.invalidateQueries({ queryKey: ['live-tracker-jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['schedule-event-sections'] });
       toast({ title: 'Event saved successfully' });
     },
     onError: (error) => {

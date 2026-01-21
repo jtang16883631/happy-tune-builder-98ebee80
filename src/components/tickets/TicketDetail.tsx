@@ -1,7 +1,8 @@
 import { format } from 'date-fns';
-import { ScheduleEvent, TeamMember } from '@/hooks/useScheduleEvents';
+import { ScheduleEvent, TeamMember, useScheduleEventSections } from '@/hooks/useScheduleEvents';
 import { LiveTrackerJob, STAGE_CONFIG } from '@/hooks/useLiveTracker';
 import { cn } from '@/lib/utils';
+import { Loader2 } from 'lucide-react';
 
 interface TicketDetailProps {
   event: ScheduleEvent;
@@ -10,6 +11,9 @@ interface TicketDetailProps {
 }
 
 export function TicketDetail({ event, teamMembers, trackerJob }: TicketDetailProps) {
+  // Fetch sections for this scheduled job
+  const { data: sections = [], isLoading: sectionsLoading } = useScheduleEventSections(event.id);
+
   const getTeamMemberNames = (memberIds: string[] | null): string[] => {
     if (!memberIds) return [];
     return memberIds
@@ -173,35 +177,36 @@ export function TicketDetail({ event, teamMembers, trackerJob }: TicketDetailPro
           <div className="p-1 text-center">Variance</div>
         </div>
         
-        {/* Sample rows */}
-        {[
-          { sect: '0001', name: 'Pyxis-EDIT', notes: '', sheet: 'GPO', emp: 'JOE', timeIn: '10:15 AM', timeOut: '10:30 AM', count: '1', hrs: '0.20' },
-          { sect: '0002', name: 'Anesthesia Meds', notes: '', sheet: 'GPO', emp: 'JOE', timeIn: '10:50 AM', timeOut: '11:00 AM', count: '1', hrs: '0.15' },
-          { sect: '0003', name: 'Supplies', notes: 'DELETE', sheet: 'GPO', emp: '', timeIn: '', timeOut: '', count: '', hrs: '' },
-          { sect: '0004', name: 'Antibiotic Injectables', notes: '', sheet: 'GPO', emp: 'JOE', timeIn: '10:15 AM', timeOut: '10:50 AM', count: '1', hrs: '0.15' },
-          { sect: '0005', name: 'Refrigerator', notes: 'check short dates', sheet: 'GPO', emp: 'JOE', timeIn: '9:00 AM', timeOut: '9:40 AM', count: '1', hrs: '0.40', highlight: true },
-        ].map((row, i) => (
-          <div 
-            key={i} 
-            className={cn(
-              "grid grid-cols-[60px_120px_1fr_80px_80px_80px_80px_80px_100px_100px_100px_100px] text-[10px] border-t border-black",
-              row.highlight && "bg-yellow-200"
-            )}
-          >
-            <div className="border-r border-black p-1 text-center">{row.sect}</div>
-            <div className="border-r border-black p-1 text-blue-600 underline">{row.name}</div>
-            <div className="border-r border-black p-1"></div>
-            <div className="border-r border-black p-1 text-center text-[9px]">{row.notes}</div>
-            <div className="border-r border-black p-1 text-center">{row.sheet}</div>
-            <div className="border-r border-black p-1 text-center">{row.emp}</div>
-            <div className={cn("border-r border-black p-1 text-center", row.highlight && "bg-green-300")}>{row.timeIn}</div>
-            <div className="border-r border-black p-1 text-center">{row.timeOut}</div>
-            <div className="border-r border-black p-1 text-center">{row.count}</div>
-            <div className="border-r border-black p-1 text-center">{row.hrs}</div>
-            <div className="border-r border-black p-1 text-center">$</div>
-            <div className="p-1 text-center text-red-600">$</div>
+        {/* Section rows from database */}
+        {sectionsLoading ? (
+          <div className="flex items-center justify-center py-4">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           </div>
-        ))}
+        ) : sections.length > 0 ? (
+          sections.map((section, i) => (
+            <div 
+              key={section.id || i} 
+              className="grid grid-cols-[60px_120px_1fr_80px_80px_80px_80px_80px_100px_100px_100px_100px] text-[10px] border-t border-black"
+            >
+              <div className="border-r border-black p-1 text-center">{section.sect}</div>
+              <div className="border-r border-black p-1 text-blue-600 underline">{section.full_section || section.description}</div>
+              <div className="border-r border-black p-1">{section.description}</div>
+              <div className="border-r border-black p-1 text-center text-[9px]"></div>
+              <div className="border-r border-black p-1 text-center">{section.cost_sheet}</div>
+              <div className="border-r border-black p-1 text-center"></div>
+              <div className="border-r border-black p-1 text-center"></div>
+              <div className="border-r border-black p-1 text-center"></div>
+              <div className="border-r border-black p-1 text-center"></div>
+              <div className="border-r border-black p-1 text-center"></div>
+              <div className="border-r border-black p-1 text-center">$</div>
+              <div className="p-1 text-center text-red-600">$</div>
+            </div>
+          ))
+        ) : (
+          <div className="text-[10px] text-muted-foreground text-center py-4 border-t border-black">
+            No sections defined. Use Previous Invoice Lookup when creating the schedule event to import sections.
+          </div>
+        )}
       </div>
 
       {/* Employee Section */}

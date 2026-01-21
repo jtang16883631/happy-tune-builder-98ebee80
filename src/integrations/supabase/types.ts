@@ -617,6 +617,47 @@ export type Database = {
           },
         ]
       }
+      scheduled_job_sections: {
+        Row: {
+          cost_sheet: string | null
+          created_at: string
+          description: string | null
+          full_section: string | null
+          id: string
+          schedule_job_id: string
+          sect: string
+          updated_at: string
+        }
+        Insert: {
+          cost_sheet?: string | null
+          created_at?: string
+          description?: string | null
+          full_section?: string | null
+          id?: string
+          schedule_job_id: string
+          sect: string
+          updated_at?: string
+        }
+        Update: {
+          cost_sheet?: string | null
+          created_at?: string
+          description?: string | null
+          full_section?: string | null
+          id?: string
+          schedule_job_id?: string
+          sect?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scheduled_job_sections_schedule_job_id_fkey"
+            columns: ["schedule_job_id"]
+            isOneToOne: false
+            referencedRelation: "scheduled_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       scheduled_jobs: {
         Row: {
           address: string | null
