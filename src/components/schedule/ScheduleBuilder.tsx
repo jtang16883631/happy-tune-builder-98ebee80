@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { format, addDays } from 'date-fns';
 import { Button } from '@/components/ui/button';
@@ -129,6 +129,43 @@ export function ScheduleBuilder({
       client_onsite: event?.client_onsite || false,
     },
   });
+
+  // Reset form when event changes or dialog opens with an event
+  useEffect(() => {
+    if (open) {
+      reset({
+        event_type: event?.event_type || 'work',
+        job_date: event ? new Date(event.job_date + 'T00:00:00') : defaultDate,
+        end_date: event?.end_date ? new Date(event.end_date + 'T00:00:00') : null,
+        event_title: event?.event_title || '',
+        invoice_number: event?.invoice_number || '',
+        start_time: event?.start_time || '',
+        arrival_note: event?.arrival_note || '',
+        client_name: event?.client_name || '',
+        client_id: event?.client_id || '',
+        address: event?.address || '',
+        phone: event?.phone || '',
+        previous_inventory_value: event?.previous_inventory_value || '',
+        onsite_contact: event?.onsite_contact || '',
+        corporate_contact: event?.corporate_contact || '',
+        email_data_to: event?.email_data_to || '',
+        final_invoice_to: event?.final_invoice_to || '',
+        notes: event?.notes || '',
+        special_notes: event?.special_notes || '',
+        team_members: event?.team_members || [],
+        travel_info: event?.travel_info || '',
+        hotel_info: event?.hotel_info || '',
+        location_from: event?.location_from || '',
+        location_to: event?.location_to || '',
+        exact_count_required: event?.exact_count_required || false,
+        partial_inventory: event?.partial_inventory || false,
+        client_onsite: event?.client_onsite || false,
+      });
+      // Clear previous invoice lookup state when opening
+      setPreviousInvoiceInput('');
+      clearFoundJob();
+    }
+  }, [open, event, defaultDate, reset, clearFoundJob]);
 
   const eventType = watch('event_type');
   const selectedTeamMembers = watch('team_members');

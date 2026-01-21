@@ -83,7 +83,7 @@ export function useCloudTemplates() {
   }, [fetchTemplates]);
 
   // Parse job ticket to extract sections and metadata
-  const parseJobTicket = (rawData: any[][]): {
+  const parseJobTicket = (rawData: any[][], fileName?: string): {
     invDate: string | null;
     invNumber: string | null;
     facilityName: string | null;
@@ -94,6 +94,15 @@ export function useCloudTemplates() {
     let facilityName: string | null = null;
     const sections: { sect: string; description: string; costSheet: string | null }[] = [];
 
+    // Try to extract invoice number from filename first (e.g., "25090182.xlsx" or "25090182 - Client Name.xlsx")
+    if (fileName) {
+      const fileNameWithoutExt = fileName.replace(/\.(xlsx?|xls)$/i, '');
+      const invoiceMatch = fileNameWithoutExt.match(/^(\d{8})/);
+      if (invoiceMatch) {
+        invNumber = invoiceMatch[1];
+      }
+    }
+
     // Scan raw data for metadata
     for (let r = 0; r < rawData.length; r++) {
       for (let c = 0; c < rawData[r].length; c++) {
@@ -102,6 +111,18 @@ export function useCloudTemplates() {
         if (cellValue === 'facility name' || cellValue.includes('facility name')) {
           if (c + 1 < rawData[r].length && rawData[r][c + 1]) {
             facilityName = String(rawData[r][c + 1]).trim();
+          }
+        }
+
+        // Look for invoice number in the Excel data
+        if (cellValue === 'inv. #' || cellValue === 'inv #' || cellValue === 'inv.#' || 
+            cellValue === 'invoice #' || cellValue === 'invoice number' || 
+            cellValue.includes('inv. #') || cellValue.includes('invoice #')) {
+          if (c + 1 < rawData[r].length && rawData[r][c + 1]) {
+            const parsedInvNum = String(rawData[r][c + 1]).trim();
+            if (parsedInvNum) {
+              invNumber = parsedInvNum;
+            }
           }
         }
 
@@ -212,7 +233,7 @@ export function useCloudTemplates() {
       if (!user) return { success: false, error: 'Not authenticated' };
 
       try {
-        const { invDate, invNumber, facilityName, sections } = parseJobTicket(jobTicketRawData);
+        const { invDate, invNumber, facilityName, sections } = parseJobTicket(jobTicketRawData, jobTicketFileName);
 
         // Insert template
         const { data: templateData, error: templateError } = await supabase
@@ -353,7 +374,7 @@ export function useCloudTemplates() {
       if (!user) return { success: false, error: 'Not authenticated' };
 
       try {
-        const { invDate, invNumber, facilityName, sections } = parseJobTicket(jobTicketRawData);
+        const { invDate, invNumber, facilityName, sections } = parseJobTicket(jobTicketRawData, jobTicketFileName);
 
         // Insert template
         const { data: templateData, error: templateError } = await supabase

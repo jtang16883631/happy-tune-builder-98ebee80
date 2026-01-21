@@ -78,10 +78,11 @@ export function usePreviousInvoiceLookup() {
       }
 
       // If not found in scheduled_jobs, search in data_templates
+      // Search by inv_number OR by name (which often contains the invoice number)
       const { data: templates, error: templateError } = await supabase
         .from('data_templates')
         .select('*')
-        .ilike('inv_number', `%${invoiceNumber}%`)
+        .or(`inv_number.ilike.%${invoiceNumber}%,name.ilike.%${invoiceNumber}%`)
         .order('inv_date', { ascending: false })
         .limit(1);
 
