@@ -131,7 +131,7 @@ export function LiveTrackerJobCard({
               className="text-[10px] border-primary/50 text-primary cursor-pointer hover:bg-primary/10 gap-0.5"
               onClick={(e) => {
                 e.stopPropagation();
-                navigate(`/schedule?jobId=${job.schedule_job_id}`);
+                navigate(`/tickets?id=${job.schedule_job_id}`);
               }}
             >
               <CalendarDays className="h-2.5 w-2.5" />
