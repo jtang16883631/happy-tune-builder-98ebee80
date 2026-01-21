@@ -40,6 +40,7 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('');
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
+  const [includeFDA, setIncludeFDA] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasInitializedSelection = useRef(false);
 
@@ -59,6 +60,19 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
       hasInitializedSelection.current = false;
     }
   }, [mode, templates]);
+
+  const withTimeout = async <T,>(promise: PromiseLike<T>, ms: number, label: string): Promise<T> => {
+    let timeoutId: number | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = window.setTimeout(() => reject(new Error(`${label} timed out. Please confirm you're online and try again.`)), ms);
+    });
+
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      if (timeoutId) window.clearTimeout(timeoutId);
+    }
+  };
 
   const toggleTemplate = (id: string) => {
     setSelectedTemplateIds(prev => 
@@ -82,13 +96,13 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
 
     try {
       const selectedTemplates = cloudTemplates.filter(ct => selectedTemplateIds.includes(ct.id));
-      
-      if (selectedTemplates.length === 0) {
-        throw new Error('No templates selected');
+
+      if (selectedTemplates.length === 0 && !includeFDA) {
+        throw new Error('Select at least 1 template or enable FDA to export');
       }
 
       setProgress(5);
-      setStatus(`Preparing ${selectedTemplates.length} templates...`);
+      setStatus(`Preparing ${selectedTemplates.length} template(s)...`);
 
       // Build templates in OfflineTemplate format
       const exportTemplates: OfflineTemplate[] = selectedTemplates.map(ct => ({
@@ -111,16 +125,26 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
       const allSections: { templateId: string; items: OfflineSection[] }[] = [];
       const allCostItems: { templateId: string; items: OfflineCostItem[] }[] = [];
 
+      const templateSpanStart = 5;
+      const templateSpanEnd = 45;
+      const templateSpan = templateSpanEnd - templateSpanStart;
+
       for (let i = 0; i < selectedTemplates.length; i++) {
         const template = selectedTemplates[i];
         setStatus(`Fetching data for: ${template.name || template.facility_name || 'Template'} (${i + 1}/${selectedTemplates.length})`);
-        setProgress(5 + (i / selectedTemplates.length) * 40);
+        setProgress(templateSpanStart + (i / Math.max(1, selectedTemplates.length)) * templateSpan);
 
         // Fetch sections from cloud
-        const { data: sections } = await supabase
-          .from('template_sections')
-          .select('*')
-          .eq('template_id', template.id);
+        const { data: sections, error: sectionsError } = await withTimeout<any>(
+          supabase
+            .from('template_sections')
+            .select('*')
+            .eq('template_id', template.id),
+          20000,
+          'Fetching sections'
+        );
+
+        if (sectionsError) throw sectionsError;
 
         allSections.push({
           templateId: template.id,
@@ -139,13 +163,28 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
         const costItemsLimit = 1000;
         let templateCostItems: OfflineCostItem[] = [];
         let hasMore = true;
+        let page = 0;
 
         while (hasMore) {
-          const { data: costItems } = await supabase
-            .from('template_cost_items')
-            .select('*')
-            .eq('template_id', template.id)
-            .range(costItemsOffset, costItemsOffset + costItemsLimit - 1);
+          page += 1;
+          setStatus(
+            `Fetching cost items for: ${template.name || template.facility_name || 'Template'} (page ${page}, ${templateCostItems.length.toLocaleString()} loaded...)`
+          );
+
+          // small progress bump so UI never looks stuck
+          setProgress(prev => Math.min(templateSpanEnd - 1, prev + 0.5));
+
+          const { data: costItems, error: costError } = await withTimeout<any>(
+            supabase
+              .from('template_cost_items')
+              .select('*')
+              .eq('template_id', template.id)
+              .range(costItemsOffset, costItemsOffset + costItemsLimit - 1),
+            30000,
+            'Fetching cost items'
+          );
+
+          if (costError) throw costError;
 
           if (costItems && costItems.length > 0) {
             templateCostItems = templateCostItems.concat(
@@ -171,11 +210,13 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
       }
 
       setProgress(50);
-      setStatus('Gathering FDA data...');
+      setStatus(includeFDA ? 'Gathering FDA data...' : 'Skipping FDA data...');
 
       // Get FDA drugs
       let fdaDrugs: FDADrug[] = [];
-      if (fdaReady && fdaMeta) {
+      const exportFdaMeta = includeFDA ? fdaMeta : null;
+      if (includeFDA && fdaReady && fdaMeta) {
+        // NOTE: this exports up to 50k rows currently
         fdaDrugs = searchDrugs('', 50000);
       }
       setProgress(80);
@@ -189,7 +230,7 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
         sections: allSections,
         costItems: allCostItems,
         fdaDrugs: fdaDrugs,
-        fdaMeta: fdaMeta,
+        fdaMeta: exportFdaMeta,
       };
 
       setProgress(90);
@@ -402,9 +443,9 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
             </div>
 
             {/* Info */}
-            <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs">
-              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-warning" />
-              <div className="text-warning-foreground">
+            <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/50 p-3 text-xs">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+              <div className="text-foreground">
                 <p className="font-medium">Note about importing</p>
                 <p>For full offline functionality, use the normal Sync feature while online. Export is for backup and reference.</p>
               </div>
@@ -476,23 +517,30 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
               )}
             </ScrollArea>
 
-            {/* FDA data indicator */}
-            <div className="pt-3 border-t">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Checkbox checked disabled className="opacity-50" />
-                <span>FDA Drug Database ({fdaMeta?.rowCount?.toLocaleString() || 0} drugs)</span>
-                <Badge variant="secondary" className="text-xs">Always included</Badge>
-              </div>
+            {/* FDA data toggle */}
+            <div className="pt-3 border-t space-y-1">
+              <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
+                <Checkbox
+                  checked={includeFDA}
+                  onCheckedChange={(v) => setIncludeFDA(Boolean(v))}
+                />
+                <span>Include FDA Drug Database ({fdaMeta?.rowCount?.toLocaleString() || 0} drugs)</span>
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Turn off to make export smaller/faster (NDC drug lookup may be limited offline).
+              </p>
             </div>
 
             {/* Export button */}
             <Button
               className="mt-4 w-full"
               onClick={handleExport}
-              disabled={selectedTemplateIds.length === 0}
+              disabled={selectedTemplateIds.length === 0 && !includeFDA}
             >
               <Download className="h-4 w-4 mr-2" />
-              Export {selectedTemplateIds.length} Template{selectedTemplateIds.length !== 1 ? 's' : ''}
+              {selectedTemplateIds.length === 0
+                ? 'Export FDA Only'
+                : `Export ${selectedTemplateIds.length} Template${selectedTemplateIds.length !== 1 ? 's' : ''}`}
             </Button>
           </div>
         )}
@@ -503,7 +551,7 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
               {progress < 100 ? (
                 <Loader2 className="h-12 w-12 animate-spin text-primary" />
               ) : (
-                <CheckCircle className="h-12 w-12 text-green-600" />
+                <CheckCircle className="h-12 w-12 text-primary" />
               )}
             </div>
 
