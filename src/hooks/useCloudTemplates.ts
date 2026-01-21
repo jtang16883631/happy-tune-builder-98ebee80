@@ -342,6 +342,76 @@ export function useCloudTemplates() {
     },
     [user, fetchTemplates]
   );
+  // Import ticket only (no cost data) - creates template + sections from job ticket
+  const importTicketOnly = useCallback(
+    async (
+      templateName: string,
+      jobTicketRawData: any[][],
+      jobTicketFileName: string,
+      skipRefetch: boolean = false
+    ): Promise<{ success: boolean; error?: string; templateId?: string }> => {
+      if (!user) return { success: false, error: 'Not authenticated' };
+
+      try {
+        const { invDate, invNumber, facilityName, sections } = parseJobTicket(jobTicketRawData);
+
+        // Insert template
+        const { data: templateData, error: templateError } = await supabase
+          .from('data_templates')
+          .insert({
+            user_id: user.id,
+            name: templateName,
+            inv_date: invDate,
+            facility_name: facilityName,
+            inv_number: invNumber,
+            cost_file_name: null,
+            job_ticket_file_name: jobTicketFileName,
+          })
+          .select()
+          .single();
+
+        if (templateError) throw templateError;
+
+        const templateId = templateData.id;
+
+        // In bulk mode we optimistically add the template so UI shows all created items
+        if (skipRefetch) {
+          setTemplates((prev) => {
+            if (prev.some((t) => t.id === templateId)) return prev;
+            return [templateData as CloudTemplate, ...prev];
+          });
+        }
+
+        // Insert sections with cost_sheet mapping
+        if (sections.length > 0) {
+          const sectionInserts = sections.map((s) => ({
+            template_id: templateId,
+            sect: s.sect,
+            description: s.description,
+            full_section: `${s.sect}-${s.description}`,
+            cost_sheet: s.costSheet,
+          }));
+
+          const { error: sectionsError } = await supabase
+            .from('template_sections')
+            .insert(sectionInserts);
+
+          if (sectionsError) console.error('Error inserting sections:', sectionsError);
+        }
+
+        // Only refetch if not in bulk import mode
+        if (!skipRefetch) {
+          await fetchTemplates();
+        }
+        return { success: true, templateId };
+      } catch (err: any) {
+        console.error('Import ticket only error:', err);
+        return { success: false, error: err.message };
+      }
+    },
+    [user, fetchTemplates]
+  );
+
   // Update cost data for a template - replaces all cost items (supports multi-sheet)
   const updateCostData = useCallback(
     async (
@@ -520,6 +590,7 @@ export function useCloudTemplates() {
     error,
     isReady: !isLoading && !!user,
     importTemplate,
+    importTicketOnly,
     updateCostData,
     deleteTemplate,
     getSections,

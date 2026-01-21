@@ -7,11 +7,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useCloudTemplates, CloudTemplate, CloudSection } from '@/hooks/useCloudTemplates';
 import { 
   Upload, Loader2, CalendarDays, Trash2, RefreshCw, FileSpreadsheet, 
-  CheckCircle, XCircle, FolderOpen, ChevronDown, ChevronRight, Edit 
+  CheckCircle, XCircle, FolderOpen, ChevronDown, ChevronRight, Edit,
+  FileText, Files
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -52,13 +54,16 @@ const Index = () => {
   const { isLoading: authLoading, roles } = useAuth();
   const { toast } = useToast();
   const bulkInputRef = useRef<HTMLInputElement>(null);
+  const ticketOnlyInputRef = useRef<HTMLInputElement>(null);
   const costUpdateInputRef = useRef<HTMLInputElement>(null);
+  const [importTab, setImportTab] = useState<'tickets-cost' | 'tickets-only'>('tickets-only');
 
   const {
     templates,
     isLoading: dbLoading,
     isReady,
     importTemplate,
+    importTicketOnly,
     updateCostData,
     deleteTemplate,
     getSections,
@@ -356,6 +361,151 @@ const Index = () => {
     }
   };
 
+  // Handle tickets-only import (no cost data required)
+  const handleTicketsOnlyImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+
+    // Refresh session first
+    try {
+      await supabase.auth.refreshSession();
+    } catch {
+      // ignore
+    }
+
+    // Filter only ticket files
+    const ticketFiles = Array.from(files).filter((file) => isTicketFile(file.name));
+
+    if (ticketFiles.length === 0) {
+      toast({
+        title: 'No ticket files found',
+        description: 'Make sure to upload job ticket files (e.g., files with "jobticket" or "ticket" in the name).',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    toast({
+      title: 'Import started',
+      description: `Detected ${ticketFiles.length} ticket file(s). Importing now...`,
+    });
+
+    flushSync(() => {
+      setImportProgress({
+        status: 'parsing',
+        total: ticketFiles.length,
+        processed: 0,
+        successful: 0,
+        failed: 0,
+        errors: [],
+        currentGroup: ticketFiles[0]?.name,
+        subProcessed: 0,
+        subTotal: 0,
+      });
+    });
+
+    let successful = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < ticketFiles.length; i++) {
+      const file = ticketFiles[i];
+      const inv = extractInvNumber(file.name) || file.name.replace(/\.[^/.]+$/, '');
+
+      flushSync(() => {
+        setImportProgress((prev) => ({
+          ...prev,
+          status: 'importing',
+          processed: i,
+          currentGroup: inv,
+          subProcessed: 0,
+          subTotal: 0,
+        }));
+      });
+
+      await new Promise((r) => setTimeout(r, 0));
+
+      // Refresh session before each file
+      try {
+        const { data } = await supabase.auth.refreshSession();
+        if (!data.session) {
+          throw new Error('Session expired, please re-login');
+        }
+      } catch (e: any) {
+        failed++;
+        errors.push(`${inv}: ${e?.message || 'Session refresh failed'}`);
+
+        flushSync(() => {
+          setImportProgress((prev) => ({
+            ...prev,
+            processed: i + 1,
+            successful,
+            failed,
+            errors: errors.slice(-5),
+          }));
+        });
+        continue;
+      }
+
+      try {
+        const jobTicketData = await parseExcelFile(file);
+
+        const result = await importTicketOnly(
+          inv,
+          jobTicketData.rawData,
+          file.name,
+          true // skipRefetch for performance
+        );
+
+        if (result.success) {
+          successful++;
+        } else {
+          failed++;
+          errors.push(`${inv}: ${result.error}`);
+        }
+      } catch (err: any) {
+        failed++;
+        errors.push(`${inv}: ${err.message}`);
+      }
+
+      flushSync(() => {
+        setImportProgress((prev) => ({
+          ...prev,
+          processed: i + 1,
+          successful,
+          failed,
+          errors: errors.slice(-5),
+          subProcessed: 0,
+          subTotal: 0,
+        }));
+      });
+    }
+
+    try {
+      await refetch();
+    } catch (err: any) {
+      console.error('Refetch templates failed:', err);
+    }
+
+    flushSync(() => {
+      setImportProgress((prev) => ({
+        ...prev,
+        status: failed > 0 ? 'error' : 'complete',
+        currentGroup: undefined,
+      }));
+    });
+
+    toast({
+      title: failed > 0 ? 'Import finished with errors' : 'Import complete',
+      description: `${successful} templates created, ${failed} failed.`,
+      ...(failed > 0 ? { variant: 'destructive' as const } : {}),
+    });
+
+    if (ticketOnlyInputRef.current) {
+      ticketOnlyInputRef.current.value = '';
+    }
+  };
+
   const handleDeleteSelected = async () => {
     for (const templateId of Array.from(selectedTemplates)) {
       await deleteTemplate(templateId);
@@ -496,6 +646,14 @@ const Index = () => {
                 multiple
               />
               <input
+                ref={ticketOnlyInputRef}
+                type="file"
+                accept=".xlsx,.xlsm,.xls,.csv"
+                onChange={handleTicketsOnlyImport}
+                className="hidden"
+                multiple
+              />
+              <input
                 ref={costUpdateInputRef}
                 type="file"
                 accept=".xlsx,.xlsm,.xls,.csv"
@@ -526,11 +684,6 @@ const Index = () => {
                   </Button>
                 </>
               )}
-
-              <Button onClick={() => bulkInputRef.current?.click()}>
-                <Upload className="mr-2 h-4 w-4" />
-                Bulk Import
-              </Button>
             </div>
           )}
         </div>
@@ -565,12 +718,12 @@ const Index = () => {
               </div>
 
               <div className="flex gap-4 text-sm">
-                <div className="flex items-center gap-1 text-green-600">
+                <div className="flex items-center gap-1 text-success">
                   <CheckCircle className="h-4 w-4" />
                   {importProgress.successful} successful
                 </div>
                 {importProgress.failed > 0 && (
-                  <div className="flex items-center gap-1 text-red-600">
+                  <div className="flex items-center gap-1 text-destructive">
                     <XCircle className="h-4 w-4" />
                     {importProgress.failed} failed
                   </div>
@@ -584,6 +737,58 @@ const Index = () => {
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Import Tabs - Only show when user has role */}
+        {hasRole && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Import Templates</CardTitle>
+              <CardDescription>
+                Choose import mode based on what files you have available
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Tabs value={importTab} onValueChange={(v) => setImportTab(v as any)}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="tickets-only" className="gap-2">
+                    <FileText className="h-4 w-4" />
+                    Tickets Only
+                  </TabsTrigger>
+                  <TabsTrigger value="tickets-cost" className="gap-2">
+                    <Files className="h-4 w-4" />
+                    Tickets + Cost
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="tickets-only" className="mt-4">
+                  <div className="text-center py-8 border-2 border-dashed rounded-lg">
+                    <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                    <h4 className="font-medium mb-2">Import Job Tickets Only</h4>
+                    <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
+                      Upload Excel files containing job tickets. Perfect for importing historical tickets without cost data.
+                    </p>
+                    <Button onClick={() => ticketOnlyInputRef.current?.click()}>
+                      <Upload className="mr-2 h-4 w-4" />
+                      Select Ticket Files
+                    </Button>
+                  </div>
+                </TabsContent>
+                <TabsContent value="tickets-cost" className="mt-4">
+                  <div className="text-center py-8 border-2 border-dashed rounded-lg">
+                    <Files className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                    <h4 className="font-medium mb-2">Import Tickets + Cost Data</h4>
+                    <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
+                      Upload matching pairs of cost data and job ticket files. Files are matched by invoice number.
+                    </p>
+                    <Button onClick={() => bulkInputRef.current?.click()}>
+                      <Upload className="mr-2 h-4 w-4" />
+                      Select Files
+                    </Button>
+                  </div>
+                </TabsContent>
+              </Tabs>
             </CardContent>
           </Card>
         )}
@@ -603,18 +808,11 @@ const Index = () => {
           </Card>
         ) : templates.length === 0 ? (
           <Card className="border-dashed">
-            <CardContent className="py-16 text-center">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
-                <FolderOpen className="h-8 w-8 text-muted-foreground" />
-              </div>
-              <h3 className="font-semibold text-lg">No Data Templates Yet</h3>
-              <p className="text-muted-foreground mt-2 max-w-sm mx-auto">
-                Upload cost data and job ticket files to create data templates.
+            <CardContent className="py-8 text-center">
+              <FolderOpen className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+              <p className="text-muted-foreground">
+                No templates yet. Use the import options above to get started.
               </p>
-              <Button className="mt-6 gap-2" onClick={() => bulkInputRef.current?.click()}>
-                <Upload className="h-4 w-4" />
-                Bulk Import
-              </Button>
             </CardContent>
           </Card>
         ) : (
