@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { LiveTrackerJob, STAGE_CONFIG, STAGE_ORDER, JobWorkflowStage } from '@/hooks/useLiveTracker';
 import {
   Table,
@@ -16,7 +17,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, Edit, Trash2, History, AlertTriangle } from 'lucide-react';
+import { MoreHorizontal, Edit, Trash2, History, AlertTriangle, CalendarDays } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 
@@ -35,6 +36,7 @@ export function LiveTrackerTable({
   onViewHistory,
   isJobOverdue,
 }: LiveTrackerTableProps) {
+  const navigate = useNavigate();
   // Group jobs by stage
   const groupedJobs = STAGE_ORDER.map((stage) => ({
     stage,
@@ -103,8 +105,19 @@ export function LiveTrackerTable({
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="font-medium text-sm max-w-[200px] truncate">
-                      {job.job_name}
+                    <TableCell className="font-medium text-sm max-w-[200px]">
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate">{job.job_name}</span>
+                        {job.schedule_job_id && (
+                          <Badge 
+                            variant="outline" 
+                            className="text-[9px] border-primary/50 text-primary cursor-pointer hover:bg-primary/10 shrink-0 px-1 py-0"
+                            onClick={() => navigate('/schedule')}
+                          >
+                            <CalendarDays className="h-2.5 w-2.5" />
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-xs max-w-[200px] truncate text-muted-foreground">
                       {job.automation_notes || '-'}

@@ -40,6 +40,7 @@ export interface LiveTrackerJob {
   overdue_days: number | null;
   created_by: string | null;
   assigned_to: string | null;
+  schedule_job_id: string | null;
   created_at: string;
   updated_at: string;
 }

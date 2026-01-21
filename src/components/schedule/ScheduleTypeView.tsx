@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { format, parseISO } from 'date-fns';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,8 @@ import {
   Trash2,
   Hotel,
   AlertTriangle,
+  ArrowRight,
+  Workflow,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -34,6 +37,7 @@ export function ScheduleTypeView({
   onEditEvent,
   onDeleteEvent,
 }: ScheduleTypeViewProps) {
+  const navigate = useNavigate();
   const grouped = useMemo(() => groupEventsByType(events), [events]);
 
   const getTeamMemberNames = (memberIds: string[] | null) => {
@@ -218,9 +222,21 @@ export function ScheduleTypeView({
                       </div>
                       
                       <div className="flex flex-col items-end gap-1 shrink-0">
-                        {event.invoice_number && (
-                          <span className="text-xs font-mono text-muted-foreground">{event.invoice_number}</span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {event.tracker_job_id && (
+                            <Badge 
+                              variant="outline" 
+                              className="text-[10px] border-primary/50 text-primary cursor-pointer hover:bg-primary/10 gap-1"
+                              onClick={() => navigate('/live-tracker')}
+                            >
+                              <Workflow className="h-3 w-3" />
+                              Tracked
+                            </Badge>
+                          )}
+                          {event.invoice_number && (
+                            <span className="text-xs font-mono text-muted-foreground">{event.invoice_number}</span>
+                          )}
+                        </div>
                         <div className="flex gap-1">
                           <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onEditEvent(event)}>
                             <Edit className="h-3 w-3" />

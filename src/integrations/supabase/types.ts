@@ -292,6 +292,7 @@ export type Database = {
           pricing_done: boolean | null
           promise_invoice_number: string | null
           ptf_sum: string | null
+          schedule_job_id: string | null
           stage: Database["public"]["Enums"]["job_workflow_stage"]
           stage_changed_at: string | null
           template_done: string | null
@@ -318,6 +319,7 @@ export type Database = {
           pricing_done?: boolean | null
           promise_invoice_number?: string | null
           ptf_sum?: string | null
+          schedule_job_id?: string | null
           stage?: Database["public"]["Enums"]["job_workflow_stage"]
           stage_changed_at?: string | null
           template_done?: string | null
@@ -344,6 +346,7 @@ export type Database = {
           pricing_done?: boolean | null
           promise_invoice_number?: string | null
           ptf_sum?: string | null
+          schedule_job_id?: string | null
           stage?: Database["public"]["Enums"]["job_workflow_stage"]
           stage_changed_at?: string | null
           template_done?: string | null
@@ -365,6 +368,13 @@ export type Database = {
             columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "live_tracker_jobs_schedule_job_id_fkey"
+            columns: ["schedule_job_id"]
+            isOneToOne: false
+            referencedRelation: "scheduled_jobs"
             referencedColumns: ["id"]
           },
         ]
@@ -640,6 +650,7 @@ export type Database = {
           status: string | null
           team_count: number | null
           team_members: string[] | null
+          tracker_job_id: string | null
           travel_info: string | null
           updated_at: string
         }
@@ -675,6 +686,7 @@ export type Database = {
           status?: string | null
           team_count?: number | null
           team_members?: string[] | null
+          tracker_job_id?: string | null
           travel_info?: string | null
           updated_at?: string
         }
@@ -710,10 +722,19 @@ export type Database = {
           status?: string | null
           team_count?: number | null
           team_members?: string[] | null
+          tracker_job_id?: string | null
           travel_info?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "scheduled_jobs_tracker_job_id_fkey"
+            columns: ["tracker_job_id"]
+            isOneToOne: false
+            referencedRelation: "live_tracker_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       team_members: {
         Row: {

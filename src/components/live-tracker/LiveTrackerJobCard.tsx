@@ -1,4 +1,5 @@
 import { format, differenceInDays } from 'date-fns';
+import { useNavigate } from 'react-router-dom';
 import { LiveTrackerJob, STAGE_CONFIG, JobWorkflowStage } from '@/hooks/useLiveTracker';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,6 +20,7 @@ import {
   AlertTriangle,
   ChevronRight,
   History,
+  CalendarDays,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -41,6 +43,7 @@ export function LiveTrackerJobCard({
   onQuickAdvance,
   isDragging,
 }: LiveTrackerJobCardProps) {
+  const navigate = useNavigate();
   const daysInStage = job.stage_changed_at 
     ? differenceInDays(new Date(), new Date(job.stage_changed_at))
     : 0;
@@ -122,6 +125,16 @@ export function LiveTrackerJobCard({
 
         {/* Details */}
         <div className="flex flex-wrap gap-1">
+          {job.schedule_job_id && (
+            <Badge 
+              variant="outline" 
+              className="text-[10px] border-primary/50 text-primary cursor-pointer hover:bg-primary/10 gap-0.5"
+              onClick={() => navigate('/schedule')}
+            >
+              <CalendarDays className="h-2.5 w-2.5" />
+              Scheduled
+            </Badge>
+          )}
           {job.group_name && (
             <Badge variant="secondary" className="text-xs">
               {job.group_name}

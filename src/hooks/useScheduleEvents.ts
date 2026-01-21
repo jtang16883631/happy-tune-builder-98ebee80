@@ -36,6 +36,7 @@ export interface ScheduleEvent {
   partial_inventory: boolean | null;
   client_onsite: boolean | null;
   status: string | null;
+  tracker_job_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -135,6 +136,7 @@ export function useScheduleEventMutation() {
       queryClient.invalidateQueries({ queryKey: ['schedule-events'] });
       queryClient.invalidateQueries({ queryKey: ['schedule-events-all'] });
       queryClient.invalidateQueries({ queryKey: ['scheduled-jobs'] });
+      queryClient.invalidateQueries({ queryKey: ['live-tracker-jobs'] });
       toast({ title: 'Event saved successfully' });
     },
     onError: (error) => {
