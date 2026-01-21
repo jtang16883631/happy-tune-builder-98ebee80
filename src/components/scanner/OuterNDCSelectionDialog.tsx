@@ -66,113 +66,62 @@ export function OuterNDCSelectionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <div className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-              <Package className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <DialogTitle className="text-lg">Inner NDC Found – Choose an Outer NDC</DialogTitle>
-              <DialogDescription className="text-sm">
-                Multiple outer pack options detected for this inner NDC
-              </DialogDescription>
-            </div>
+      <DialogContent className="sm:max-w-2xl p-0 overflow-hidden">
+        <DialogHeader className="px-4 pt-4 pb-2 border-b bg-muted/30">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Scanned Inner NDC:</span>
+            <Badge variant="outline" className="font-mono bg-accent text-accent-foreground border-primary/30">
+              {formatNDC(scannedNDC)}
+            </Badge>
+            <span className="text-muted-foreground ml-2">→ Select Outer NDC:</span>
           </div>
         </DialogHeader>
 
-        <div className="mt-2 rounded-lg bg-muted/50 p-3">
-          <div className="flex items-center gap-2 text-sm">
-            <AlertCircle className="h-4 w-4 text-muted-foreground" />
-            <span className="text-muted-foreground">Scanned Inner NDC:</span>
-            <Badge variant="outline" className="font-mono">
-              {formatNDC(scannedNDC)}
-            </Badge>
-          </div>
-        </div>
-
-        <ScrollArea className="max-h-[400px] pr-4">
+        <div className="p-0">
           <RadioGroup
             value={selectedNDC || ''}
-            onValueChange={setSelectedNDC}
-            className="space-y-3 mt-4"
+            onValueChange={(value) => {
+              setSelectedNDC(value);
+              // Auto-confirm on selection for faster workflow
+              onSelect(value);
+              setSelectedNDC(null);
+            }}
+            className="divide-y"
           >
-            {options.map((option, index) => (
-              <div key={option.outerNDC + index}>
+            {options.map((option, index) => {
+              const drugName = option.trade || option.generic || 'Unknown Drug';
+              const details = [option.strength, option.packageSize, option.doseForm, option.manufacturer]
+                .filter(Boolean)
+                .join(' ');
+              
+              return (
                 <Label
+                  key={option.outerNDC + index}
                   htmlFor={`ndc-${index}`}
-                  className={`flex cursor-pointer rounded-lg border-2 p-4 transition-all hover:bg-muted/50 ${
-                    selectedNDC === option.outerNDC
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border'
+                  className={`flex items-center gap-3 px-4 py-2 cursor-pointer hover:bg-primary/10 transition-colors ${
+                    selectedNDC === option.outerNDC ? 'bg-primary/20' : ''
                   }`}
                 >
                   <RadioGroupItem
                     value={option.outerNDC}
                     id={`ndc-${index}`}
-                    className="mt-1 mr-3"
+                    className="shrink-0"
                   />
-                  <div className="flex-1 space-y-2">
-                    {/* Outer NDC */}
-                    <div className="flex items-center gap-2">
-                      <Badge className="font-mono text-sm" variant="secondary">
-                        {formatNDC(option.outerNDC)}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">Outer Pack NDC</span>
-                    </div>
-
-                    {/* Drug Name */}
-                    <div className="flex items-start gap-2">
-                      <Pill className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-                      <div>
-                        {option.trade && (
-                          <p className="font-medium text-foreground">{option.trade}</p>
-                        )}
-                        {option.generic && (
-                          <p className="text-sm text-muted-foreground">{option.generic}</p>
-                        )}
-                        {!option.trade && !option.generic && (
-                          <p className="text-sm text-muted-foreground italic">No drug name available</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Details */}
-                    <div className="flex flex-wrap gap-2 text-xs">
-                      {option.strength && (
-                        <Badge variant="outline" className="text-xs">
-                          {option.strength}
-                        </Badge>
-                      )}
-                      {option.packageSize && (
-                        <Badge variant="outline" className="text-xs">
-                          {option.packageSize}
-                        </Badge>
-                      )}
-                      {option.doseForm && (
-                        <Badge variant="outline" className="text-xs">
-                          {option.doseForm}
-                        </Badge>
-                      )}
-                      {option.manufacturer && (
-                        <span className="text-muted-foreground">
-                          by {option.manufacturer}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                  <span className="font-mono text-sm font-medium text-primary min-w-[120px]">
+                    {formatNDC(option.outerNDC)}
+                  </span>
+                  <span className="text-sm truncate">
+                    {drugName} {details}
+                  </span>
                 </Label>
-              </div>
-            ))}
+              );
+            })}
           </RadioGroup>
-        </ScrollArea>
+        </div>
 
-        <div className="flex justify-end gap-3 mt-4 pt-4 border-t">
-          <Button variant="outline" onClick={handleCancel}>
+        <div className="flex justify-end gap-2 px-4 py-3 border-t bg-muted/30">
+          <Button variant="outline" size="sm" onClick={handleCancel}>
             Cancel
-          </Button>
-          <Button onClick={handleConfirm} disabled={!selectedNDC}>
-            Use Selected NDC
           </Button>
         </div>
       </DialogContent>
