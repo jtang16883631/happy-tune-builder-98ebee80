@@ -57,18 +57,22 @@ export function LiveTrackerTable({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[120px]">Invoice #</TableHead>
-                <TableHead>Template</TableHead>
-                <TableHead>Ticket</TableHead>
-                <TableHead className="w-[80px]">PTF</TableHead>
+                <TableHead className="w-[120px]">Previous Invoice #</TableHead>
+                <TableHead>Template Done</TableHead>
+                <TableHead>Tickets Done</TableHead>
+                <TableHead className="w-[80px]">PIE Date</TableHead>
                 <TableHead className="w-[100px]">Job #</TableHead>
                 <TableHead>Group</TableHead>
                 <TableHead>Job Name</TableHead>
-                <TableHead>Automation Notes</TableHead>
-                <TableHead>Reviewer</TableHead>
-                <TableHead className="w-[100px]">Draft Out</TableHead>
-                <TableHead className="w-[100px]">Updates</TableHead>
-                <TableHead className="w-[100px]">Final</TableHead>
+                <TableHead className="w-[80px]">Pricing Done?</TableHead>
+                <TableHead>Who Has Auto</TableHead>
+                <TableHead>Automation / Reports Notes</TableHead>
+                <TableHead>Master Review By</TableHead>
+                <TableHead className="w-[100px]">Draft Out Date</TableHead>
+                <TableHead className="w-[100px]">Updates Date</TableHead>
+                <TableHead className="w-[100px]">Cleared-Final Date</TableHead>
+                <TableHead className="w-[100px]">Invoiced Date</TableHead>
+                <TableHead>Comments</TableHead>
                 <TableHead className="w-[50px]"></TableHead>
               </TableRow>
             </TableHeader>
@@ -120,6 +124,16 @@ export function LiveTrackerTable({
                         )}
                       </div>
                     </TableCell>
+                    <TableCell className="text-xs text-center">
+                      {job.pricing_done ? (
+                        <Badge variant="default" className="bg-green-500 text-xs">Yes</Badge>
+                      ) : (
+                        <Badge variant="secondary" className="text-xs">No</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs max-w-[100px] truncate">
+                      {job.who_has_auto || '-'}
+                    </TableCell>
                     <TableCell className="text-xs max-w-[200px] truncate text-muted-foreground">
                       {job.automation_notes || '-'}
                     </TableCell>
@@ -134,6 +148,12 @@ export function LiveTrackerTable({
                     </TableCell>
                     <TableCell className="text-xs">
                       {job.closed_final_date ? format(new Date(job.closed_final_date), 'MM/dd/yy') : '-'}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {job.invoiced_date ? format(new Date(job.invoiced_date), 'MM/dd/yy') : '-'}
+                    </TableCell>
+                    <TableCell className="text-xs max-w-[150px] truncate text-muted-foreground">
+                      {job.comments || '-'}
                     </TableCell>
                     <TableCell>
                       <DropdownMenu>
