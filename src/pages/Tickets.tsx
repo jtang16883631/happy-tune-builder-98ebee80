@@ -71,9 +71,9 @@ export default function Tickets() {
 
   const hasRole = roles.length > 0;
 
-  // Filter to only show work events with invoice numbers (tickets)
+  // Filter to show all work events (tickets) - invoice numbers are optional for imported tickets
   const tickets = allEvents.filter(
-    (e) => e.event_type === 'work' && e.invoice_number
+    (e) => e.event_type === 'work'
   );
 
   // Get unique years from tickets
@@ -227,9 +227,9 @@ export default function Tickets() {
     let onsiteContact: string | null = null;
     const sections: { sect: string; description: string; costSheet: string | null }[] = [];
 
-    // Try to extract invoice number from filename
+    // Try to extract invoice number from filename (8 digits at start or anywhere)
     const fileNameWithoutExt = fileName.replace(/\.(xlsx?|xls)$/i, '');
-    const invoiceMatch = fileNameWithoutExt.match(/^(\d{8})/);
+    const invoiceMatch = fileNameWithoutExt.match(/(\d{7,9})/);
     if (invoiceMatch) {
       invNumber = invoiceMatch[1];
     }
