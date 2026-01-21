@@ -1,8 +1,12 @@
 import { format } from 'date-fns';
+import { useState, useRef, useEffect } from 'react';
 import { ScheduleEvent, TeamMember, useScheduleEventSections } from '@/hooks/useScheduleEvents';
 import { LiveTrackerJob, STAGE_CONFIG } from '@/hooks/useLiveTracker';
 import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
 
 interface TicketDetailProps {
   event: ScheduleEvent;
@@ -10,10 +14,100 @@ interface TicketDetailProps {
   trackerJob?: LiveTrackerJob;
 }
 
+type EditableField = 'sect' | 'full_section' | 'description' | 'cost_sheet';
+
+interface EditingCell {
+  id: string;
+  field: EditableField;
+}
+
 export function TicketDetail({ event, teamMembers, trackerJob }: TicketDetailProps) {
   // Fetch sections for this scheduled job
-  const { data: sections = [], isLoading: sectionsLoading } = useScheduleEventSections(event.id);
+  const { data: sections = [], isLoading: sectionsLoading, refetch: refetchSections } = useScheduleEventSections(event.id);
+  
+  const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    if (editingCell && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingCell]);
+
+  const startEditing = (id: string, field: EditableField, currentValue: string | null) => {
+    setEditingCell({ id, field });
+    setEditValue(currentValue || '');
+  };
+
+  const cancelEditing = () => {
+    setEditingCell(null);
+    setEditValue('');
+  };
+
+  const saveEdit = async () => {
+    if (!editingCell) return;
+    
+    const { id, field } = editingCell;
+    const newValue = editValue.trim();
+    
+    // Clear editing state first to prevent race conditions
+    setEditingCell(null);
+    setEditValue('');
+
+    const { error } = await supabase
+      .from('scheduled_job_sections')
+      .update({ [field]: newValue || null })
+      .eq('id', id);
+
+    if (error) {
+      toast.error('Failed to save changes');
+      console.error('Update error:', error);
+    } else {
+      refetchSections();
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      saveEdit();
+    } else if (e.key === 'Escape') {
+      cancelEditing();
+    }
+  };
+
+  const renderEditableCell = (
+    sectionId: string, 
+    field: EditableField, 
+    value: string | null, 
+    className?: string
+  ) => {
+    const isEditing = editingCell?.id === sectionId && editingCell?.field === field;
+    
+    if (isEditing) {
+      return (
+        <Input
+          ref={inputRef}
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={() => setTimeout(saveEdit, 100)}
+          onKeyDown={handleKeyDown}
+          onClick={(e) => e.stopPropagation()}
+          className="h-5 text-[10px] p-0.5 rounded-none border-blue-500 focus-visible:ring-0"
+        />
+      );
+    }
+    
+    return (
+      <span 
+        className={cn("cursor-pointer hover:bg-blue-50 block min-h-[16px] w-full", className)}
+        onClick={() => startEditing(sectionId, field, value)}
+      >
+        {value || <span className="text-muted-foreground italic">Click to edit</span>}
+      </span>
+    );
+  };
   const getTeamMemberNames = (memberIds: string[] | null): string[] => {
     if (!memberIds) return [];
     return memberIds
@@ -186,20 +280,28 @@ export function TicketDetail({ event, teamMembers, trackerJob }: TicketDetailPro
           sections.map((section, i) => (
             <div 
               key={section.id || i} 
-              className="grid grid-cols-[60px_120px_1fr_80px_80px_80px_80px_80px_100px_100px_100px_100px] text-[10px] border-t border-black"
+              className="grid grid-cols-[60px_120px_1fr_80px_80px_80px_80px_80px_100px_100px_100px_100px] text-[10px] border-t border-black group hover:bg-muted/20"
             >
-              <div className="border-r border-black p-1 text-center">{section.sect}</div>
-              <div className="border-r border-black p-1 text-blue-600 underline">{section.full_section || section.description}</div>
-              <div className="border-r border-black p-1">{section.description}</div>
+              <div className="border-r border-black p-1 text-center">
+                {renderEditableCell(section.id, 'sect', section.sect)}
+              </div>
+              <div className="border-r border-black p-1">
+                {renderEditableCell(section.id, 'full_section', section.full_section || section.description, 'text-primary underline')}
+              </div>
+              <div className="border-r border-black p-1">
+                {renderEditableCell(section.id, 'description', section.description)}
+              </div>
               <div className="border-r border-black p-1 text-center text-[9px]"></div>
-              <div className="border-r border-black p-1 text-center">{section.cost_sheet}</div>
+              <div className="border-r border-black p-1 text-center">
+                {renderEditableCell(section.id, 'cost_sheet', section.cost_sheet)}
+              </div>
               <div className="border-r border-black p-1 text-center"></div>
               <div className="border-r border-black p-1 text-center"></div>
               <div className="border-r border-black p-1 text-center"></div>
               <div className="border-r border-black p-1 text-center"></div>
               <div className="border-r border-black p-1 text-center"></div>
               <div className="border-r border-black p-1 text-center">$</div>
-              <div className="p-1 text-center text-red-600">$</div>
+              <div className="p-1 text-center text-destructive">$</div>
             </div>
           ))
         ) : (
