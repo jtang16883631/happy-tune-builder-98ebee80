@@ -56,17 +56,17 @@ export interface StageHistory {
 }
 
 export const STAGE_CONFIG: Record<JobWorkflowStage, { label: string; color: string; order: number }> = {
-  making_price_files: { label: 'MAKING PRICE FILES', color: 'bg-red-500', order: 1 },
+  making_price_files: { label: 'SCHEDULED JOBS / MAKING PRICE FILES', color: 'bg-red-500', order: 1 },
   pricing_complete: { label: 'Pricing Complete - Ready for template', color: 'bg-orange-500', order: 2 },
-  files_built: { label: 'FILES BUILT, COLLECTION FILE MADE', color: 'bg-yellow-500', order: 3 },
-  needs_automation: { label: 'Compiled: NEEDS AUTOMATION/REPORTS', color: 'bg-lime-500', order: 4 },
+  files_built: { label: 'FILES BUILT - COLLECTION FILE MADE', color: 'bg-yellow-500', order: 3 },
+  needs_automation: { label: 'Compiled: NEEDS AUTOMATION/REPORTS ADDED', color: 'bg-lime-500', order: 4 },
   jobs_on_hold: { label: 'JOBS ON HOLD', color: 'bg-gray-500', order: 5 },
   ready_for_review: { label: 'FILES COMPILED READY FOR REVIEW', color: 'bg-teal-500', order: 6 },
   out_on_draft: { label: 'OUT ON DRAFT', color: 'bg-cyan-500', order: 7 },
   in_for_updates: { label: 'IN FOR UPDATES', color: 'bg-blue-500', order: 8 },
   out_for_final: { label: 'OUT FOR FINAL', color: 'bg-indigo-500', order: 9 },
   to_be_invoiced: { label: 'TO BE INVOICED', color: 'bg-purple-500', order: 10 },
-  final_approved: { label: 'FINAL APPROVED/ARCHIVE', color: 'bg-green-500', order: 11 },
+  final_approved: { label: 'DONE', color: 'bg-green-500', order: 11 },
 };
 
 export const STAGE_ORDER: JobWorkflowStage[] = [
