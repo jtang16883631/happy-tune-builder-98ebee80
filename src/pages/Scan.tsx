@@ -2167,7 +2167,17 @@ const Scan = () => {
             </div>
 
             {/* Excel-like Table with horizontal scroll */}
-            <ScrollArea className="w-full whitespace-nowrap rounded-lg border">
+            <ScrollArea className="w-full whitespace-nowrap rounded-lg border relative">
+              {/* Overlay when no section selected */}
+              {!selectedSection && (
+                <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-20 flex items-center justify-center">
+                  <div className="text-center p-6 bg-card rounded-lg border shadow-lg">
+                    <AlertCircle className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+                    <p className="text-lg font-medium">Select a Section First</p>
+                    <p className="text-sm text-muted-foreground mt-1">Choose a section from the dropdown above to start scanning</p>
+                  </div>
+                </div>
+              )}
               <div className="min-w-max">
                 <Table>
                   <TableHeader>
@@ -2267,7 +2277,8 @@ const Scan = () => {
                                         }
                                       }}
                                       placeholder="e.g. 5+3"
-                                      className="font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0"
+                                      disabled={!selectedSection}
+                                      className="font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0 disabled:opacity-50 disabled:cursor-not-allowed"
                                     />
                                     <Calculator className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
                                   </div>
@@ -2303,7 +2314,8 @@ const Scan = () => {
                                   type={col.isNdcInput ? 'text' : (col.type === 'number' || col.type === 'currency' ? 'number' : 'text')}
                                   step={col.type === 'currency' ? '0.01' : undefined}
                                   placeholder={col.type === 'currency' ? '$0.00' : undefined}
-                                  className="font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0"
+                                  disabled={!selectedSection}
+                                  className="font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0 disabled:opacity-50 disabled:cursor-not-allowed"
                                 />
                               </TableCell>
                             );
