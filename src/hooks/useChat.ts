@@ -1,10 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '@/integrations/supabase/types';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
 interface ChatRoom {
   id: string;
@@ -53,23 +49,7 @@ interface OnlineMember {
   avatar_url: string | null;
 }
 
-function createAuthedDb(accessToken: string): SupabaseClient<Database> {
-  // Important: use the official `accessToken` callback.
-  // This ensures the client uses the user's JWT for BOTH database + realtime,
-  // avoiding `auth.uid()` being null (which triggers RLS failures).
-  return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-    accessToken: async () => accessToken,
-    // When accessToken is provided, the auth namespace can't be used (that's fine here).
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-  });
-}
-
-export function useChat(accessToken: string | undefined, userId: string | undefined) {
-  const db = useMemo(() => {
-    if (!accessToken) return null;
-    return createAuthedDb(accessToken);
-  }, [accessToken]);
-
+export function useChat(userId: string | undefined) {
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<ChatRoom | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -81,9 +61,8 @@ export function useChat(accessToken: string | undefined, userId: string | undefi
 
   // Fetch rooms
   const fetchRooms = useCallback(async () => {
-    if (!db) { setRooms([]); setIsLoading(false); return; }
     try {
-      const { data, error } = await db.from('chat_rooms').select('*').order('created_at', { ascending: false });
+      const { data, error } = await supabase.from('chat_rooms').select('*').order('created_at', { ascending: false });
       if (error) throw error;
       setRooms(data || []);
     } catch (err) {
@@ -91,64 +70,63 @@ export function useChat(accessToken: string | undefined, userId: string | undefi
     } finally {
       setIsLoading(false);
     }
-  }, [db]);
+  }, []);
 
   useEffect(() => { fetchRooms(); }, [fetchRooms]);
 
   // Fetch room data (messages + members)
   const fetchRoomData = useCallback(async (roomId: string) => {
-    if (!db) return;
     try {
       // Messages
-      const { data: messagesData, error: messagesError } = await db
+      const { data: messagesData, error: messagesError } = await supabase
         .from('chat_messages').select('*').eq('room_id', roomId).order('created_at', { ascending: true });
       if (messagesError) throw messagesError;
 
       const userIds = [...new Set((messagesData || []).map(m => m.user_id))];
-      const { data: profiles } = await db.from('profiles').select('id, full_name, avatar_url').in('id', userIds.length > 0 ? userIds : ['none']);
+      const { data: profiles } = await supabase.from('profiles').select('id, full_name, avatar_url').in('id', userIds.length > 0 ? userIds : ['none']);
       const profileMap = new Map((profiles || []).map(p => [p.id, p]));
       setMessages((messagesData || []).map(m => ({ ...m, profile: profileMap.get(m.user_id) })));
 
       // Members
-      const { data: membersData, error: membersError } = await db.from('chat_room_members').select('*').eq('room_id', roomId);
+      const { data: membersData, error: membersError } = await supabase.from('chat_room_members').select('*').eq('room_id', roomId);
       if (membersError) throw membersError;
 
       const memberUserIds = (membersData || []).map(m => m.user_id);
-      const { data: memberProfiles } = await db.from('profiles').select('id, full_name, email, avatar_url').in('id', memberUserIds.length > 0 ? memberUserIds : ['none']);
+      const { data: memberProfiles } = await supabase.from('profiles').select('id, full_name, email, avatar_url').in('id', memberUserIds.length > 0 ? memberUserIds : ['none']);
       const memberProfileMap = new Map((memberProfiles || []).map(p => [p.id, p]));
       setMembers((membersData || []).map(m => ({ ...m, profile: memberProfileMap.get(m.user_id) })));
     } catch (err) {
       console.error('Error fetching room data:', err);
     }
-  }, [db]);
+  }, []);
 
   useEffect(() => { if (selectedRoom) fetchRoomData(selectedRoom.id); }, [selectedRoom, fetchRoomData]);
 
   // Realtime messages
   useEffect(() => {
-    if (!selectedRoom || !db) return;
+    if (!selectedRoom) return;
 
-    const channel = db.channel(`chat_${selectedRoom.id}`)
+    const channel = supabase.channel(`chat_${selectedRoom.id}`)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
         table: 'chat_messages',
         filter: `room_id=eq.${selectedRoom.id}`
       }, async (payload) => {
-        const { data: profile } = await db.from('profiles').select('id, full_name, avatar_url').eq('id', (payload.new as any).user_id).single();
+        const { data: profile } = await supabase.from('profiles').select('id, full_name, avatar_url').eq('id', (payload.new as any).user_id).single();
         const newMsg = { ...(payload.new as ChatMessage), profile };
         setMessages(prev => [...prev, newMsg]);
       })
       .subscribe();
 
-    return () => { db.removeChannel(channel); };
-  }, [selectedRoom, db]);
+    return () => { supabase.removeChannel(channel); };
+  }, [selectedRoom]);
 
   // Presence tracking
   useEffect(() => {
-    if (!selectedRoom || !db || !userId) return;
+    if (!selectedRoom || !userId) return;
 
-    const presenceChannel = db.channel(`presence_${selectedRoom.id}`, { config: { presence: { key: userId } } });
+    const presenceChannel = supabase.channel(`presence_${selectedRoom.id}`, { config: { presence: { key: userId } } });
 
     presenceChannel
       .on('presence', { event: 'sync' }, () => {
@@ -175,15 +153,14 @@ export function useChat(accessToken: string | undefined, userId: string | undefi
         }
       });
 
-    return () => { db.removeChannel(presenceChannel); };
-  }, [selectedRoom, db, userId, members]);
+    return () => { supabase.removeChannel(presenceChannel); };
+  }, [selectedRoom, userId, members]);
 
   // Fetch all users
   const fetchAllUsers = useCallback(async () => {
-    if (!db) return;
     setIsLoadingUsers(true);
     try {
-      const { data, error } = await db.from('profiles').select('id, full_name, email, avatar_url').order('full_name', { ascending: true });
+      const { data, error } = await supabase.from('profiles').select('id, full_name, email, avatar_url').order('full_name', { ascending: true });
       if (error) throw error;
       setAllUsers(data || []);
     } catch (err) {
@@ -191,7 +168,7 @@ export function useChat(accessToken: string | undefined, userId: string | undefi
     } finally {
       setIsLoadingUsers(false);
     }
-  }, [db]);
+  }, []);
 
   // Available users (not already members)
   const availableUsers = useMemo(() => {
@@ -200,53 +177,53 @@ export function useChat(accessToken: string | undefined, userId: string | undefi
 
   // Create room
   const createRoom = useCallback(async (name: string, description: string) => {
-    if (!db || !userId) throw new Error('Not authenticated');
-    const { data: room, error: roomError } = await db.from('chat_rooms').insert({ name, description: description || null, created_by: userId }).select().single();
+    if (!userId) throw new Error('Not authenticated');
+    const { data: room, error: roomError } = await supabase.from('chat_rooms').insert({ name, description: description || null, created_by: userId }).select().single();
     if (roomError) throw roomError;
-    const { error: memberError } = await db.from('chat_room_members').insert({ room_id: room.id, user_id: userId, is_admin: true });
+    const { error: memberError } = await supabase.from('chat_room_members').insert({ room_id: room.id, user_id: userId, is_admin: true });
     if (memberError) throw memberError;
     toast.success('Channel created');
     await fetchRooms();
     setSelectedRoom(room);
-  }, [db, userId, fetchRooms]);
+  }, [userId, fetchRooms]);
 
   // Send message
   const sendMessage = useCallback(async (content: string) => {
-    if (!db || !userId || !selectedRoom) throw new Error('Cannot send message');
-    const { error } = await db.from('chat_messages').insert({ room_id: selectedRoom.id, user_id: userId, content });
+    if (!userId || !selectedRoom) throw new Error('Cannot send message');
+    const { error } = await supabase.from('chat_messages').insert({ room_id: selectedRoom.id, user_id: userId, content });
     if (error) throw error;
-  }, [db, userId, selectedRoom]);
+  }, [userId, selectedRoom]);
 
   // Add member
   const addMember = useCallback(async (profileId: string) => {
-    if (!db || !selectedRoom) return;
-    const { error } = await db.from('chat_room_members').insert({ room_id: selectedRoom.id, user_id: profileId, is_admin: false });
+    if (!selectedRoom) return;
+    const { error } = await supabase.from('chat_room_members').insert({ room_id: selectedRoom.id, user_id: profileId, is_admin: false });
     if (error) throw error;
     toast.success('Member added');
     await fetchRoomData(selectedRoom.id);
     await fetchAllUsers();
-  }, [db, selectedRoom, fetchRoomData, fetchAllUsers]);
+  }, [selectedRoom, fetchRoomData, fetchAllUsers]);
 
   // Remove member
   const removeMember = useCallback(async (memberId: string) => {
-    if (!db || !selectedRoom) return;
-    const { error } = await db.from('chat_room_members').delete().eq('id', memberId);
+    if (!selectedRoom) return;
+    const { error } = await supabase.from('chat_room_members').delete().eq('id', memberId);
     if (error) throw error;
     toast.success('Member removed');
     await fetchRoomData(selectedRoom.id);
-  }, [db, selectedRoom, fetchRoomData]);
+  }, [selectedRoom, fetchRoomData]);
 
   // Leave room
   const leaveRoom = useCallback(async () => {
-    if (!db || !selectedRoom || !userId) return;
+    if (!selectedRoom || !userId) return;
     const myMembership = members.find(m => m.user_id === userId);
     if (!myMembership) return;
-    const { error } = await db.from('chat_room_members').delete().eq('id', myMembership.id);
+    const { error } = await supabase.from('chat_room_members').delete().eq('id', myMembership.id);
     if (error) throw error;
     toast.success('Left the channel');
     setSelectedRoom(null);
     await fetchRooms();
-  }, [db, selectedRoom, userId, members, fetchRooms]);
+  }, [selectedRoom, userId, members, fetchRooms]);
 
   const isAdmin = members.find(m => m.user_id === userId)?.is_admin || false;
 

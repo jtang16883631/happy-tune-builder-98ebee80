@@ -34,7 +34,7 @@ const Chat = () => {
     addMember,
     removeMember,
     leaveRoom,
-  } = useChat(session?.access_token, user?.id);
+  } = useChat(user?.id);
 
   // Dialogs
   const [createRoomOpen, setCreateRoomOpen] = useState(false);
