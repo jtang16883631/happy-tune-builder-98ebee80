@@ -165,7 +165,8 @@ export function ScheduleBuilder({
       setPreviousInvoiceInput('');
       clearFoundJob();
     }
-  }, [open, event, defaultDate, reset, clearFoundJob]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, event?.id, defaultDate, reset]);
 
   const eventType = watch('event_type');
   const selectedTeamMembers = watch('team_members');
