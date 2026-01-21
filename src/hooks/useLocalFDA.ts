@@ -442,8 +442,10 @@ export function useLocalFDA() {
     }
   }, [db]);
 
-  // Find outer NDCs by NDC9 key
-  // This searches column AG (innerpack_outer_left9) and returns unique column AE (outerpack_ndc) values
+  // Find outer NDCs by Left 9 (AG column)
+  // This PRIMARILY searches column AG (innerpack_outer_left9) using the first 9 digits
+  // and returns unique column AE (outerpack_ndc) values
+  // The scanned NDC is kept as-is in scannedNdc field, but we lookup based on Left 9
   const findOuterNDCsByNDC9 = useCallback((ndc: string): { outerNDCs: string[]; drugs: FDADrug[] } => {
     if (!db) return { outerNDCs: [], drugs: [] };
 
@@ -452,30 +454,32 @@ export function useLocalFDA() {
       const ndc11 = digits.length >= 11 ? digits.slice(0, 11) : digits.padStart(11, '0');
       const ndc11Trim = ndc11.replace(/^0+/, '') || ndc11;
 
+      // Extract Left 9 (first 9 digits) for AG column search
       const ndc9 = ndc11.slice(0, 9);
       const ndc9Trim = ndc9.replace(/^0+/, '') || ndc9;
 
-      // 1) Prefer an exact match on the scanned NDC (works even if AG/"Left 9" is missing)
+      // 1) PRIMARY: Search by AG column (innerpack_outer_left9) using Left 9
+      // This is the main lookup path as per user requirement
       let results = db.exec(
         `
         SELECT * FROM drugs
-        WHERE REPLACE(REPLACE(ndc, '-', ''), ' ', '') = ?
-           OR REPLACE(REPLACE(ndc, '-', ''), ' ', '') = ?
-        LIMIT 50
+        WHERE REPLACE(REPLACE(innerpack_outer_left9, '-', ''), ' ', '') = ?
+           OR REPLACE(REPLACE(innerpack_outer_left9, '-', ''), ' ', '') = ?
+        LIMIT 200
         `,
-        [ndc11, ndc11Trim]
+        [ndc9, ndc9Trim]
       );
 
-      // 2) Fallback to AG mapping (innerpack_outer_left9) using the first 9 digits
+      // 2) Fallback: exact match on scanned NDC (for items without AG mapping)
       if (results.length === 0 || results[0].values.length === 0) {
         results = db.exec(
           `
           SELECT * FROM drugs
-          WHERE REPLACE(REPLACE(innerpack_outer_left9, '-', ''), ' ', '') = ?
-             OR REPLACE(REPLACE(innerpack_outer_left9, '-', ''), ' ', '') = ?
-          LIMIT 200
+          WHERE REPLACE(REPLACE(ndc, '-', ''), ' ', '') = ?
+             OR REPLACE(REPLACE(ndc, '-', ''), ' ', '') = ?
+          LIMIT 50
           `,
-          [ndc9, ndc9Trim]
+          [ndc11, ndc11Trim]
         );
       }
 
