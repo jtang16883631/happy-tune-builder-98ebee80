@@ -83,31 +83,35 @@ export function CostDataLookupDialog({
     
     setIsLoading(true);
     try {
-      // Get unique sheet names
-      const { data: sheetData } = await supabase
+      // Get unique sheet names with counts using a more efficient query
+      const { data: sheetCountData } = await supabase
         .from('template_cost_items')
         .select('sheet_name')
         .eq('template_id', templateId)
         .not('sheet_name', 'is', null);
       
-      const uniqueSheets = [...new Set((sheetData || []).map(s => s.sheet_name).filter(Boolean))] as string[];
+      // Count items per sheet
+      const sheetCounts: Record<string, number> = {};
+      (sheetCountData || []).forEach(item => {
+        const sheet = item.sheet_name || 'Unknown';
+        sheetCounts[sheet] = (sheetCounts[sheet] || 0) + 1;
+      });
+      
+      const uniqueSheets = Object.keys(sheetCounts).sort();
       setSheetNames(uniqueSheets);
 
-      // Get count first
-      const { count } = await supabase
-        .from('template_cost_items')
-        .select('*', { count: 'exact', head: true })
-        .eq('template_id', templateId);
-      
-      setTotalCount(count || 0);
+      // Get total count
+      const totalItems = Object.values(sheetCounts).reduce((a, b) => a + b, 0);
+      setTotalCount(totalItems);
 
-      // Load items (limit for performance)
+      // Load items (limit for performance) - load more initially
       const { data, error } = await supabase
         .from('template_cost_items')
         .select('id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name')
         .eq('template_id', templateId)
+        .order('sheet_name')
         .order('ndc')
-        .limit(500);
+        .limit(1000);
 
       if (error) throw error;
       setCostItems(data || []);
@@ -251,15 +255,15 @@ export function CostDataLookupDialog({
 
         <div className="space-y-4">
           {/* Sheet Tabs */}
-          {sheetNames.length > 0 && (
+          {sheetNames.length > 1 && (
             <Tabs value={selectedSheet} onValueChange={setSelectedSheet}>
               <TabsList className="h-auto flex-wrap">
                 <TabsTrigger value="all" className="text-xs">
-                  All ({costItems.length})
+                  All Sheets
                 </TabsTrigger>
                 {sheetNames.map(sheet => (
                   <TabsTrigger key={sheet} value={sheet} className="text-xs">
-                    {sheet} ({costItems.filter(i => i.sheet_name === sheet).length})
+                    {sheet}
                   </TabsTrigger>
                 ))}
               </TabsList>
