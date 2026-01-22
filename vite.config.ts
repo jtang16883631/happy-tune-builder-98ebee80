@@ -6,6 +6,8 @@ import { VitePWA } from "vite-plugin-pwa";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
+  // Use relative paths for Electron compatibility (file:// protocol)
+  base: "./",
   server: {
     host: "::",
     port: 8080,
