@@ -913,6 +913,18 @@ const Scan = () => {
         }
       }
 
+      // ALWAYS set TIME and REC when Enter/Tab is pressed on scannedNdc field
+      // This ensures manual entries are tracked even without a successful NDC lookup
+      setScanRows(prev => {
+        const updated = [...prev];
+        updated[rowIndex] = {
+          ...updated[rowIndex],
+          time: updated[rowIndex].time || new Date().toLocaleTimeString(),
+          rec: generateRecForRow(rowIndex),
+        };
+        return updated;
+      });
+
       const ndc = scanRows[rowIndex].scannedNdc || scanRows[rowIndex].ndc;
       if (ndc) {
         // Initiate the outer NDC lookup flow
@@ -926,6 +938,11 @@ const Scan = () => {
             qtyInputRefs.current[rowIndex]?.focus();
           });
         }
+      } else {
+        // No NDC entered, just move to QTY field
+        requestAnimationFrame(() => {
+          qtyInputRefs.current[rowIndex]?.focus();
+        });
       }
     }
   };
