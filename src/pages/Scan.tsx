@@ -87,8 +87,7 @@ interface ScanRow {
 const Scan = () => {
   const { isLoading: authLoading, roles, user } = useAuth();
   
-  // Track row counter for REC generation
-  const [rowCounter, setRowCounter] = useState(0);
+  // REC is now generated based on row index (1-based), no counter needed
   
   // User's short name for REC (e.g., "JiaweiT")
   const [userShortName, setUserShortName] = useState('');
@@ -575,12 +574,11 @@ const Scan = () => {
     setRenameSectionDialogOpen(true);
   };
 
-  // Generate next REC value
-  const generateNextRec = useCallback(() => {
-    const nextNum = rowCounter + 1;
-    setRowCounter(nextNum);
-    return `${userShortName}${String(nextNum).padStart(3, '0')}`;
-  }, [rowCounter, userShortName]);
+  // Generate REC value based on row index (1-based)
+  const generateRecForRow = useCallback((rowIndex: number) => {
+    const rowNum = rowIndex + 1; // 1-based row number
+    return `${userShortName}${String(rowNum).padStart(3, '0')}`;
+  }, [userShortName]);
 
   // Lookup NDC and update row with mapping (by column position, not name):
   // TIME = laptop real time
@@ -689,9 +687,8 @@ const Scan = () => {
       extended = unitCost * currentQty;
     }
     
-    // Generate REC if not already set
-    const currentRec = scanRows[rowIndex].rec;
-    const rec = currentRec || generateNextRec();
+    // Always generate REC based on row position (1-indexed)
+    const rec = generateRecForRow(rowIndex);
     
     setScanRows(prev => {
       const updated = [...prev];
@@ -741,7 +738,7 @@ const Scan = () => {
     });
     
     // Don't auto-focus next row's NDC here - we want to focus QTY first
-  }, [fdaLookup, getCostItemByNDC, selectedTemplate, scanRows, generateNextRec, selectedSection, createEmptyRow]);
+  }, [fdaLookup, getCostItemByNDC, selectedTemplate, scanRows, generateRecForRow, selectedSection, createEmptyRow]);
 
   // Initiate NDC lookup with outer NDC selection logic
   // 1. Extract NDC9 from scanned NDC
@@ -753,9 +750,27 @@ const Scan = () => {
     // Business rule only requires the first 9 digits (NDC9 key).
     const cleanNdc = (scannedNdc ?? '').replace(/\D/g, '');
 
-    if (!cleanNdc) return false;
+    // Always set TIME and REC for manual entry support, even if lookup fails
+    const setTimeAndRec = () => {
+      setScanRows(prev => {
+        const updated = [...prev];
+        updated[rowIndex] = {
+          ...updated[rowIndex],
+          scannedNdc: scannedNdc, // Store original scanned value
+          time: updated[rowIndex].time || new Date().toLocaleTimeString(),
+          rec: generateRecForRow(rowIndex),
+        };
+        return updated;
+      });
+    };
+
+    if (!cleanNdc) {
+      setTimeAndRec();
+      return false;
+    }
 
     if (cleanNdc.length < 9) {
+      setTimeAndRec(); // Still record TIME and REC for manual entry
       toast.error('Invalid NDC', {
         description: `Scanned value: ${scannedNdc}`,
         duration: 5000,
@@ -773,6 +788,8 @@ const Scan = () => {
     console.log('[NDC Lookup] Found drugs count:', drugs.length);
 
     if (outerNDCs.length === 0) {
+      // Still record TIME and REC for manual entry support
+      setTimeAndRec();
       // Per business rules: if no outer pack NDCs exist for this NDC9, stop and show an error.
       toast.error('NDC not found in FDA mapping', {
         description: `No outer pack NDC (AE) found for NDC9: ${cleanNdc.slice(0, 9)}`,
@@ -816,7 +833,7 @@ const Scan = () => {
     setOuterNDCDialogOpen(true);
 
     return false; // Indicate that we're waiting for user selection
-  }, [findOuterNDCsByNDC9, fdaLookup, getDrugByOuterNDC, lookupNDC]);
+  }, [findOuterNDCsByNDC9, fdaLookup, getDrugByOuterNDC, lookupNDC, generateRecForRow]);
 
 
   // Handle outer NDC selection from dialog
