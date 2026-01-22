@@ -284,7 +284,16 @@ export function useLocalFDA() {
       console.log('[FDA Import] Sample row keys:', keys);
       console.log('[FDA Import] AE value:', sampleRow['AE']);
       console.log('[FDA Import] AG value:', sampleRow['AG']);
-      console.log('[FDA Import] Sample row:', sampleRow);
+      // Log all two-letter column values for debugging
+      const twoLetterCols = ['AA', 'AB', 'AC', 'AD', 'AE', 'AF', 'AG', 'AH', 'AI', 'AJ'];
+      twoLetterCols.forEach(col => {
+        if (sampleRow[col] !== undefined && sampleRow[col] !== '') {
+          console.log(`[FDA Import] Column ${col}:`, sampleRow[col]);
+        }
+      });
+      // Also check for "Left 9" header variations
+      keys.filter(k => k.toLowerCase().includes('left') || k.toLowerCase().includes('inner') || k.toLowerCase().includes('outer'))
+        .forEach(k => console.log(`[FDA Import] Potential mapping column "${k}":`, sampleRow[k]));
     }
 
     for (let i = 0; i < rows.length; i++) {
@@ -328,11 +337,11 @@ export function useLocalFDA() {
           getVal(row, 'ENTRY UPDATED FROM FDA', 'entry_updated_fda'),
           getVal(row, 'Cardinal UPC pulled from FDA site since 2022', 'cardinal_upc'),
           getVal(row, 'NDC9Outer', 'ndc9_outer'),
-          // Column AE
-          getVal(row, 'AE', 'Outerpack NDC', 'Outer Pack NDC', 'OUTERPACK NDC', 'outerpack_ndc'),
-          // Column AG
-          getVal(row, 'AG', 'Innerpack - Outer Left 9', 'Innerpack-Outer Left 9', 'Left 9', 'LEFT 9', 'innerpack_outer_left9'),
-          getVal(row, 'McKesson UPC', 'mckesson_upc'),
+          // Column AE - Outer Pack NDC
+          getVal(row, 'AE', 'Outerpack NDC', 'Outer Pack NDC', 'OUTERPACK NDC', 'outerpack_ndc', 'OuterPack NDC'),
+          // Column AG - Left 9 / Innerpack-Outer Left 9
+          getVal(row, 'AG', 'Innerpack - Outer Left 9', 'Innerpack-Outer Left 9', 'Left 9', 'LEFT 9', 'innerpack_outer_left9', 'Innerpack Outer Left 9', 'InnerPack-Outer Left 9', 'L9', 'Left9'),
+          getVal(row, 'AH', 'McKesson UPC', 'mckesson_upc'),
         ]);
 
         success++;
