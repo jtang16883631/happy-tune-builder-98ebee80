@@ -2184,8 +2184,8 @@ const Scan = () => {
                   </div>
                 </div>
               )}
-              <div className="min-w-max">
-                <Table>
+              <div className="min-w-max" style={{ fontFamily: 'Arial, sans-serif' }}>
+                <Table style={{ fontFamily: 'Arial, sans-serif' }}>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       {/* Delete column header on left */}
