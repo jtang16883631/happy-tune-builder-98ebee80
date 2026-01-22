@@ -1,5 +1,5 @@
 import { Toaster } from "@/components/ui/toaster";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -7,6 +7,7 @@ import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { UpdateNotification } from "@/components/UpdateNotification";
 import { OfflineRedirect, useOnlineStatus } from "@/components/OfflineRedirect";
+import { supabase } from "@/integrations/supabase/client";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Profile from "./pages/Profile";
@@ -26,6 +27,56 @@ import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
+
+// Handle OAuth callback tokens in URL hash (for Electron + HashRouter compatibility)
+function useOAuthHashHandler() {
+  const [isProcessing, setIsProcessing] = useState(true);
+
+  useEffect(() => {
+    const handleOAuthHash = async () => {
+      const hash = window.location.hash;
+      
+      // Check if hash contains OAuth tokens (access_token in the fragment)
+      if (hash && hash.includes('access_token=')) {
+        try {
+          // Extract the token portion - it might be after #/ or just #
+          let tokenHash = hash;
+          if (hash.startsWith('#/')) {
+            tokenHash = '#' + hash.substring(2);
+          }
+          
+          // Parse the hash as URL params
+          const hashParams = new URLSearchParams(tokenHash.substring(1));
+          const accessToken = hashParams.get('access_token');
+          const refreshToken = hashParams.get('refresh_token');
+          
+          if (accessToken && refreshToken) {
+            // Set the session using the tokens
+            const { error } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+            
+            if (!error) {
+              // Clear the hash and redirect to home
+              window.location.hash = '#/';
+              window.location.reload();
+              return;
+            }
+          }
+        } catch (error) {
+          console.error('OAuth hash handling error:', error);
+        }
+      }
+      
+      setIsProcessing(false);
+    };
+
+    handleOAuthHash();
+  }, []);
+
+  return isProcessing;
+}
 
 // Routes that work offline without auth
 const OFFLINE_ALLOWED_ROUTES = ['/scan', '/issues', '/auth'];
@@ -186,19 +237,32 @@ function AppRoutes() {
   );
 }
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <UpdateNotification />
-      <HashRouter>
-        <AuthProvider>
-          <AppRoutes />
-        </AuthProvider>
-      </HashRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+const App = () => {
+  const isProcessingOAuth = useOAuthHashHandler();
+
+  // Show loading while processing OAuth tokens
+  if (isProcessingOAuth) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <UpdateNotification />
+        <HashRouter>
+          <AuthProvider>
+            <AppRoutes />
+          </AuthProvider>
+        </HashRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+};
 
 export default App;
