@@ -13,6 +13,8 @@ import Profile from "./pages/Profile";
 import Users from "./pages/Users";
 import Scan from "./pages/Scan";
 import FDA from "./pages/FDA";
+import Compile from "./pages/Compile";
+import About from "./pages/About";
 import Dashboard from "./pages/Dashboard";
 import ScheduleHub from "./pages/ScheduleHub";
 import Timesheet from "./pages/Timesheet";
@@ -111,6 +113,22 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <FDA />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/compile"
+          element={
+            <ProtectedRoute>
+              <Compile />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/about"
+          element={
+            <ProtectedRoute>
+              <About />
             </ProtectedRoute>
           }
         />
