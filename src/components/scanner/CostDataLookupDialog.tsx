@@ -8,7 +8,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Search, Loader2, DollarSign } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -91,31 +90,35 @@ export function CostDataLookupDialog({
       
       setTotalCount(totalItems || 0);
 
-      // Get distinct sheet names using RPC-like approach - query 1 item per sheet
-      // We do this by getting all unique sheet_name values
+      // Detect sheet tabs reliably for huge datasets.
+      // We fetch the first row of each *distinct* sheet by walking forward
+      // lexicographically (sheet_name > lastSheet). This is fast and won't miss
+      // a smaller sheet that would be skipped by offset sampling.
       const sheetSet = new Set<string>();
-      
-      // Strategy: Query items with offset stepping to find all unique sheets
-      // For large datasets, we sample at different offsets to catch all sheets
-      const offsets = [0, 50000, 100000, 150000, 200000, 250000];
-      
-      for (const offset of offsets) {
-        if (offset >= (totalItems || 0)) break;
-        
-        const { data: sample } = await supabase
+      let lastSheet: string | null = null;
+      const maxSheetsToDetect = 50;
+
+      for (let i = 0; i < maxSheetsToDetect; i++) {
+        let q = supabase
           .from('template_cost_items')
           .select('sheet_name')
           .eq('template_id', templateId)
           .not('sheet_name', 'is', null)
-          .range(offset, offset + 100);
-        
-        sample?.forEach(s => {
-          if (s.sheet_name) sheetSet.add(s.sheet_name);
-        });
+          .neq('sheet_name', '')
+          .order('sheet_name')
+          .limit(1);
+
+        if (lastSheet) q = q.gt('sheet_name', lastSheet);
+
+        const { data } = await q;
+        const next = (data?.[0]?.sheet_name ?? '').trim();
+        if (!next) break;
+
+        sheetSet.add(next);
+        lastSheet = next;
       }
-      
-      const uniqueSheets = Array.from(sheetSet).sort();
-      console.log('Detected sheet names:', uniqueSheets, 'Total items:', totalItems);
+
+      const uniqueSheets = Array.from(sheetSet).sort((a, b) => a.localeCompare(b));
       setSheetNames(uniqueSheets);
 
       // Load first batch of items
