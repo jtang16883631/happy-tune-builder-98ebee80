@@ -91,31 +91,31 @@ export function CostDataLookupDialog({
       
       setTotalCount(totalItems || 0);
 
-      // Get distinct sheet names by querying a small sample from each potential sheet
-      // We load 1000 items ordered by sheet_name to get a representative sample
-      const { data: sampleData } = await supabase
-        .from('template_cost_items')
-        .select('sheet_name')
-        .eq('template_id', templateId)
-        .not('sheet_name', 'is', null)
-        .order('sheet_name')
-        .limit(1000);
+      // Get distinct sheet names using RPC-like approach - query 1 item per sheet
+      // We do this by getting all unique sheet_name values
+      const sheetSet = new Set<string>();
       
-      // Also get from the end to catch all sheets
-      const { data: sampleData2 } = await supabase
-        .from('template_cost_items')
-        .select('sheet_name')
-        .eq('template_id', templateId)
-        .not('sheet_name', 'is', null)
-        .order('sheet_name', { ascending: false })
-        .limit(1000);
+      // Strategy: Query items with offset stepping to find all unique sheets
+      // For large datasets, we sample at different offsets to catch all sheets
+      const offsets = [0, 50000, 100000, 150000, 200000, 250000];
       
-      // Combine and get unique sheet names
-      const allSamples = [...(sampleData || []), ...(sampleData2 || [])];
-      const uniqueSheets = [...new Set(allSamples.map(s => s.sheet_name).filter(Boolean))] as string[];
-      uniqueSheets.sort();
+      for (const offset of offsets) {
+        if (offset >= (totalItems || 0)) break;
+        
+        const { data: sample } = await supabase
+          .from('template_cost_items')
+          .select('sheet_name')
+          .eq('template_id', templateId)
+          .not('sheet_name', 'is', null)
+          .range(offset, offset + 100);
+        
+        sample?.forEach(s => {
+          if (s.sheet_name) sheetSet.add(s.sheet_name);
+        });
+      }
       
-      console.log('Detected sheet names:', uniqueSheets);
+      const uniqueSheets = Array.from(sheetSet).sort();
+      console.log('Detected sheet names:', uniqueSheets, 'Total items:', totalItems);
       setSheetNames(uniqueSheets);
 
       // Load first batch of items
