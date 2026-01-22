@@ -83,28 +83,42 @@ export function CostDataLookupDialog({
     
     setIsLoading(true);
     try {
-      // Get unique sheet names with counts using a more efficient query
-      const { data: sheetCountData } = await supabase
+      // First, get total count for this template
+      const { count: totalItems } = await supabase
+        .from('template_cost_items')
+        .select('*', { count: 'exact', head: true })
+        .eq('template_id', templateId);
+      
+      setTotalCount(totalItems || 0);
+
+      // Get distinct sheet names by querying a small sample from each potential sheet
+      // We load 1000 items ordered by sheet_name to get a representative sample
+      const { data: sampleData } = await supabase
         .from('template_cost_items')
         .select('sheet_name')
         .eq('template_id', templateId)
-        .not('sheet_name', 'is', null);
+        .not('sheet_name', 'is', null)
+        .order('sheet_name')
+        .limit(1000);
       
-      // Count items per sheet
-      const sheetCounts: Record<string, number> = {};
-      (sheetCountData || []).forEach(item => {
-        const sheet = item.sheet_name || 'Unknown';
-        sheetCounts[sheet] = (sheetCounts[sheet] || 0) + 1;
-      });
+      // Also get from the end to catch all sheets
+      const { data: sampleData2 } = await supabase
+        .from('template_cost_items')
+        .select('sheet_name')
+        .eq('template_id', templateId)
+        .not('sheet_name', 'is', null)
+        .order('sheet_name', { ascending: false })
+        .limit(1000);
       
-      const uniqueSheets = Object.keys(sheetCounts).sort();
+      // Combine and get unique sheet names
+      const allSamples = [...(sampleData || []), ...(sampleData2 || [])];
+      const uniqueSheets = [...new Set(allSamples.map(s => s.sheet_name).filter(Boolean))] as string[];
+      uniqueSheets.sort();
+      
+      console.log('Detected sheet names:', uniqueSheets);
       setSheetNames(uniqueSheets);
 
-      // Get total count
-      const totalItems = Object.values(sheetCounts).reduce((a, b) => a + b, 0);
-      setTotalCount(totalItems);
-
-      // Load items (limit for performance) - load more initially
+      // Load first batch of items
       const { data, error } = await supabase
         .from('template_cost_items')
         .select('id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name')
@@ -153,6 +167,42 @@ export function CostDataLookupDialog({
 
     setFilteredItems(items);
   }, [searchQuery, costItems, selectedSheet]);
+
+  // Load data for specific sheet when tab is selected
+  const loadSheetData = useCallback(async (sheetName: string) => {
+    if (!templateId) return;
+    
+    setIsLoading(true);
+    try {
+      let query = supabase
+        .from('template_cost_items')
+        .select('id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name')
+        .eq('template_id', templateId)
+        .order('ndc')
+        .limit(1000);
+
+      if (sheetName !== 'all') {
+        query = query.eq('sheet_name', sheetName);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+      setCostItems(data || []);
+      setFilteredItems(data || []);
+    } catch (err) {
+      console.error('Error loading sheet data:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [templateId]);
+
+  // Handle sheet tab click
+  const handleSheetChange = (sheet: string) => {
+    setSelectedSheet(sheet);
+    setSearchQuery('');
+    loadSheetData(sheet);
+  };
 
   // Search in database for more results
   const handleDatabaseSearch = async () => {
@@ -254,23 +304,33 @@ export function CostDataLookupDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Sheet Tabs */}
-          {sheetNames.length > 1 && (
-            <Tabs value={selectedSheet} onValueChange={setSelectedSheet}>
-              <TabsList className="h-auto flex-wrap">
-                <TabsTrigger value="all" className="text-xs">
+          {/* Sheet Tabs - Excel-style */}
+          {sheetNames.length > 0 && (
+            <div className="flex items-center gap-1 border-b pb-2">
+              <span className="text-xs text-muted-foreground mr-2">Sheets:</span>
+              <div className="flex gap-1 flex-wrap">
+                <Button
+                  variant={selectedSheet === 'all' ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => handleSheetChange('all')}
+                >
                   All Sheets
-                </TabsTrigger>
+                </Button>
                 {sheetNames.map(sheet => (
-                  <TabsTrigger key={sheet} value={sheet} className="text-xs">
+                  <Button
+                    key={sheet}
+                    variant={selectedSheet === sheet ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => handleSheetChange(sheet)}
+                  >
                     {sheet}
-                  </TabsTrigger>
+                  </Button>
                 ))}
-              </TabsList>
-            </Tabs>
+              </div>
+            </div>
           )}
-
-          {/* Search bar */}
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
