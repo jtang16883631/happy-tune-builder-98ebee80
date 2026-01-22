@@ -3,9 +3,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, RefreshCw, FileSpreadsheet, CheckCircle, XCircle, HardDrive, Trash2, Download, FolderInput } from 'lucide-react';
+import { Upload, RefreshCw, FileSpreadsheet, CheckCircle, XCircle, HardDrive, Trash2, Download, FolderInput, Info, FileStack } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useLocalFDA } from '@/hooks/useLocalFDA';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { CompileTab } from '@/components/fda/CompileTab';
+import { AboutTab } from '@/components/fda/AboutTab';
 import * as XLSX from 'xlsx';
 import {
   AlertDialog,
@@ -227,206 +230,244 @@ const FDA = () => {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">FDA Database</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Master Data</h1>
             <p className="text-muted-foreground">
-              {isReady && meta ? (
-                <span className="flex items-center gap-2">
-                  <HardDrive className="h-4 w-4" />
-                  {totalCount.toLocaleString()} drugs stored locally (all columns)
-                  {meta.lastUpdated && (
-                    <> • Updated: {new Date(meta.lastUpdated).toLocaleDateString()}</>
-                  )}
-                </span>
-              ) : (
-                'Upload your FDA Excel file to get started (stored on this device)'
-              )}
+              Manage FDA database, compile exports, and view application info
             </p>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xlsm,.xls,.csv"
-              onChange={handleFileUpload}
-              className="hidden"
-              id="fda-upload"
-            />
-            <input
-              ref={fdaFileInputRef}
-              type="file"
-              accept=".fdadb"
-              onChange={handleImportFromFlashDrive}
-              className="hidden"
-              id="fda-import"
-            />
-            
-            {/* Flash Drive Import - always available */}
-            <Button
-              variant="outline"
-              onClick={() => fdaFileInputRef.current?.click()}
-              disabled={!!transferStatus}
-            >
-              {transferStatus ? (
-                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <FolderInput className="mr-2 h-4 w-4" />
-              )}
-              {transferStatus || 'Import from Flash Drive'}
-            </Button>
-
-            {/* Flash Drive Export - only when data exists */}
-            {isReady && (
-              <Button
-                variant="outline"
-                onClick={handleExportToFlashDrive}
-                disabled={!!transferStatus}
-              >
-                <Download className="mr-2 h-4 w-4" />
-                Export to Flash Drive
-              </Button>
-            )}
-
-            {isReady && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="outline" size="icon">
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Clear FDA Database?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will remove all {totalCount.toLocaleString()} drugs from local storage. You'll need to upload the FDA file again.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleClearDatabase}>Clear</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
-
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadProgress.status === 'parsing' || uploadProgress.status === 'importing'}
-              variant={isReady ? 'outline' : 'default'}
-            >
-              {uploadProgress.status === 'parsing' || uploadProgress.status === 'importing' ? (
-                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Upload className="mr-2 h-4 w-4" />
-              )}
-              {isReady ? 'Update from Excel' : 'Upload FDA Excel'}
-            </Button>
           </div>
         </div>
 
-        {/* Status Card */}
-        {isReady && uploadProgress.status === 'idle' && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                FDA Database Ready
-              </CardTitle>
-              <CardDescription>
-                {meta?.fileName && `Source: ${meta.fileName}`}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <p className="text-muted-foreground">Total Drugs</p>
-                  <p className="text-2xl font-bold">{totalCount.toLocaleString()}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Last Updated</p>
-                  <p className="font-medium">{meta?.lastUpdated ? new Date(meta.lastUpdated).toLocaleString() : '-'}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">Storage</p>
-                  <p className="font-medium">Local (this device)</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground">AG→AE Mappings</p>
-                  <p className="font-medium">
-                    {meta?.mapping
-                      ? `${meta.mapping.pairCount.toLocaleString()} rows`
-                      : '—'}
-                  </p>
-                  {meta?.mapping && (
-                    <p className="text-xs text-muted-foreground">
-                      AG: {meta.mapping.agCount.toLocaleString()} • AE: {meta.mapping.aeCount.toLocaleString()}
-                    </p>
+        <Tabs defaultValue="database" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="database" className="flex items-center gap-2">
+              <HardDrive className="h-4 w-4" />
+              FDA Database
+            </TabsTrigger>
+            <TabsTrigger value="compile" className="flex items-center gap-2">
+              <FileStack className="h-4 w-4" />
+              Compile
+            </TabsTrigger>
+            <TabsTrigger value="about" className="flex items-center gap-2">
+              <Info className="h-4 w-4" />
+              About
+            </TabsTrigger>
+          </TabsList>
+
+          {/* FDA Database Tab */}
+          <TabsContent value="database" className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-muted-foreground">
+                  {isReady && meta ? (
+                    <span className="flex items-center gap-2">
+                      <HardDrive className="h-4 w-4" />
+                      {totalCount.toLocaleString()} drugs stored locally (all columns)
+                      {meta.lastUpdated && (
+                        <> • Updated: {new Date(meta.lastUpdated).toLocaleDateString()}</>
+                      )}
+                    </span>
+                  ) : (
+                    'Upload your FDA Excel file to get started (stored on this device)'
                   )}
-                </div>
+                </p>
               </div>
-            </CardContent>
-          </Card>
-        )}
+              <div className="flex gap-2 flex-wrap">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xlsm,.xls,.csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                  id="fda-upload"
+                />
+                <input
+                  ref={fdaFileInputRef}
+                  type="file"
+                  accept=".fdadb"
+                  onChange={handleImportFromFlashDrive}
+                  className="hidden"
+                  id="fda-import"
+                />
+                
+                {/* Flash Drive Import - always available */}
+                <Button
+                  variant="outline"
+                  onClick={() => fdaFileInputRef.current?.click()}
+                  disabled={!!transferStatus}
+                >
+                  {transferStatus ? (
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FolderInput className="mr-2 h-4 w-4" />
+                  )}
+                  {transferStatus || 'Import from Flash Drive'}
+                </Button>
 
-        {/* Upload Progress */}
-        {uploadProgress.status !== 'idle' && (
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <FileSpreadsheet className="h-5 w-5" />
-                Import Progress
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span>
-                    {uploadProgress.status === 'parsing' && 'Parsing Excel file...'}
-                    {uploadProgress.status === 'importing' && `Importing ${uploadProgress.processed.toLocaleString()} of ${uploadProgress.total.toLocaleString()}`}
-                    {uploadProgress.status === 'complete' && 'Complete! All columns saved to this device.'}
-                    {uploadProgress.status === 'error' && 'Error occurred'}
-                  </span>
-                  <span>{progressPercent}%</span>
-                </div>
-                <Progress value={progressPercent} />
-              </div>
-              
-              <div className="flex gap-4 text-sm">
-                <div className="flex items-center gap-1 text-green-600">
-                  <CheckCircle className="h-4 w-4" />
-                  {uploadProgress.successful.toLocaleString()} successful
-                </div>
-                {uploadProgress.failed > 0 && (
-                  <div className="flex items-center gap-1 text-red-600">
-                    <XCircle className="h-4 w-4" />
-                    {uploadProgress.failed.toLocaleString()} failed
-                  </div>
+                {/* Flash Drive Export - only when data exists */}
+                {isReady && (
+                  <Button
+                    variant="outline"
+                    onClick={handleExportToFlashDrive}
+                    disabled={!!transferStatus}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Export to Flash Drive
+                  </Button>
                 )}
-              </div>
 
-              {uploadProgress.errors.length > 0 && (
-                <div className="text-xs text-muted-foreground bg-muted p-2 rounded">
-                  {uploadProgress.errors.map((err, i) => (
-                    <div key={i}>{err}</div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+                {isReady && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="outline" size="icon">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Clear FDA Database?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will remove all {totalCount.toLocaleString()} drugs from local storage. You'll need to upload the FDA file again.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleClearDatabase}>Clear</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
 
-        {/* Empty State */}
-        {!isReady && uploadProgress.status === 'idle' && (
-          <Card>
-            <CardContent className="py-12">
-              <div className="text-center text-muted-foreground">
-                <HardDrive className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-medium">No FDA data loaded</p>
-                <p className="text-sm mt-2">Upload your FDA Excel file to store it locally.</p>
-                <p className="text-sm">All 32 columns will be imported for instant lookups.</p>
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadProgress.status === 'parsing' || uploadProgress.status === 'importing'}
+                  variant={isReady ? 'outline' : 'default'}
+                >
+                  {uploadProgress.status === 'parsing' || uploadProgress.status === 'importing' ? (
+                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Upload className="mr-2 h-4 w-4" />
+                  )}
+                  {isReady ? 'Update from Excel' : 'Upload FDA Excel'}
+                </Button>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            </div>
+
+            {/* Status Card */}
+            {isReady && uploadProgress.status === 'idle' && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                    FDA Database Ready
+                  </CardTitle>
+                  <CardDescription>
+                    {meta?.fileName && `Source: ${meta.fileName}`}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">Total Drugs</p>
+                      <p className="text-2xl font-bold">{totalCount.toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Last Updated</p>
+                      <p className="font-medium">{meta?.lastUpdated ? new Date(meta.lastUpdated).toLocaleString() : '-'}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Storage</p>
+                      <p className="font-medium">Local (this device)</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">AG→AE Mappings</p>
+                      <p className="font-medium">
+                        {meta?.mapping
+                          ? `${meta.mapping.pairCount.toLocaleString()} rows`
+                          : '—'}
+                      </p>
+                      {meta?.mapping && (
+                        <p className="text-xs text-muted-foreground">
+                          AG: {meta.mapping.agCount.toLocaleString()} • AE: {meta.mapping.aeCount.toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Upload Progress */}
+            {uploadProgress.status !== 'idle' && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <FileSpreadsheet className="h-5 w-5" />
+                    Import Progress
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>
+                        {uploadProgress.status === 'parsing' && 'Parsing Excel file...'}
+                        {uploadProgress.status === 'importing' && `Importing ${uploadProgress.processed.toLocaleString()} of ${uploadProgress.total.toLocaleString()}`}
+                        {uploadProgress.status === 'complete' && 'Complete! All columns saved to this device.'}
+                        {uploadProgress.status === 'error' && 'Error occurred'}
+                      </span>
+                      <span>{progressPercent}%</span>
+                    </div>
+                    <Progress value={progressPercent} />
+                  </div>
+                  
+                  <div className="flex gap-4 text-sm">
+                    <div className="flex items-center gap-1 text-green-600">
+                      <CheckCircle className="h-4 w-4" />
+                      {uploadProgress.successful.toLocaleString()} successful
+                    </div>
+                    {uploadProgress.failed > 0 && (
+                      <div className="flex items-center gap-1 text-destructive">
+                        <XCircle className="h-4 w-4" />
+                        {uploadProgress.failed.toLocaleString()} failed
+                      </div>
+                    )}
+                  </div>
+
+                  {uploadProgress.errors.length > 0 && (
+                    <div className="text-xs text-muted-foreground bg-muted p-2 rounded">
+                      {uploadProgress.errors.map((err, i) => (
+                        <div key={i}>{err}</div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Empty State */}
+            {!isReady && uploadProgress.status === 'idle' && (
+              <Card>
+                <CardContent className="py-12">
+                  <div className="text-center text-muted-foreground">
+                    <HardDrive className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium">No FDA data loaded</p>
+                    <p className="text-sm mt-2">Upload your FDA Excel file to store it locally.</p>
+                    <p className="text-sm">All 32 columns will be imported for instant lookups.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {/* Compile Tab */}
+          <TabsContent value="compile">
+            <CompileTab />
+          </TabsContent>
+
+          {/* About Tab */}
+          <TabsContent value="about">
+            <AboutTab />
+          </TabsContent>
+        </Tabs>
       </div>
     </AppLayout>
   );

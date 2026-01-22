@@ -695,10 +695,12 @@ const Scan = () => {
     
     setScanRows(prev => {
       const updated = [...prev];
+      // Only set NDC to the resolved outer NDC (finalNdc), NOT the scanned NDC
+      // scannedNdc is stored separately for reference
       updated[rowIndex] = {
         ...updated[rowIndex],
-        ndc: cleanNdc,
-        scannedNdc: originalScanned, // Store the original scanned NDC
+        ndc: cleanNdc, // This is the finalNdc (outer NDC from lookup/selection)
+        scannedNdc: originalScanned, // Store the original scanned NDC separately
         rec,
         device: '', // Device stays blank
         time: new Date().toLocaleTimeString(), // Real time from laptop
