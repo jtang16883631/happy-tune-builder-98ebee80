@@ -1682,7 +1682,7 @@ const Scan = () => {
 
     return (
       <AppLayout>
-        <div className="space-y-8">
+        <div className="space-y-8" style={{ fontFamily: 'Arial, sans-serif' }}>
           <div className="text-center py-4 relative">
             {/* Sync buttons in top right */}
             <div className="absolute right-0 top-0 flex items-center gap-2">
@@ -1949,7 +1949,7 @@ const Scan = () => {
   // Scan View (Excel-like with horizontal scroll)
   return (
     <AppLayout fullWidth defaultCollapsed>
-      <div className="space-y-4 w-full">
+      <div className="space-y-4 w-full" style={{ fontFamily: 'Arial, sans-serif' }}>
         {/* Header with back button */}
         <div className="flex items-center gap-4">
           <Button 
