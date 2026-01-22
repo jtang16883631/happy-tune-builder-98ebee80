@@ -596,6 +596,90 @@ export function useLocalFDA() {
     idb.close();
   }, [db]);
 
+  // Export database to file (for flash drive transfer)
+  const exportToFile = useCallback(async (): Promise<Blob | null> => {
+    if (!db || !meta) return null;
+
+    try {
+      const dbData = db.export();
+      const dbArray = new Uint8Array(dbData);
+      
+      // Create a package with both the database and metadata
+      const metaJson = JSON.stringify(meta);
+      const metaBytes = new TextEncoder().encode(metaJson);
+      
+      // Format: [4 bytes meta length][meta JSON][SQLite binary]
+      const metaLengthBytes = new Uint8Array(4);
+      new DataView(metaLengthBytes.buffer).setUint32(0, metaBytes.length, true);
+      
+      const combined = new Uint8Array(4 + metaBytes.length + dbArray.length);
+      combined.set(metaLengthBytes, 0);
+      combined.set(metaBytes, 4);
+      combined.set(dbArray, 4 + metaBytes.length);
+      
+      return new Blob([combined], { type: 'application/octet-stream' });
+    } catch (err) {
+      console.error('Export error:', err);
+      return null;
+    }
+  }, [db, meta]);
+
+  // Import database from file (from flash drive)
+  const importFromFile = useCallback(async (
+    file: File,
+    onProgress?: (status: string) => void
+  ): Promise<boolean> => {
+    if (!sqlRef.current) {
+      throw new Error('SQL.js not initialized');
+    }
+
+    try {
+      onProgress?.('Reading file...');
+      
+      const buffer = await file.arrayBuffer();
+      const data = new Uint8Array(buffer);
+      
+      // Parse format: [4 bytes meta length][meta JSON][SQLite binary]
+      const metaLength = new DataView(data.buffer).getUint32(0, true);
+      const metaBytes = data.slice(4, 4 + metaLength);
+      const dbBytes = data.slice(4 + metaLength);
+      
+      onProgress?.('Loading metadata...');
+      const metaJson = new TextDecoder().decode(metaBytes);
+      const loadedMeta: FDAMeta = JSON.parse(metaJson);
+      
+      onProgress?.('Loading database...');
+      
+      // Close existing database
+      db?.close();
+      
+      // Load the SQLite database
+      const newDb = new sqlRef.current.Database(dbBytes);
+      
+      // Verify it has the drugs table
+      const tables = newDb.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='drugs'");
+      if (tables.length === 0 || tables[0].values.length === 0) {
+        newDb.close();
+        throw new Error('Invalid FDA database file - drugs table not found');
+      }
+      
+      onProgress?.('Saving to local storage...');
+      
+      // Save to IndexedDB
+      await saveToIndexedDB(DB_KEY, dbBytes);
+      await saveToIndexedDB(META_KEY, loadedMeta);
+      
+      setDb(newDb);
+      setMeta(loadedMeta);
+      
+      onProgress?.('Complete!');
+      return true;
+    } catch (err: any) {
+      console.error('Import from file error:', err);
+      throw err;
+    }
+  }, [db]);
+
   return {
     isLoading,
     isReady: !!db,
@@ -608,5 +692,7 @@ export function useLocalFDA() {
     getDrugByOuterNDC,
     getCount,
     clearDatabase,
+    exportToFile,
+    importFromFile,
   };
 }

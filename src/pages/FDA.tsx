@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
-import { Upload, RefreshCw, FileSpreadsheet, CheckCircle, XCircle, HardDrive, Trash2 } from 'lucide-react';
+import { Upload, RefreshCw, FileSpreadsheet, CheckCircle, XCircle, HardDrive, Trash2, Download, FolderInput } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useLocalFDA } from '@/hooks/useLocalFDA';
 import * as XLSX from 'xlsx';
@@ -31,6 +31,7 @@ interface UploadProgress {
 const FDA = () => {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fdaFileInputRef = useRef<HTMLInputElement>(null);
   
   const {
     isLoading: dbLoading,
@@ -39,6 +40,8 @@ const FDA = () => {
     importData,
     getCount,
     clearDatabase,
+    exportToFile,
+    importFromFile,
   } = useLocalFDA();
 
   const [uploadProgress, setUploadProgress] = useState<UploadProgress>({
@@ -49,6 +52,7 @@ const FDA = () => {
     status: 'idle',
     errors: [],
   });
+  const [transferStatus, setTransferStatus] = useState<string | null>(null);
 
   const parseExcelFile = (file: File): Promise<any[]> => {
     return new Promise((resolve, reject) => {
@@ -148,6 +152,57 @@ const FDA = () => {
     toast({ title: 'Database cleared', description: 'All local FDA data has been removed.' });
   };
 
+  // Export FDA database to flash drive
+  const handleExportToFlashDrive = async () => {
+    setTransferStatus('Exporting...');
+    try {
+      const blob = await exportToFile();
+      if (!blob) {
+        throw new Error('No data to export');
+      }
+      
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `fda-database-${new Date().toISOString().split('T')[0]}.fdadb`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      toast({ 
+        title: 'Export complete!', 
+        description: 'Save this file to your flash drive to transfer to another laptop.' 
+      });
+    } catch (err: any) {
+      toast({ title: 'Export failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setTransferStatus(null);
+    }
+  };
+
+  // Import FDA database from flash drive
+  const handleImportFromFlashDrive = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setTransferStatus('Loading...');
+    try {
+      await importFromFile(file, setTransferStatus);
+      toast({ 
+        title: 'Import complete!', 
+        description: `FDA database loaded with ${getCount().toLocaleString()} drugs.` 
+      });
+    } catch (err: any) {
+      toast({ title: 'Import failed', description: err.message, variant: 'destructive' });
+    } finally {
+      setTransferStatus(null);
+      if (fdaFileInputRef.current) {
+        fdaFileInputRef.current.value = '';
+      }
+    }
+  };
+
   const progressPercent = uploadProgress.total > 0 
     ? Math.round((uploadProgress.processed / uploadProgress.total) * 100) 
     : 0;
@@ -187,7 +242,7 @@ const FDA = () => {
               )}
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <input
               ref={fileInputRef}
               type="file"
@@ -196,7 +251,41 @@ const FDA = () => {
               className="hidden"
               id="fda-upload"
             />
+            <input
+              ref={fdaFileInputRef}
+              type="file"
+              accept=".fdadb"
+              onChange={handleImportFromFlashDrive}
+              className="hidden"
+              id="fda-import"
+            />
             
+            {/* Flash Drive Import - always available */}
+            <Button
+              variant="outline"
+              onClick={() => fdaFileInputRef.current?.click()}
+              disabled={!!transferStatus}
+            >
+              {transferStatus ? (
+                <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FolderInput className="mr-2 h-4 w-4" />
+              )}
+              {transferStatus || 'Import from Flash Drive'}
+            </Button>
+
+            {/* Flash Drive Export - only when data exists */}
+            {isReady && (
+              <Button
+                variant="outline"
+                onClick={handleExportToFlashDrive}
+                disabled={!!transferStatus}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Export to Flash Drive
+              </Button>
+            )}
+
             {isReady && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
@@ -229,7 +318,7 @@ const FDA = () => {
               ) : (
                 <Upload className="mr-2 h-4 w-4" />
               )}
-              {isReady ? 'Update FDA Data' : 'Upload FDA Data'}
+              {isReady ? 'Update from Excel' : 'Upload FDA Excel'}
             </Button>
           </div>
         </div>
