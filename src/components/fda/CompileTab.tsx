@@ -147,7 +147,7 @@ export function CompileTab() {
 
       // First, get headers from the first file
       if (uploadedFiles.length > 0 && uploadedFiles[0].headers.length > 0) {
-        masterHeaders = uploadedFiles[0].headers;
+        masterHeaders = [...uploadedFiles[0].headers];
       }
 
       // Find the Extended column index (for totals)
@@ -155,6 +155,28 @@ export function CompileTab() {
         h?.toString().toLowerCase().includes('extended') || 
         h?.toString().toLowerCase() === 'extended'
       );
+
+      // First pass: calculate grand total across all files
+      let calculatedGrandTotal = 0;
+      if (extendedColIndex >= 0) {
+        uploadedFiles.forEach((file) => {
+          file.data.forEach(row => {
+            const val = parseFloat(row[extendedColIndex]);
+            if (!isNaN(val)) {
+              calculatedGrandTotal += val;
+            }
+          });
+        });
+      }
+
+      // Update the header cell right after "Extended" with the grand total
+      // Find the column index for the "$-" placeholder (it's right after Extended)
+      const dollarColIndex = masterHeaders.findIndex(h => 
+        h?.toString() === '$-' || h?.toString().startsWith('$')
+      );
+      if (dollarColIndex >= 0) {
+        masterHeaders[dollarColIndex] = `$${calculatedGrandTotal.toFixed(2)}`;
+      }
 
       // Process each uploaded file/sheet
       uploadedFiles.forEach((file, idx) => {
