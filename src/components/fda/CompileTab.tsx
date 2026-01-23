@@ -7,6 +7,7 @@ import { Upload, FileSpreadsheet, CheckCircle, XCircle, Trash2, Download, Folder
 import * as XLSX from 'xlsx-js-style';
 import { applyValidationStylesToWorksheet } from '@/lib/cellValidation';
 import { applyExcelFormulas, applySummaryFormulas, COLUMN_INDICES, getColLetter } from '@/lib/excelFormulas';
+import { buildValidationData, createValidationWorksheet, addSummaryHyperlinks } from '@/lib/excelValidationTab';
 
 interface UploadedFile {
   id: string;
@@ -246,6 +247,9 @@ export function CompileTab() {
       // Apply formulas to Summary sheet (start row 9 is first section row after headers)
       applySummaryFormulas(summaryWs, sectionSheetNames, 9);
       
+      // Add hyperlinks to section names in Summary
+      addSummaryHyperlinks(summaryWs, sectionSheetNames, 9);
+      
       // Add formulas for Total Scans and Grand Total in header section
       const sectionStartRow = 9;
       const sectionEndRow = sectionStartRow + sectionSheetNames.length - 1;
@@ -272,12 +276,43 @@ export function CompileTab() {
       // Apply formulas to master sheet
       const masterDataRowCount = masterData.length;
       applyExcelFormulas(masterWs, masterDataRowCount, 1);
+      
+      // Build validation data for Validation tab
+      // Map uploaded files to section format for validation
+      const sectionsForValidation = uploadedFiles.map(f => ({ full_section: f.sheetName, sect: f.sheetName }));
+      const sectionRecordsForValidation: Record<string, any[]> = {};
+      
+      // Extract REC column index (for employee detection)
+      const recColIndex = masterHeaders.findIndex(h => 
+        h?.toString().toLowerCase() === 'rec'
+      );
+      const timeColIndex = masterHeaders.findIndex(h => 
+        h?.toString().toLowerCase() === 'time'
+      );
+      
+      uploadedFiles.forEach((file, idx) => {
+        sectionRecordsForValidation[idx.toString()] = file.data.map(row => ({
+          rec: recColIndex >= 0 ? row[recColIndex] : '',
+          time: timeColIndex >= 0 ? row[timeColIndex] : '',
+          extended: extendedColIndex >= 0 ? parseFloat(row[extendedColIndex]) || 0 : 0,
+        }));
+      });
+      
+      const validationData = buildValidationData(sectionsForValidation, sectionRecordsForValidation, sectionSheetNames);
+      const validationWs = createValidationWorksheet(
+        validationData.balanceChecks,
+        validationData.employeeAnalytics,
+        validationData.sectionAnalytics,
+        validationData.totalSheets,
+        validationData.inBalance
+      );
 
-      // Prepend Summary and Master to the workbook
+      // Prepend Summary, Master, and Validation to the workbook
       const existingSheets = [...workbook.SheetNames];
-      workbook.SheetNames = ['Summary', 'Master', ...existingSheets];
+      workbook.SheetNames = ['Summary', 'Master', 'Validation', ...existingSheets];
       workbook.Sheets['Summary'] = summaryWs;
       workbook.Sheets['Master'] = masterWs;
+      workbook.Sheets['Validation'] = validationWs;
 
       // Generate and download
       const fileName = `compiled-export-${new Date().toISOString().split('T')[0]}.xlsx`;

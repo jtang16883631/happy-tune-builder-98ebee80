@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import * as XLSX from 'xlsx-js-style';
 import { getCellValidationColor, getCellValidationClasses, applyValidationStylesToWorksheet } from '@/lib/cellValidation';
 import { applyExcelFormulas, applySummaryFormulas, COLUMN_INDICES, getColLetter } from '@/lib/excelFormulas';
+import { buildValidationData, createValidationWorksheet, addSummaryHyperlinks } from '@/lib/excelValidationTab';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useCloudTemplates, CloudTemplate, CloudSection, TemplateStatus } from '@/hooks/useCloudTemplates';
@@ -1239,15 +1240,20 @@ const Scan = () => {
       
       // Apply formulas to Summary sheet (start row 6 is first section row)
       applySummaryFormulas(summaryWorksheet, sectionSheetNames, 6);
+      
+      // Add hyperlinks to section names in Summary
+      addSummaryHyperlinks(summaryWorksheet, sectionSheetNames, 6);
 
       // Create Master sheet - combine all sections
       const masterRows: any[][] = [headers];
+      const allSectionRecordsForValidation: Record<string, ScanRow[]> = {};
       
       for (const section of sections) {
         const savedData = localStorage.getItem(`scan_records_${selectedTemplate.id}_${section.id}`);
         if (savedData) {
           try {
             const savedRecords = JSON.parse(savedData) as ScanRow[];
+            allSectionRecordsForValidation[section.id] = savedRecords;
             savedRecords.forEach(record => {
               masterRows.push([
                 record.loc || '',
@@ -1300,7 +1306,17 @@ const Scan = () => {
       applyExcelFormulas(masterWorksheet, masterDataRowCount, 1);
       masterWorksheet['!cols'] = headers.map((_, i) => ({ wch: i === 10 || i === 11 ? 30 : 15 }));
       
-      // Clear all sheets and rebuild in correct order: Summary, Master, then sections
+      // Build Validation tab data
+      const validationData = buildValidationData(sections, allSectionRecordsForValidation, sectionSheetNames);
+      const validationWorksheet = createValidationWorksheet(
+        validationData.balanceChecks,
+        validationData.employeeAnalytics,
+        validationData.sectionAnalytics,
+        validationData.totalSheets,
+        validationData.inBalance
+      );
+      
+      // Clear all sheets and rebuild in correct order: Summary, Master, Validation, then sections
       const existingSectionSheetNames = [...workbook.SheetNames];
       const sectionSheets = { ...workbook.Sheets };
       
@@ -1313,6 +1329,9 @@ const Scan = () => {
       
       // Add Master second
       XLSX.utils.book_append_sheet(workbook, masterWorksheet, 'Master');
+      
+      // Add Validation third
+      XLSX.utils.book_append_sheet(workbook, validationWorksheet, 'Validation');
       
       // Add all section sheets
       existingSectionSheetNames.forEach(name => {
@@ -1451,6 +1470,8 @@ const Scan = () => {
       
       // Collect all records for Master sheet
       const allMasterRows: any[][] = [];
+      // Collect records by section for validation tab
+      const allSectionRecordsForValidation: Record<string, any[]> = {};
 
       for (const section of sections) {
         // Fetch ALL users' scan records for this template/section
@@ -1515,6 +1536,12 @@ const Scan = () => {
             rows.push(rowData);
             allMasterRows.push(rowData);
           });
+          // Store records for validation tab (convert to local format)
+          allSectionRecordsForValidation[section.id] = cloudRecords.map(r => ({
+            rec: r.rec,
+            time: r.time,
+            extended: r.extended,
+          }));
         }
 
         // Store section total for summary
@@ -1576,6 +1603,9 @@ const Scan = () => {
       
       // Apply formulas to Summary sheet (start row 6 is first section row)
       applySummaryFormulas(summaryWorksheet, sectionSheetNames, 6);
+      
+      // Add hyperlinks to section names in Summary
+      addSummaryHyperlinks(summaryWorksheet, sectionSheetNames, 6);
 
       // Create Master sheet - combine all sections
       const masterRows: any[][] = [headers, ...allMasterRows];
@@ -1587,7 +1617,17 @@ const Scan = () => {
       applyExcelFormulas(masterWorksheet, masterDataRowCount, 1);
       masterWorksheet['!cols'] = headers.map((_, i) => ({ wch: i === 10 || i === 11 ? 30 : 15 }));
       
-      // Clear all sheets and rebuild in correct order: Summary, Master, then sections
+      // Build Validation tab data
+      const validationData = buildValidationData(sections, allSectionRecordsForValidation, sectionSheetNames);
+      const validationWorksheet = createValidationWorksheet(
+        validationData.balanceChecks,
+        validationData.employeeAnalytics,
+        validationData.sectionAnalytics,
+        validationData.totalSheets,
+        validationData.inBalance
+      );
+      
+      // Clear all sheets and rebuild in correct order: Summary, Master, Validation, then sections
       const existingSectionSheetNames = [...workbook.SheetNames];
       const sectionSheets = { ...workbook.Sheets };
       
@@ -1600,6 +1640,9 @@ const Scan = () => {
       
       // Add Master second
       XLSX.utils.book_append_sheet(workbook, masterWorksheet, 'Master');
+      
+      // Add Validation third
+      XLSX.utils.book_append_sheet(workbook, validationWorksheet, 'Validation');
       
       // Add all section sheets
       existingSectionSheetNames.forEach(name => {
