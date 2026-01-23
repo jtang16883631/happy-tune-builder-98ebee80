@@ -1313,7 +1313,8 @@ const Scan = () => {
         validationData.employeeAnalytics,
         validationData.sectionAnalytics,
         validationData.totalSheets,
-        validationData.inBalance
+        validationData.inBalance,
+        6 // Summary sheet section data starts at row 6
       );
       
       // Clear all sheets and rebuild in correct order: Summary, Master, Validation, then sections
@@ -1624,7 +1625,8 @@ const Scan = () => {
         validationData.employeeAnalytics,
         validationData.sectionAnalytics,
         validationData.totalSheets,
-        validationData.inBalance
+        validationData.inBalance,
+        6 // Summary sheet section data starts at row 6
       );
       
       // Clear all sheets and rebuild in correct order: Summary, Master, Validation, then sections

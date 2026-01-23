@@ -223,56 +223,23 @@ export function buildValidationData(
 }
 
 /**
- * Create the Validation worksheet
+ * Create the Validation worksheet with formulas for dynamic "From Summary" column
+ * @param summaryStartRow - The row number in Summary sheet where section data starts (1-based)
  */
 export function createValidationWorksheet(
   balanceChecks: BalanceCheckRow[],
   employeeAnalytics: EmployeeAnalytics[],
   sectionAnalytics: SectionAnalytics[],
   totalSheets: number,
-  inBalance: boolean
+  inBalance: boolean,
+  summaryStartRow: number = 6 // Default matches applySummaryFormulas
 ): WorkSheet {
-  const rows: any[][] = [];
-
-  // Header row with totals
-  rows.push(['Total # Sheets:', totalSheets, '', '# In Balance', inBalance ? 'TRUE' : 'FALSE']);
-  rows.push([]); // Empty row
-
-  // === Balance Check Section ===
-  rows.push(['', 'Inventory Value', '', '', '']);
-  rows.push(['Data Sheet', 'From Summary', 'From Master', 'Difference', '']);
-  
-  balanceChecks.forEach(check => {
-    rows.push([
-      check.dataSheet,
-      check.fromSummary,
-      check.fromMaster,
-      check.difference,
-      ''
-    ]);
-  });
-
-  // Add empty rows to separate sections
-  rows.push([]);
-  rows.push([]);
-
-  // Determine starting column for Employee Analytics (column F = index 5)
-  const empStartCol = 5;
-  
-  // === Employee Analytics Section (to the right) ===
-  // We'll need to merge this data into the same rows
-  const empHeaderRow = 2; // Row 3 (0-indexed = 2)
-  const empDataStartRow = 3; // Row 4
-
-  // === Section Analytics Section (further right) ===
-  const secStartCol = 13;
-
   // Now rebuild with all columns
   const finalRows: any[][] = [];
 
   // Row 0: Header
   finalRows.push([
-    'Total # Sheets:', totalSheets, '', '# In Balance', inBalance ? 'TRUE' : 'FALSE',
+    'Total # Sheets:', totalSheets, '', '# In Balance', '', // inBalance will be formula
     '', 'Files Compiled', 'Employee', 'Sections Counted', '', 'First Record Time', 'Last Record Time', '# of Entries', 'Sum of Entries',
     '', 'Section', 'Employee ID', 'Time In', 'Time Out', 'Min Hours', '# of Entries', 'Sum of Entries'
   ]);
@@ -305,9 +272,9 @@ export function createValidationWorksheet(
     finalRows.push([
       // Balance check columns (A-E)
       balanceRow?.dataSheet || '',
-      balanceRow ? balanceRow.fromSummary : '',
-      balanceRow ? balanceRow.fromMaster : '',
-      balanceRow ? balanceRow.difference : '',
+      '', // From Summary - will be formula
+      balanceRow ? balanceRow.fromMaster : '', // From Master - static value
+      '', // Difference - will be formula
       '',
       // Employee analytics columns (F-N)
       '',
@@ -332,6 +299,44 @@ export function createValidationWorksheet(
   }
 
   const worksheet = XLSX.utils.aoa_to_sheet(finalRows);
+
+  // Add formulas for "From Summary" (column B) and "Difference" (column D)
+  // These reference the Summary sheet's Value column (C) which has formulas
+  const dataStartRow = 5; // Row 5 is first data row (1-indexed)
+  
+  for (let i = 0; i < balanceChecks.length; i++) {
+    const excelRow = dataStartRow + i;
+    const summaryRow = summaryStartRow + i;
+    
+    // From Summary formula: =Summary!C{row} - references the Value column in Summary sheet
+    const fromSummaryCell = `B${excelRow}`;
+    worksheet[fromSummaryCell] = {
+      t: 'n',
+      f: `Summary!C${summaryRow}`,
+      z: '"$"#,##0.00'
+    };
+    
+    // Difference formula: =B{row}-C{row}
+    const differenceCell = `D${excelRow}`;
+    worksheet[differenceCell] = {
+      t: 'n',
+      f: `B${excelRow}-C${excelRow}`,
+      z: '"$"#,##0.00'
+    };
+  }
+
+  // Add formula for "In Balance" check (E1) - checks if all differences are 0
+  if (balanceChecks.length > 0) {
+    const firstDataRow = dataStartRow;
+    const lastDataRow = dataStartRow + balanceChecks.length - 1;
+    worksheet['E1'] = {
+      t: 's',
+      f: `IF(SUMPRODUCT(ABS(D${firstDataRow}:D${lastDataRow}))=0,"TRUE","FALSE")`,
+      s: {
+        font: { bold: true }
+      }
+    };
+  }
 
   // Set column widths
   worksheet['!cols'] = [
@@ -359,8 +364,8 @@ export function createValidationWorksheet(
     { wch: 12 }, // V - Sum of Entries
   ];
 
-  // Apply currency formatting to value columns
-  const currencyCols = [1, 2, 3, 13, 21]; // B, C, D, N, V (0-indexed)
+  // Apply currency formatting to static value columns
+  const currencyCols = [2, 13, 21]; // C, N, V (0-indexed) - B and D are formulas with format already
   const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
   
   for (let R = 4; R <= range.e.r; R++) { // Start from data rows
@@ -370,14 +375,6 @@ export function createValidationWorksheet(
         worksheet[cellRef].z = '"$"#,##0.00';
       }
     });
-  }
-
-  // Style the TRUE/FALSE cell
-  const inBalanceCell = 'E1';
-  if (worksheet[inBalanceCell]) {
-    worksheet[inBalanceCell].s = {
-      font: { bold: true, color: { rgb: inBalance ? '008000' : 'FF0000' } }
-    };
   }
 
   return worksheet;

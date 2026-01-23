@@ -304,7 +304,8 @@ export function CompileTab() {
         validationData.employeeAnalytics,
         validationData.sectionAnalytics,
         validationData.totalSheets,
-        validationData.inBalance
+        validationData.inBalance,
+        9 // Summary sheet section data starts at row 9
       );
 
       // Prepend Summary, Master, and Validation to the workbook
