@@ -2331,8 +2331,12 @@ const Scan = () => {
                             
                             // Special handling for QTY - in-cell calculator (type expression like "5+3")
                             if (col.key === 'qty') {
+                              const qtyEmpty = row.qty === null || row.qty === undefined;
+                              const qtyHasNdc = !!(row.ndc || row.scannedNdc);
+                              const qtyNeedsHighlight = qtyEmpty && qtyHasNdc;
+                              
                               return (
-                                <TableCell key={col.key} className="p-1" style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
+                                <TableCell key={col.key} className={`p-1 ${qtyNeedsHighlight ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''}`} style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
                                   <div className="relative">
                                     <Input
                                       ref={getRef()}
@@ -2357,14 +2361,35 @@ const Scan = () => {
                               );
                             }
                             
-                            // Flag empty medDesc or meridianDesc cells with yellow background
+                          // Cell validation styling
                             const isEmptyCell = value === null || value === undefined || value === '';
-                            const shouldHighlightEmptyCell = (col.key === 'medDesc' || col.key === 'meridianDesc') && isEmptyCell && (row.ndc || row.scannedNdc);
+                            const hasNdc = !!(row.ndc || row.scannedNdc);
+                            
+                            // QTY, MIS Divisor, MIS Count Method - yellow if empty
+                            const isRequiredField = ['qty', 'misDivisor', 'misCountMethod'].includes(col.key);
+                            const shouldHighlightRequired = isRequiredField && isEmptyCell && hasNdc;
+                            
+                            // Med Desc / Meridian Desc logic
+                            const isMedDescEmpty = !row.medDesc || row.medDesc.trim() === '';
+                            const isMeridianDescEmpty = !row.meridianDesc || row.meridianDesc.trim() === '';
+                            const bothDescEmpty = isMedDescEmpty && isMeridianDescEmpty;
+                            const isDescField = col.key === 'medDesc' || col.key === 'meridianDesc';
+                            
+                            // Red if both are empty, Yellow if only this one is empty
+                            let descCellStyle = '';
+                            if (isDescField && hasNdc) {
+                              if (bothDescEmpty) {
+                                descCellStyle = 'bg-red-200 dark:bg-red-900/50';
+                              } else if ((col.key === 'medDesc' && isMedDescEmpty) || (col.key === 'meridianDesc' && isMeridianDescEmpty)) {
+                                descCellStyle = 'bg-yellow-200 dark:bg-yellow-900/50';
+                              }
+                            }
+                            
                             // Highlight audit criteria when it has "need attention"
                             const isAuditAttention = col.key === 'auditCriteria' && typeof value === 'string' && value.includes('need attention');
                             
                             return (
-                              <TableCell key={col.key} className={`p-1 ${shouldHighlightEmptyCell ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''} ${isAuditAttention ? 'bg-orange-200 dark:bg-orange-900/50' : ''}`} style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
+                              <TableCell key={col.key} className={`p-1 ${shouldHighlightRequired ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''} ${descCellStyle} ${isAuditAttention ? 'bg-orange-200 dark:bg-orange-900/50' : ''}`} style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
                                 <Input
                                   ref={getRef()}
                                   value={col.type === 'currency' ? (value !== null && value !== undefined ? Number(value).toFixed(2) : '') : (value?.toString() || '')}
@@ -2392,16 +2417,37 @@ const Scan = () => {
                             );
                           }
                           
-                          // Flag empty medDesc or meridianDesc cells with yellow background
-                          const isEmpty = value === null || value === undefined || value === '';
-                          const shouldHighlightEmpty = (col.key === 'medDesc' || col.key === 'meridianDesc') && isEmpty && (row.ndc || row.scannedNdc);
+                          // Cell validation styling (non-editable cells)
+                          const isEmptyNonEditable = value === null || value === undefined || value === '';
+                          const hasNdcNonEditable = !!(row.ndc || row.scannedNdc);
+                          
+                          // QTY, MIS Divisor, MIS Count Method - yellow if empty
+                          const isRequiredFieldNonEditable = ['qty', 'misDivisor', 'misCountMethod'].includes(col.key);
+                          const shouldHighlightRequiredNonEditable = isRequiredFieldNonEditable && isEmptyNonEditable && hasNdcNonEditable;
+                          
+                          // Med Desc / Meridian Desc logic
+                          const isMedDescEmptyNonEditable = !row.medDesc || row.medDesc.trim() === '';
+                          const isMeridianDescEmptyNonEditable = !row.meridianDesc || row.meridianDesc.trim() === '';
+                          const bothDescEmptyNonEditable = isMedDescEmptyNonEditable && isMeridianDescEmptyNonEditable;
+                          const isDescFieldNonEditable = col.key === 'medDesc' || col.key === 'meridianDesc';
+                          
+                          // Red if both are empty, Yellow if only this one is empty
+                          let descCellStyleNonEditable = '';
+                          if (isDescFieldNonEditable && hasNdcNonEditable) {
+                            if (bothDescEmptyNonEditable) {
+                              descCellStyleNonEditable = 'bg-red-200 dark:bg-red-900/50';
+                            } else if ((col.key === 'medDesc' && isMedDescEmptyNonEditable) || (col.key === 'meridianDesc' && isMeridianDescEmptyNonEditable)) {
+                              descCellStyleNonEditable = 'bg-yellow-200 dark:bg-yellow-900/50';
+                            }
+                          }
+                          
                           // Highlight audit criteria when it has "need attention"
                           const isAuditAttentionCell = col.key === 'auditCriteria' && typeof value === 'string' && value.includes('need attention');
                           
                           return (
                             <TableCell 
                               key={col.key} 
-                              className={`text-xs ${row.source === 'not_found' && (col.key === 'medDesc' || col.key === 'source') ? 'text-destructive' : ''} ${shouldHighlightEmpty ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''} ${isAuditAttentionCell ? 'bg-orange-200 dark:bg-orange-900/50 font-medium' : ''}`}
+                              className={`text-xs ${row.source === 'not_found' && (col.key === 'medDesc' || col.key === 'source') ? 'text-destructive' : ''} ${shouldHighlightRequiredNonEditable ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''} ${descCellStyleNonEditable} ${isAuditAttentionCell ? 'bg-orange-200 dark:bg-orange-900/50 font-medium' : ''}`}
                             >
                               {col.type === 'currency' 
                                 ? formatCurrency(value as number | null)
