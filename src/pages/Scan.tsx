@@ -302,35 +302,15 @@ const Scan = () => {
     return records;
   }, [selectedTemplate, sections, scanRows]); // Re-calculate when scanRows changes to reflect current edits
 
-  // Calculate grand total of all Extended values across all sections
-  const grandExtendedTotal = useMemo(() => {
-    let total = 0;
-    
-    // Sum from all saved section records
-    Object.values(allSectionRecords).forEach(sectionRows => {
-      sectionRows.forEach(row => {
-        if (row.extended !== null && row.extended !== undefined) {
-          total += row.extended;
-        }
-      });
-    });
-    
-    // If current section's scanRows are not yet saved (being edited), add them
-    // But avoid double-counting if they're already in allSectionRecords
-    if (selectedSection) {
-      const currentSectionSaved = allSectionRecords[selectedSection.id];
-      if (!currentSectionSaved || currentSectionSaved.length === 0) {
-        // Not saved yet, add current scanRows
-        scanRows.forEach(row => {
-          if (row.extended !== null && row.extended !== undefined) {
-            total += row.extended;
-          }
-        });
-      }
-    }
-    
-    return total;
-  }, [allSectionRecords, scanRows, selectedSection]);
+  // Calculate current section total (Scan tab header value next to "Extended")
+  const sectionExtendedTotal = useMemo(() => {
+    return scanRows.reduce((sum, row) => {
+      // Only include real scanned rows
+      if (!row.ndc && !row.scannedNdc) return sum;
+      if (typeof row.extended !== 'number' || Number.isNaN(row.extended)) return sum;
+      return sum + row.extended;
+    }, 0);
+  }, [scanRows]);
 
   const hasRole = roles.length > 0;
 
@@ -1766,10 +1746,10 @@ const Scan = () => {
     results: 112, additionalNotes: 192
   };
 
-  // Grand total label for the column header
-  const grandTotalLabel = useMemo(() => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(grandExtendedTotal);
-  }, [grandExtendedTotal]);
+  // Section total label for the column header (right-hand cell after "Extended")
+  const sectionTotalLabel = useMemo(() => {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(sectionExtendedTotal);
+  }, [sectionExtendedTotal]);
 
   const columns = useMemo(() => [
     { key: 'loc', label: 'LOC', editable: true },
@@ -1799,14 +1779,14 @@ const Scan = () => {
     { key: 'packCost', label: 'Pack Cost', editable: true, type: 'currency' },
     { key: 'unitCost', label: 'Unit Cost', editable: true, type: 'currency' },
     { key: 'extended', label: 'Extended', editable: true, type: 'currency' },
-    { key: 'blank', label: grandTotalLabel, editable: true },
+    { key: 'blank', label: sectionTotalLabel, editable: true },
     { key: 'sheetType', label: 'Sheet Type', editable: true },
     { key: 'auditCriteria', label: 'Audit Criteria', editable: true },
     { key: 'originalQty', label: 'Original QTY', editable: true, type: 'number' },
     { key: 'auditorInitials', label: 'Auditor Initials', editable: true },
     { key: 'results', label: 'Results', editable: true },
     { key: 'additionalNotes', label: 'Additional Notes', editable: true },
-  ], [grandTotalLabel]);
+  ], [sectionTotalLabel]);
 
   // Get column width (custom or default)
   const getColumnWidth = (key: string) => columnWidths[key] || defaultWidths[key] || 100;
