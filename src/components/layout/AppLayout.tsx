@@ -81,16 +81,16 @@ const navSections: NavSection[] = [
 ];
 
 export function AppLayout({ children, fullWidth = false, defaultCollapsed = false }: AppLayoutProps) {
-  const { user, roles, isPrivileged, signOut, isLoading: authLoading } = useAuth();
+  const { user, roles, isPrivileged, signOut, isLoading: authLoading, rolesLoaded } = useAuth();
   const location = useLocation();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultCollapsed);
   const { needsCompletion, isChecking, markCompleted } = useProfileCompletion();
   const isMobile = useIsMobile();
   const isOnline = useOnlineStatus();
 
-  // Only treat as "no role" if we've finished loading AND we're online (so we had a chance to fetch)
-  // When offline, we use cached roles which might be empty if never cached
-  const hasNoRole = !authLoading && roles.length === 0 && isOnline;
+  // Only treat as "no role" if auth is done AND roles have been loaded AND still empty AND we're online
+  // This prevents showing "Access Restricted" while roles are still being fetched
+  const hasNoRole = !authLoading && rolesLoaded && roles.length === 0 && isOnline;
   const offlineAllowedRoute = ['/scan', '/fda', '/auth'].includes(location.pathname);
 
   const getInitials = (name?: string | null) => {

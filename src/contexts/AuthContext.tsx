@@ -14,12 +14,14 @@ interface UserWithRole {
   isAuditor: boolean;
   isPrivileged: boolean;
   isLoading: boolean;
+  rolesLoaded: boolean;
 }
 
 interface AuthContextType extends UserWithRole {
   signInWithGoogle: () => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   refreshRoles: () => Promise<void>;
+  rolesLoaded: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -29,6 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [rolesLoaded, setRolesLoaded] = useState(false);
 
   const readCachedRoles = useCallback((userId: string): AppRole[] => {
     try {
@@ -108,7 +111,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // If offline, use cached roles and skip network calls.
           if (!navigator.onLine) {
             const cached = readCachedRoles(existingSession.user.id);
-            if (isMounted) setRoles(cached);
+            if (isMounted) {
+              setRoles(cached);
+              setRolesLoaded(true);
+            }
             return;
           }
 
@@ -116,8 +122,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const userRoles = await fetchUserRoles(existingSession.user.id);
           if (isMounted) {
             setRoles(userRoles);
+            setRolesLoaded(true);
             writeCachedRoles(existingSession.user.id, userRoles);
           }
+        } else {
+          // No session = no roles to load
+          if (isMounted) setRolesLoaded(true);
         }
       } catch (err) {
         console.error('Error initializing session:', err);
@@ -141,6 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (!navigator.onLine) {
             const cached = readCachedRoles(newSession.user.id);
             setRoles(cached);
+            setRolesLoaded(true);
             setIsLoading(false);
             return;
           }
@@ -153,18 +164,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               const userRoles = await fetchUserRoles(newSession.user.id);
               if (isMounted) {
                 setRoles(userRoles);
+                setRolesLoaded(true);
                 writeCachedRoles(newSession.user.id, userRoles);
                 setIsLoading(false);
               }
             } catch (err) {
               console.error('Error in auth state change:', err);
               if (isMounted) {
+                setRolesLoaded(true);
                 setIsLoading(false);
               }
             }
           }, 0);
         } else {
           setRoles([]);
+          setRolesLoaded(true);
           setIsLoading(false);
         }
       }
@@ -231,6 +245,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuditor,
         isPrivileged,
         isLoading,
+        rolesLoaded,
         signInWithGoogle,
         signOut,
         refreshRoles,
