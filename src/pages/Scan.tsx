@@ -302,6 +302,36 @@ const Scan = () => {
     return records;
   }, [selectedTemplate, sections, scanRows]); // Re-calculate when scanRows changes to reflect current edits
 
+  // Calculate grand total of all Extended values across all sections
+  const grandExtendedTotal = useMemo(() => {
+    let total = 0;
+    
+    // Sum from all saved section records
+    Object.values(allSectionRecords).forEach(sectionRows => {
+      sectionRows.forEach(row => {
+        if (row.extended !== null && row.extended !== undefined) {
+          total += row.extended;
+        }
+      });
+    });
+    
+    // If current section's scanRows are not yet saved (being edited), add them
+    // But avoid double-counting if they're already in allSectionRecords
+    if (selectedSection) {
+      const currentSectionSaved = allSectionRecords[selectedSection.id];
+      if (!currentSectionSaved || currentSectionSaved.length === 0) {
+        // Not saved yet, add current scanRows
+        scanRows.forEach(row => {
+          if (row.extended !== null && row.extended !== undefined) {
+            total += row.extended;
+          }
+        });
+      }
+    }
+    
+    return total;
+  }, [allSectionRecords, scanRows, selectedSection]);
+
   const hasRole = roles.length > 0;
 
   // Validation: Check if a row has all required fields filled
@@ -1966,7 +1996,12 @@ const Scan = () => {
     results: 112, additionalNotes: 192
   };
 
-  const columns = [
+  // Grand total label for the column header
+  const grandTotalLabel = useMemo(() => {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(grandExtendedTotal);
+  }, [grandExtendedTotal]);
+
+  const columns = useMemo(() => [
     { key: 'loc', label: 'LOC', editable: true },
     { key: 'device', label: 'Device', editable: true, hideable: true },
     { key: 'rec', label: 'REC', editable: true },
@@ -1994,14 +2029,14 @@ const Scan = () => {
     { key: 'packCost', label: 'Pack Cost', editable: true, type: 'currency' },
     { key: 'unitCost', label: 'Unit Cost', editable: true, type: 'currency' },
     { key: 'extended', label: 'Extended', editable: true, type: 'currency' },
-    { key: 'blank', label: '$-', editable: true },
+    { key: 'blank', label: grandTotalLabel, editable: true },
     { key: 'sheetType', label: 'Sheet Type', editable: true },
     { key: 'auditCriteria', label: 'Audit Criteria', editable: true },
     { key: 'originalQty', label: 'Original QTY', editable: true, type: 'number' },
     { key: 'auditorInitials', label: 'Auditor Initials', editable: true },
     { key: 'results', label: 'Results', editable: true },
     { key: 'additionalNotes', label: 'Additional Notes', editable: true },
-  ];
+  ], [grandTotalLabel]);
 
   // Get column width (custom or default)
   const getColumnWidth = (key: string) => columnWidths[key] || defaultWidths[key] || 100;
