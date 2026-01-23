@@ -308,13 +308,23 @@ export function createValidationWorksheet(
     const excelRow = dataStartRow + i;
     const summaryRow = summaryStartRow + i;
     
-    // From Summary formula: =Summary!C{row} - references the Value column in Summary sheet
+    // From Summary formula: =IFERROR(Summary!C{row},0) - returns 0 if empty/error
     const fromSummaryCell = `B${excelRow}`;
     worksheet[fromSummaryCell] = {
       t: 'n',
-      f: `Summary!C${summaryRow}`,
+      f: `IFERROR(Summary!C${summaryRow},0)`,
       z: '"$"#,##0.00'
     };
+    
+    // From Master formula: =IFERROR(C{row},0) - returns 0 if empty/error
+    const fromMasterCell = `C${excelRow}`;
+    if (worksheet[fromMasterCell] && (worksheet[fromMasterCell].v === '' || worksheet[fromMasterCell].v === undefined)) {
+      worksheet[fromMasterCell] = {
+        t: 'n',
+        v: 0,
+        z: '"$"#,##0.00'
+      };
+    }
     
     // Difference formula: =B{row}-C{row}
     const differenceCell = `D${excelRow}`;
