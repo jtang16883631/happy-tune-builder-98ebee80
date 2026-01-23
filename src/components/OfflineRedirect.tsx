@@ -29,7 +29,8 @@ export function useOnlineStatus() {
   const checkBackendReachable = useCallback(async (): Promise<boolean> => {
     // In Electron, navigator.onLine can be unreliable. Use a small backend health endpoint.
     const baseUrl = import.meta.env.VITE_SUPABASE_URL;
-    if (!baseUrl) return navigator.onLine;
+    const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    if (!baseUrl || !anonKey) return navigator.onLine;
 
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 2500);
@@ -38,6 +39,9 @@ export function useOnlineStatus() {
         method: 'GET',
         cache: 'no-store',
         signal: controller.signal,
+        headers: {
+          'apikey': anonKey,
+        },
       });
       return res.ok;
     } catch {
