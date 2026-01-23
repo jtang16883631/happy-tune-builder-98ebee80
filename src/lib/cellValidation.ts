@@ -46,18 +46,15 @@ export function getCellValidationColor(
     if (isEmpty) return 'yellow';
   }
 
-  // Med Desc / Meridian Desc logic
+  // Med Desc / Meridian Desc logic - yellow if empty (no red at all)
   const isMedDescEmpty = !row.medDesc || (typeof row.medDesc === 'string' && row.medDesc.trim() === '');
   const isMeridianDescEmpty = !row.meridianDesc || (typeof row.meridianDesc === 'string' && row.meridianDesc.trim() === '');
-  const bothDescEmpty = isMedDescEmpty && isMeridianDescEmpty;
 
-  if (fieldKey === 'medDesc') {
-    if (bothDescEmpty) return 'red';
-    if (isMedDescEmpty) return 'yellow';
+  if (fieldKey === 'medDesc' && isMedDescEmpty) {
+    return 'yellow';
   }
-  if (fieldKey === 'meridianDesc') {
-    if (bothDescEmpty) return 'red';
-    if (isMeridianDescEmpty) return 'yellow';
+  if (fieldKey === 'meridianDesc' && isMeridianDescEmpty) {
+    return 'yellow';
   }
 
   // Cost fields styling based on SOURCE
