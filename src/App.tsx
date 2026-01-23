@@ -1,5 +1,5 @@
 import { Toaster } from "@/components/ui/toaster";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -28,61 +28,74 @@ import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
 
-// Handle OAuth callback tokens in URL hash (for Electron + HashRouter compatibility)
-function useOAuthHashHandler() {
-  const [isProcessing, setIsProcessing] = useState(true);
-
-  useEffect(() => {
-    const handleOAuthHash = async () => {
-      // Check both hash and full URL for OAuth tokens
-      const fullUrl = window.location.href;
-      const hash = window.location.hash;
+// ============================================
+// CRITICAL: Handle OAuth tokens BEFORE React renders
+// This runs synchronously when the module loads
+// ============================================
+function handleOAuthRedirectSync(): boolean {
+  const fullUrl = window.location.href;
+  
+  // Check if URL contains OAuth tokens
+  if (!fullUrl.includes('access_token=')) {
+    return false;
+  }
+  
+  console.log('[OAuth] Detected OAuth tokens in URL, processing...');
+  
+  try {
+    // Extract token string starting from access_token
+    const accessTokenIndex = fullUrl.indexOf('access_token=');
+    const tokenString = fullUrl.substring(accessTokenIndex);
+    
+    // Parse as URL params
+    const params = new URLSearchParams(tokenString);
+    const accessToken = params.get('access_token');
+    const refreshToken = params.get('refresh_token');
+    
+    if (accessToken && refreshToken) {
+      console.log('[OAuth] Found valid tokens, setting session...');
       
-      // Look for access_token anywhere in the URL (hash or query params after hash)
-      const hasOAuthTokens = fullUrl.includes('access_token=') || hash.includes('access_token=');
-      
-      if (hasOAuthTokens) {
-        try {
-          // Extract the token portion - could be in various formats:
-          // #access_token=... or #/access_token=... or #/auth#access_token=...
-          let tokenString = '';
-          
-          // Find where access_token starts in the URL
-          const accessTokenIndex = fullUrl.indexOf('access_token=');
-          if (accessTokenIndex !== -1) {
-            tokenString = fullUrl.substring(accessTokenIndex);
-          }
-          
-          // Parse as URL params
-          const hashParams = new URLSearchParams(tokenString);
-          const accessToken = hashParams.get('access_token');
-          const refreshToken = hashParams.get('refresh_token');
-          
-          if (accessToken && refreshToken) {
-            // Set the session using the tokens
-            const { error } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
-            
-            if (!error) {
-              // Clear the hash and redirect to home
-              window.location.hash = '#/';
-              window.location.reload();
-              return;
-            }
-          }
-        } catch (error) {
-          console.error('OAuth hash handling error:', error);
+      // Set session asynchronously but flag that we're handling it
+      supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      }).then(({ error }) => {
+        if (error) {
+          console.error('[OAuth] Session error:', error);
+        } else {
+          console.log('[OAuth] Session set successfully, redirecting...');
         }
-      }
+        // Clean the URL and reload regardless of success
+        window.location.href = window.location.origin + window.location.pathname + '#/';
+      });
       
-      setIsProcessing(false);
-    };
+      return true; // Signal that we're handling OAuth
+    }
+  } catch (error) {
+    console.error('[OAuth] Error processing tokens:', error);
+  }
+  
+  return false;
+}
 
-    handleOAuthHash();
+// Run immediately when module loads
+const isHandlingOAuth = handleOAuthRedirectSync();
+
+// Hook to wait for OAuth processing
+function useOAuthHandler() {
+  const [isProcessing, setIsProcessing] = useState(isHandlingOAuth);
+  
+  useEffect(() => {
+    // If we started handling OAuth, wait a bit then check if we're still here
+    // (we should have redirected, but just in case)
+    if (isHandlingOAuth) {
+      const timer = setTimeout(() => {
+        setIsProcessing(false);
+      }, 3000); // 3 second timeout
+      return () => clearTimeout(timer);
+    }
   }, []);
-
+  
   return isProcessing;
 }
 
@@ -246,7 +259,7 @@ function AppRoutes() {
 }
 
 const App = () => {
-  const isProcessingOAuth = useOAuthHashHandler();
+  const isProcessingOAuth = useOAuthHandler();
 
   // Show loading while processing OAuth tokens
   if (isProcessingOAuth) {
