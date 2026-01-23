@@ -24,6 +24,7 @@ export function OfflineRedirect() {
 export function useOnlineStatus() {
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const lastCheckAtRef = useRef<number>(0);
+  const failureCountRef = useRef<number>(0);
 
   const checkBackendReachable = useCallback(async (): Promise<boolean> => {
     // In Electron, navigator.onLine can be unreliable. Use a small backend health endpoint.
@@ -54,12 +55,25 @@ export function useOnlineStatus() {
 
     // Quick shortcut: if browser claims offline, treat as offline.
     if (!navigator.onLine) {
+      failureCountRef.current = 0;
       setIsOnline(false);
       return;
     }
 
+    // Electron + captive portals can cause intermittent false negatives.
+    // To avoid trapping users in "offline mode" while they actually have internet,
+    // only flip to offline after several consecutive backend ping failures.
     const ok = await checkBackendReachable();
-    setIsOnline(ok);
+    if (ok) {
+      failureCountRef.current = 0;
+      setIsOnline(true);
+      return;
+    }
+
+    failureCountRef.current += 1;
+    if (failureCountRef.current >= 3) {
+      setIsOnline(false);
+    }
   }, [checkBackendReachable]);
 
   useEffect(() => {
