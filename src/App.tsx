@@ -105,8 +105,8 @@ function useOAuthHandler() {
   return isProcessing;
 }
 
-// Routes that work offline without auth
-const OFFLINE_ALLOWED_ROUTES = ['/scan', '/issues', '/auth'];
+// Routes that work offline without auth - Master Data (FDA) and Audit Projects (Scan)
+const OFFLINE_ALLOWED_ROUTES = ['/scan', '/fda', '/auth'];
 
 function ProtectedRoute({ children, allowOffline = false }: { children: React.ReactNode; allowOffline?: boolean }) {
   const { user, isLoading } = useAuth();
@@ -189,7 +189,7 @@ function AppRoutes() {
         <Route
           path="/fda"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute allowOffline>
               <FDA />
             </ProtectedRoute>
           }
@@ -229,7 +229,7 @@ function AppRoutes() {
         <Route
           path="/issues"
           element={
-            <ProtectedRoute allowOffline>
+            <ProtectedRoute>
               <Issues />
             </ProtectedRoute>
           }

@@ -88,8 +88,10 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
   const isMobile = useIsMobile();
   const isOnline = useOnlineStatus();
 
-  const hasNoRole = !authLoading && roles.length === 0;
-  const offlineAllowedRoute = ['/scan', '/issues', '/auth'].includes(location.pathname);
+  // Only treat as "no role" if we've finished loading AND we're online (so we had a chance to fetch)
+  // When offline, we use cached roles which might be empty if never cached
+  const hasNoRole = !authLoading && roles.length === 0 && isOnline;
+  const offlineAllowedRoute = ['/scan', '/fda', '/auth'].includes(location.pathname);
 
   const getInitials = (name?: string | null) => {
     if (!name) return 'U';

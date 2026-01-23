@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 // Routes that are available offline (no auth required when offline)
-const OFFLINE_ROUTES = ['/scan', '/issues', '/auth'];
+// Master Data (FDA) and Audit Projects (Scan) - Issues tab removed from offline
+const OFFLINE_ROUTES = ['/scan', '/fda', '/auth'];
 
 export function OfflineRedirect() {
   const navigate = useNavigate();
