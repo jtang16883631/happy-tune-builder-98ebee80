@@ -1070,13 +1070,31 @@ const Scan = () => {
       // Track section totals for summary
       const sectionTotals: { section: string; count: number; value: number }[] = [];
 
-      // Column headers matching the scan table
+      // First pass: calculate grand total for all sections
+      let calculatedGrandTotal = 0;
+      for (const section of sections) {
+        const savedData = localStorage.getItem(`scan_records_${selectedTemplate.id}_${section.id}`);
+        if (savedData) {
+          try {
+            const savedRecords = JSON.parse(savedData) as ScanRow[];
+            savedRecords.forEach(record => {
+              if (record.extended !== null && record.extended !== undefined) {
+                calculatedGrandTotal += record.extended;
+              }
+            });
+          } catch (e) {
+            console.error('Error calculating total:', e);
+          }
+        }
+      }
+
+      // Column headers matching the scan table - with grand total in the Extended sum column
       const headers = [
         'LOC', 'Device', 'REC', 'TIME', 'NDC', 'Scanned NDC', 'QTY', 'MIS Divisor',
         'MIS Count Method', 'Item Number', 'Med Desc', 'MERIDIAN DESC', 'TRADE',
         'GENERIC', 'STRENGTH', 'PACK SZ', 'FDA SIZE', 'SIZE TXT', 'DOSE FORM',
         'MANUFACTURER', 'GENERIC CODE', 'DEA CLASS', 'AHFS', 'SOURCE', 'Pack Cost',
-        'Unit Cost', 'Extended', '$-', 'Sheet Type', 'Audit Criteria', 'Original QTY',
+        'Unit Cost', 'Extended', `$${calculatedGrandTotal.toFixed(2)}`, 'Sheet Type', 'Audit Criteria', 'Original QTY',
         'Auditor Initials', 'Results', 'Additional Notes'
       ];
 
@@ -1388,17 +1406,36 @@ const Scan = () => {
     try {
       const workbook = XLSX.utils.book_new();
 
+      // Track section totals for summary
+      const sectionTotals: { section: string; count: number; value: number }[] = [];
+
+      // First pass: calculate grand total for all sections from cloud
+      let calculatedGrandTotal = 0;
+      for (const section of sections) {
+        const { data: cloudRecords } = await supabase
+          .from('scan_records')
+          .select('extended')
+          .eq('template_id', selectedTemplate.id)
+          .eq('section_id', section.id);
+
+        if (cloudRecords) {
+          cloudRecords.forEach(record => {
+            if (record.extended !== null && record.extended !== undefined) {
+              calculatedGrandTotal += Number(record.extended);
+            }
+          });
+        }
+      }
+
+      // Column headers with grand total in the Extended sum column
       const headers = [
         'LOC', 'Device', 'REC', 'TIME', 'NDC', 'Scanned NDC', 'QTY', 'MIS Divisor',
         'MIS Count Method', 'Item Number', 'Med Desc', 'MERIDIAN DESC', 'TRADE',
         'GENERIC', 'STRENGTH', 'PACK SZ', 'FDA SIZE', 'SIZE TXT', 'DOSE FORM',
         'MANUFACTURER', 'GENERIC CODE', 'DEA CLASS', 'AHFS', 'SOURCE', 'Pack Cost',
-        'Unit Cost', 'Extended', '$-', 'Sheet Type', 'Audit Criteria', 'Original QTY',
+        'Unit Cost', 'Extended', `$${calculatedGrandTotal.toFixed(2)}`, 'Sheet Type', 'Audit Criteria', 'Original QTY',
         'Auditor Initials', 'Results', 'Additional Notes'
       ];
-
-      // Track section totals for summary
-      const sectionTotals: { section: string; count: number; value: number }[] = [];
       
       // Collect all records for Master sheet
       const allMasterRows: any[][] = [];
