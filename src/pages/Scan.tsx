@@ -2379,7 +2379,7 @@ const Scan = () => {
                             let descCellStyle = '';
                             if (isDescField && hasNdc) {
                               if (bothDescEmpty) {
-                                descCellStyle = 'bg-red-200 dark:bg-red-900/50';
+                                descCellStyle = 'bg-red-500 dark:bg-red-600';
                               } else if ((col.key === 'medDesc' && isMedDescEmpty) || (col.key === 'meridianDesc' && isMeridianDescEmpty)) {
                                 descCellStyle = 'bg-yellow-200 dark:bg-yellow-900/50';
                               }
@@ -2447,7 +2447,7 @@ const Scan = () => {
                           let descCellStyleNonEditable = '';
                           if (isDescFieldNonEditable && hasNdcNonEditable) {
                             if (bothDescEmptyNonEditable) {
-                              descCellStyleNonEditable = 'bg-red-200 dark:bg-red-900/50';
+                              descCellStyleNonEditable = 'bg-red-500 dark:bg-red-600';
                             } else if ((col.key === 'medDesc' && isMedDescEmptyNonEditable) || (col.key === 'meridianDesc' && isMeridianDescEmptyNonEditable)) {
                               descCellStyleNonEditable = 'bg-yellow-200 dark:bg-yellow-900/50';
                             }
