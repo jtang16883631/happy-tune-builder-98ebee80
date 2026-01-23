@@ -1753,6 +1753,83 @@ const Scan = () => {
     return `$${value.toFixed(2)}`;
   };
 
+  // Column definitions - ALL cells are now editable
+  // Default widths in pixels for resizable columns
+  const defaultWidths: Record<string, number> = {
+    loc: 80, device: 96, rec: 100, time: 96, ndc: 128, scannedNdc: 144,
+    qty: 80, misDivisor: 96, misCountMethod: 128, itemNumber: 112,
+    medDesc: 192, meridianDesc: 192, trade: 128, generic: 144, strength: 112,
+    packSz: 96, fdaSize: 96, sizeTxt: 96, doseForm: 112, manufacturer: 144,
+    genericCode: 128, deaClass: 112, ahfs: 112, source: 96,
+    packCost: 112, unitCost: 112, extended: 112, blank: 80,
+    sheetType: 112, auditCriteria: 128, originalQty: 112, auditorInitials: 128,
+    results: 112, additionalNotes: 192
+  };
+
+  // Grand total label for the column header
+  const grandTotalLabel = useMemo(() => {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(grandExtendedTotal);
+  }, [grandExtendedTotal]);
+
+  const columns = useMemo(() => [
+    { key: 'loc', label: 'LOC', editable: true },
+    { key: 'device', label: 'Device', editable: true, hideable: true },
+    { key: 'rec', label: 'REC', editable: true },
+    { key: 'time', label: 'TIME', editable: true },
+    { key: 'ndc', label: 'NDC', editable: true, isNdcInput: true },
+    { key: 'scannedNdc', label: 'Scanned NDC', editable: true, isNdcInput: true },
+    { key: 'qty', label: 'QTY', editable: true, type: 'number' },
+    { key: 'misDivisor', label: 'MIS Divisor', editable: true, type: 'number' },
+    { key: 'misCountMethod', label: 'MIS Count Method', editable: true },
+    { key: 'itemNumber', label: 'Item Number', editable: true },
+    { key: 'medDesc', label: 'Med Desc', editable: true },
+    { key: 'meridianDesc', label: 'MERIDIAN DESC', editable: true },
+    { key: 'trade', label: 'TRADE', editable: true, hideable: true },
+    { key: 'generic', label: 'GENERIC', editable: true, hideable: true },
+    { key: 'strength', label: 'STRENGTH', editable: true, hideable: true },
+    { key: 'packSz', label: 'PACK SZ', editable: true },
+    { key: 'fdaSize', label: 'FDA SIZE', editable: true },
+    { key: 'sizeTxt', label: 'SIZE TXT', editable: true, hideable: true },
+    { key: 'doseForm', label: 'DOSE FORM', editable: true, hideable: true },
+    { key: 'manufacturer', label: 'MANUFACTURER', editable: true },
+    { key: 'genericCode', label: 'GENERIC CODE', editable: true, hideable: true },
+    { key: 'deaClass', label: 'DEA CLASS', editable: true, hideable: true },
+    { key: 'ahfs', label: 'AHFS', editable: true, hideable: true },
+    { key: 'source', label: 'SOURCE', editable: true },
+    { key: 'packCost', label: 'Pack Cost', editable: true, type: 'currency' },
+    { key: 'unitCost', label: 'Unit Cost', editable: true, type: 'currency' },
+    { key: 'extended', label: 'Extended', editable: true, type: 'currency' },
+    { key: 'blank', label: grandTotalLabel, editable: true },
+    { key: 'sheetType', label: 'Sheet Type', editable: true },
+    { key: 'auditCriteria', label: 'Audit Criteria', editable: true },
+    { key: 'originalQty', label: 'Original QTY', editable: true, type: 'number' },
+    { key: 'auditorInitials', label: 'Auditor Initials', editable: true },
+    { key: 'results', label: 'Results', editable: true },
+    { key: 'additionalNotes', label: 'Additional Notes', editable: true },
+  ], [grandTotalLabel]);
+
+  // Get column width (custom or default)
+  const getColumnWidth = (key: string) => columnWidths[key] || defaultWidths[key] || 100;
+
+  // Filter visible columns
+  const visibleColumns = useMemo(() => columns.filter(col => !hiddenColumns.has(col.key)), [columns, hiddenColumns]);
+
+  // Toggle column visibility
+  const toggleColumnVisibility = (key: string) => {
+    setHiddenColumns(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  // Hideable columns for settings dropdown
+  const hideableColumns = useMemo(() => columns.filter(col => col.hideable), [columns]);
+
   if (authLoading || templatesLoading || offlineLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
@@ -1983,80 +2060,6 @@ const Scan = () => {
     );
   }
 
-  // Column definitions - ALL cells are now editable
-  // Default widths in pixels for resizable columns
-  const defaultWidths: Record<string, number> = {
-    loc: 80, device: 96, rec: 100, time: 96, ndc: 128, scannedNdc: 144,
-    qty: 80, misDivisor: 96, misCountMethod: 128, itemNumber: 112,
-    medDesc: 192, meridianDesc: 192, trade: 128, generic: 144, strength: 112,
-    packSz: 96, fdaSize: 96, sizeTxt: 96, doseForm: 112, manufacturer: 144,
-    genericCode: 128, deaClass: 112, ahfs: 112, source: 96,
-    packCost: 112, unitCost: 112, extended: 112, blank: 80,
-    sheetType: 112, auditCriteria: 128, originalQty: 112, auditorInitials: 128,
-    results: 112, additionalNotes: 192
-  };
-
-  // Grand total label for the column header
-  const grandTotalLabel = useMemo(() => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(grandExtendedTotal);
-  }, [grandExtendedTotal]);
-
-  const columns = useMemo(() => [
-    { key: 'loc', label: 'LOC', editable: true },
-    { key: 'device', label: 'Device', editable: true, hideable: true },
-    { key: 'rec', label: 'REC', editable: true },
-    { key: 'time', label: 'TIME', editable: true },
-    { key: 'ndc', label: 'NDC', editable: true, isNdcInput: true },
-    { key: 'scannedNdc', label: 'Scanned NDC', editable: true, isNdcInput: true },
-    { key: 'qty', label: 'QTY', editable: true, type: 'number' },
-    { key: 'misDivisor', label: 'MIS Divisor', editable: true, type: 'number' },
-    { key: 'misCountMethod', label: 'MIS Count Method', editable: true },
-    { key: 'itemNumber', label: 'Item Number', editable: true },
-    { key: 'medDesc', label: 'Med Desc', editable: true },
-    { key: 'meridianDesc', label: 'MERIDIAN DESC', editable: true },
-    { key: 'trade', label: 'TRADE', editable: true, hideable: true },
-    { key: 'generic', label: 'GENERIC', editable: true, hideable: true },
-    { key: 'strength', label: 'STRENGTH', editable: true, hideable: true },
-    { key: 'packSz', label: 'PACK SZ', editable: true },
-    { key: 'fdaSize', label: 'FDA SIZE', editable: true },
-    { key: 'sizeTxt', label: 'SIZE TXT', editable: true, hideable: true },
-    { key: 'doseForm', label: 'DOSE FORM', editable: true, hideable: true },
-    { key: 'manufacturer', label: 'MANUFACTURER', editable: true },
-    { key: 'genericCode', label: 'GENERIC CODE', editable: true, hideable: true },
-    { key: 'deaClass', label: 'DEA CLASS', editable: true, hideable: true },
-    { key: 'ahfs', label: 'AHFS', editable: true, hideable: true },
-    { key: 'source', label: 'SOURCE', editable: true },
-    { key: 'packCost', label: 'Pack Cost', editable: true, type: 'currency' },
-    { key: 'unitCost', label: 'Unit Cost', editable: true, type: 'currency' },
-    { key: 'extended', label: 'Extended', editable: true, type: 'currency' },
-    { key: 'blank', label: grandTotalLabel, editable: true },
-    { key: 'sheetType', label: 'Sheet Type', editable: true },
-    { key: 'auditCriteria', label: 'Audit Criteria', editable: true },
-    { key: 'originalQty', label: 'Original QTY', editable: true, type: 'number' },
-    { key: 'auditorInitials', label: 'Auditor Initials', editable: true },
-    { key: 'results', label: 'Results', editable: true },
-    { key: 'additionalNotes', label: 'Additional Notes', editable: true },
-  ], [grandTotalLabel]);
-
-  // Get column width (custom or default)
-  const getColumnWidth = (key: string) => columnWidths[key] || defaultWidths[key] || 100;
-
-  // Filter visible columns
-  const visibleColumns = columns.filter(col => !hiddenColumns.has(col.key));
-
-  // Toggle column visibility
-  const toggleColumnVisibility = (key: string) => {
-    setHiddenColumns(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  };
-
   // Handle column resize start
   const handleResizeStart = (e: React.MouseEvent, key: string) => {
     e.preventDefault();
@@ -2079,9 +2082,6 @@ const Scan = () => {
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
   };
-
-  // Hideable columns for settings dropdown
-  const hideableColumns = columns.filter(col => col.hideable);
 
   // Scan View (Excel-like with horizontal scroll)
   return (
