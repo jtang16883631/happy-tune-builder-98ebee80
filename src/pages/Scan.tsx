@@ -2385,11 +2385,23 @@ const Scan = () => {
                               }
                             }
                             
+                            // Cost fields styling based on SOURCE
+                            const isCostField = ['packCost', 'unitCost', 'extended'].includes(col.key);
+                            let costCellStyle = '';
+                            if (isCostField && hasNdc) {
+                              const sourceVal = row.source || '';
+                              if (sourceVal === '') {
+                                costCellStyle = 'bg-yellow-200 dark:bg-yellow-900/50';
+                              } else if (sourceVal.toUpperCase().startsWith('MIS')) {
+                                costCellStyle = 'bg-gray-200 dark:bg-gray-700/50';
+                              }
+                            }
+                            
                             // Highlight audit criteria when it has "need attention"
                             const isAuditAttention = col.key === 'auditCriteria' && typeof value === 'string' && value.includes('need attention');
                             
                             return (
-                              <TableCell key={col.key} className={`p-1 ${shouldHighlightRequired ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''} ${descCellStyle} ${isAuditAttention ? 'bg-orange-200 dark:bg-orange-900/50' : ''}`} style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
+                              <TableCell key={col.key} className={`p-1 ${shouldHighlightRequired ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''} ${descCellStyle} ${costCellStyle} ${isAuditAttention ? 'bg-orange-200 dark:bg-orange-900/50' : ''}`} style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
                                 <Input
                                   ref={getRef()}
                                   value={col.type === 'currency' ? (value !== null && value !== undefined ? Number(value).toFixed(2) : '') : (value?.toString() || '')}
@@ -2441,13 +2453,25 @@ const Scan = () => {
                             }
                           }
                           
+                          // Cost fields styling based on SOURCE (non-editable)
+                          const isCostFieldNonEditable = ['packCost', 'unitCost', 'extended'].includes(col.key);
+                          let costCellStyleNonEditable = '';
+                          if (isCostFieldNonEditable && hasNdcNonEditable) {
+                            const sourceValNonEditable = row.source || '';
+                            if (sourceValNonEditable === '') {
+                              costCellStyleNonEditable = 'bg-yellow-200 dark:bg-yellow-900/50';
+                            } else if (sourceValNonEditable.toUpperCase().startsWith('MIS')) {
+                              costCellStyleNonEditable = 'bg-gray-200 dark:bg-gray-700/50';
+                            }
+                          }
+                          
                           // Highlight audit criteria when it has "need attention"
                           const isAuditAttentionCell = col.key === 'auditCriteria' && typeof value === 'string' && value.includes('need attention');
                           
                           return (
                             <TableCell 
                               key={col.key} 
-                              className={`text-xs ${row.source === 'not_found' && (col.key === 'medDesc' || col.key === 'source') ? 'text-destructive' : ''} ${shouldHighlightRequiredNonEditable ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''} ${descCellStyleNonEditable} ${isAuditAttentionCell ? 'bg-orange-200 dark:bg-orange-900/50 font-medium' : ''}`}
+                              className={`text-xs ${row.source === 'not_found' && (col.key === 'medDesc' || col.key === 'source') ? 'text-destructive' : ''} ${shouldHighlightRequiredNonEditable ? 'bg-yellow-200 dark:bg-yellow-900/50' : ''} ${descCellStyleNonEditable} ${costCellStyleNonEditable} ${isAuditAttentionCell ? 'bg-orange-200 dark:bg-orange-900/50 font-medium' : ''}`}
                             >
                               {col.type === 'currency' 
                                 ? formatCurrency(value as number | null)
