@@ -30,6 +30,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  const readCachedRoles = useCallback((userId: string): AppRole[] => {
+    try {
+      const raw = localStorage.getItem(`cached_roles:${userId}`);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(Boolean) as AppRole[];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const writeCachedRoles = useCallback((userId: string, nextRoles: AppRole[]) => {
+    try {
+      localStorage.setItem(`cached_roles:${userId}`, JSON.stringify(nextRoles));
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const fetchUserRoles = useCallback(async (userId: string): Promise<AppRole[]> => {
     const { data, error } = await supabase
       .from('user_roles')
@@ -66,15 +86,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let isMounted = true;
 
     const initSession = async () => {
-      // If offline, skip Supabase calls and finish loading immediately
-      if (!navigator.onLine) {
-        console.log('[Auth] Offline mode - skipping auth initialization');
-        if (isMounted) {
-          setIsLoading(false);
-        }
-        return;
-      }
-
       try {
         // Add timeout to prevent hanging when network is slow/unavailable
         const timeoutPromise = new Promise((_, reject) => 
@@ -94,10 +105,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(existingSession?.user ?? null);
 
         if (existingSession?.user) {
+          // If offline, use cached roles and skip network calls.
+          if (!navigator.onLine) {
+            const cached = readCachedRoles(existingSession.user.id);
+            if (isMounted) setRoles(cached);
+            return;
+          }
+
           await ensureProfileExists(existingSession.user);
           const userRoles = await fetchUserRoles(existingSession.user.id);
           if (isMounted) {
             setRoles(userRoles);
+            writeCachedRoles(existingSession.user.id, userRoles);
           }
         }
       } catch (err) {
@@ -111,13 +130,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, newSession) => {
+      (event, newSession) => {
         if (!isMounted) return;
 
         setSession(newSession);
         setUser(newSession?.user ?? null);
 
         if (newSession?.user) {
+          // If offline, use cached roles and skip network calls.
+          if (!navigator.onLine) {
+            const cached = readCachedRoles(newSession.user.id);
+            setRoles(cached);
+            setIsLoading(false);
+            return;
+          }
+
           setTimeout(async () => {
             if (!isMounted) return;
 
@@ -126,6 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               const userRoles = await fetchUserRoles(newSession.user.id);
               if (isMounted) {
                 setRoles(userRoles);
+                writeCachedRoles(newSession.user.id, userRoles);
                 setIsLoading(false);
               }
             } catch (err) {

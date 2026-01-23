@@ -11,6 +11,7 @@ import { useProfileCompletion } from '@/hooks/useProfileCompletion';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { MobileBottomNav } from './MobileNav';
 import { MobileHeader } from './MobileHeader';
+import { useOnlineStatus } from '@/components/OfflineRedirect';
 
 
 interface AppLayoutProps {
@@ -85,8 +86,10 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
   const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultCollapsed);
   const { needsCompletion, isChecking, markCompleted } = useProfileCompletion();
   const isMobile = useIsMobile();
+  const isOnline = useOnlineStatus();
 
   const hasNoRole = !authLoading && roles.length === 0;
+  const offlineAllowedRoute = ['/scan', '/issues', '/auth'].includes(location.pathname);
 
   const getInitials = (name?: string | null) => {
     if (!name) return 'U';
@@ -118,8 +121,9 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
 
   const visibleSections = getVisibleSections();
 
-  // Show restricted access screen for users without any role
-  if (hasNoRole) {
+  // Show restricted access screen for users without any role.
+  // BUT: when offline, allow opening offline-capable routes (scan/issues).
+  if (hasNoRole && (isOnline || !offlineAllowedRoute)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center max-w-md px-6">
