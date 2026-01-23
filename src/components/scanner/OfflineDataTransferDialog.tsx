@@ -49,7 +49,7 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
   const { templates, getSections, syncMeta, isReady: templatesReady } = useOfflineTemplates();
   const { templates: cloudTemplates, isLoading: cloudLoading } = useCloudTemplates();
   const { meta: fdaMeta, isReady: fdaReady, searchDrugs } = useLocalFDA();
-  const { meta: templateDbMeta, isReady: templateDbReady, exportDatabase, importDatabase } = useDataTemplates();
+  const { meta: templateDbMeta, isReady: templateDbReady, exportDatabase, importDatabase, buildDatabaseFromCloudData } = useDataTemplates();
   
   // Pre-select currently synced templates ONLY when first opening selection mode
   useEffect(() => {
@@ -354,26 +354,108 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
     }
   };
 
-  // Export Template Database as .templatedb binary file
-  const handleExportTemplateDb = () => {
-    if (!templateDbReady || !exportDatabase) {
-      toast({
-        title: 'Database not ready',
-        description: 'Please wait for the template database to initialize',
-        variant: 'destructive',
-      });
-      return;
-    }
-
+  // Export Template Database as .templatedb binary file (from cloud data if no local data)
+  const handleExportTemplateDb = async () => {
     setMode('export');
     setIsProcessing(true);
-    setProgress(50);
-    setStatus('Exporting template database...');
+    setProgress(0);
+    setStatus('Preparing template database export...');
 
     try {
-      const result = exportDatabase();
+      let result: { data: Uint8Array; meta: any } | null = null;
+
+      // Check if we have local data to export
+      if (templateDbReady && templateDbMeta && templateDbMeta.templateCount > 0 && exportDatabase) {
+        setProgress(50);
+        setStatus('Exporting local template database...');
+        result = exportDatabase();
+      } else if (cloudTemplates.length > 0 && buildDatabaseFromCloudData) {
+        // Build from cloud data
+        setProgress(5);
+        setStatus(`Fetching data for ${cloudTemplates.length} cloud templates...`);
+
+        const selectedTemplates = cloudTemplates;
+        const allSections: { templateId: string; items: Array<{ sect: string; description: string | null; full_section: string | null; cost_sheet: string | null }> }[] = [];
+        const allCostItems: { templateId: string; items: Array<{ ndc: string | null; material_description: string | null; unit_price: number | null; source: string | null; material: string | null; sheet_name: string | null }> }[] = [];
+
+        for (let i = 0; i < selectedTemplates.length; i++) {
+          const template = selectedTemplates[i];
+          setStatus(`Fetching: ${template.name || template.facility_name || 'Template'} (${i + 1}/${selectedTemplates.length})`);
+          setProgress(5 + (i / selectedTemplates.length) * 40);
+
+          // Fetch sections
+          const { data: sections, error: sectionsError } = await withTimeout<any>(
+            supabase.from('template_sections').select('*').eq('template_id', template.id),
+            20000,
+            'Fetching sections'
+          );
+          if (sectionsError) throw sectionsError;
+
+          allSections.push({
+            templateId: template.id,
+            items: (sections || []).map((s: any) => ({
+              sect: s.sect,
+              description: s.description,
+              full_section: s.full_section,
+              cost_sheet: s.cost_sheet,
+            })),
+          });
+
+          // Fetch cost items with pagination
+          let costItemsOffset = 0;
+          const costItemsLimit = 1000;
+          let templateCostItems: Array<{ ndc: string | null; material_description: string | null; unit_price: number | null; source: string | null; material: string | null; sheet_name: string | null }> = [];
+          let hasMore = true;
+
+          while (hasMore) {
+            const { data: costItems, error: costError } = await withTimeout<any>(
+              supabase.from('template_cost_items').select('*').eq('template_id', template.id).range(costItemsOffset, costItemsOffset + costItemsLimit - 1),
+              30000,
+              'Fetching cost items'
+            );
+            if (costError) throw costError;
+
+            if (costItems && costItems.length > 0) {
+              templateCostItems = templateCostItems.concat(
+                costItems.map((c: any) => ({
+                  ndc: c.ndc,
+                  material_description: c.material_description,
+                  unit_price: c.unit_price,
+                  source: c.source,
+                  material: c.material,
+                  sheet_name: c.sheet_name,
+                }))
+              );
+              costItemsOffset += costItemsLimit;
+              hasMore = costItems.length === costItemsLimit;
+            } else {
+              hasMore = false;
+            }
+          }
+
+          allCostItems.push({ templateId: template.id, items: templateCostItems });
+        }
+
+        setProgress(50);
+        setStatus('Building template database...');
+
+        result = await buildDatabaseFromCloudData(
+          selectedTemplates.map(t => ({
+            id: t.id,
+            name: t.name || 'Untitled',
+            inv_date: t.inv_date,
+            facility_name: t.facility_name,
+            inv_number: t.inv_number,
+            cost_file_name: t.cost_file_name,
+            job_ticket_file_name: t.job_ticket_file_name,
+          })),
+          allSections,
+          allCostItems
+        );
+      }
+
       if (!result) {
-        throw new Error('Failed to export database');
+        throw new Error('No data available to export');
       }
 
       setProgress(80);
@@ -383,7 +465,7 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
       const metaJson = JSON.stringify(result.meta);
       const metaBytes = new TextEncoder().encode(metaJson);
       const metaLengthBytes = new Uint32Array([metaBytes.length]);
-      
+
       // Format: [4 bytes meta length][meta JSON][binary db data]
       const combined = new Uint8Array(4 + metaBytes.length + result.data.length);
       combined.set(new Uint8Array(metaLengthBytes.buffer), 0);
@@ -511,6 +593,7 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
 
   const hasData = cloudTemplates.length > 0 || (fdaMeta && fdaMeta.rowCount > 0);
   const hasTemplateDb = templateDbReady && templateDbMeta && templateDbMeta.templateCount > 0;
+  const canExportTemplateDb = hasTemplateDb || cloudTemplates.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => {
@@ -570,7 +653,7 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
                   variant="outline"
                   size="sm"
                   onClick={handleExportTemplateDb}
-                  disabled={!hasTemplateDb || isProcessing}
+                  disabled={!canExportTemplateDb || isProcessing}
                   className="flex-1"
                 >
                   <Download className="h-4 w-4 mr-1" />
