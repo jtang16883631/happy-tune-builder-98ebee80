@@ -36,14 +36,16 @@ interface OfflineDataTransferDialogProps {
 }
 
 export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTransferDialogProps) {
-  const [mode, setMode] = useState<'menu' | 'select-templates' | 'export' | 'import'>('menu');
+  const [mode, setMode] = useState<'menu' | 'select-templates' | 'select-templates-db' | 'export' | 'import'>('menu');
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('');
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
+  const [selectedDbTemplateIds, setSelectedDbTemplateIds] = useState<string[]>([]);
   const [includeFDA, setIncludeFDA] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const templateDbInputRef = useRef<HTMLInputElement>(null);
+  const hasInitializedDbSelection = useRef(false);
   const hasInitializedSelection = useRef(false);
 
   const { templates, getSections, syncMeta, isReady: templatesReady } = useOfflineTemplates();
@@ -63,6 +65,30 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
       hasInitializedSelection.current = false;
     }
   }, [mode, templates]);
+
+  // Pre-select all cloud templates for .templatedb export when entering that mode
+  useEffect(() => {
+    if (mode === 'select-templates-db' && !hasInitializedDbSelection.current) {
+      hasInitializedDbSelection.current = true;
+      setSelectedDbTemplateIds(cloudTemplates.map(t => t.id));
+    } else if (mode !== 'select-templates-db') {
+      hasInitializedDbSelection.current = false;
+    }
+  }, [mode, cloudTemplates]);
+
+  const toggleDbTemplate = (id: string) => {
+    setSelectedDbTemplateIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllDbTemplates = () => {
+    setSelectedDbTemplateIds(cloudTemplates.map(t => t.id));
+  };
+
+  const deselectAllDbTemplates = () => {
+    setSelectedDbTemplateIds([]);
+  };
 
   const withTimeout = async <T,>(promise: PromiseLike<T>, ms: number, label: string): Promise<T> => {
     let timeoutId: number | undefined;
@@ -354,7 +380,7 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
     }
   };
 
-  // Export Template Database as .templatedb binary file (from cloud data if no local data)
+  // Export Template Database as .templatedb binary file (from selected cloud templates)
   const handleExportTemplateDb = async () => {
     setMode('export');
     setIsProcessing(true);
@@ -364,95 +390,103 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
     try {
       let result: { data: Uint8Array; meta: any } | null = null;
 
-      // Check if we have local data to export
-      if (templateDbReady && templateDbMeta && templateDbMeta.templateCount > 0 && exportDatabase) {
-        setProgress(50);
-        setStatus('Exporting local template database...');
-        result = exportDatabase();
-      } else if (cloudTemplates.length > 0 && buildDatabaseFromCloudData) {
-        // Build from cloud data
-        setProgress(5);
-        setStatus(`Fetching data for ${cloudTemplates.length} cloud templates...`);
+      // Filter to selected templates only
+      const selectedTemplates = cloudTemplates.filter(t => selectedDbTemplateIds.includes(t.id));
 
-        const selectedTemplates = cloudTemplates;
-        const allSections: { templateId: string; items: Array<{ sect: string; description: string | null; full_section: string | null; cost_sheet: string | null }> }[] = [];
-        const allCostItems: { templateId: string; items: Array<{ ndc: string | null; material_description: string | null; unit_price: number | null; source: string | null; material: string | null; sheet_name: string | null }> }[] = [];
+      if (selectedTemplates.length === 0) {
+        throw new Error('Please select at least one template to export');
+      }
 
-        for (let i = 0; i < selectedTemplates.length; i++) {
-          const template = selectedTemplates[i];
-          setStatus(`Fetching: ${template.name || template.facility_name || 'Template'} (${i + 1}/${selectedTemplates.length})`);
-          setProgress(5 + (i / selectedTemplates.length) * 40);
+      // Build from cloud data
+      setProgress(5);
+      setStatus(`Fetching data for ${selectedTemplates.length} template(s)...`);
 
-          // Fetch sections
-          const { data: sections, error: sectionsError } = await withTimeout<any>(
-            supabase.from('template_sections').select('*').eq('template_id', template.id),
-            20000,
-            'Fetching sections'
+      const allSections: { templateId: string; items: Array<{ sect: string; description: string | null; full_section: string | null; cost_sheet: string | null }> }[] = [];
+      const allCostItems: { templateId: string; items: Array<{ ndc: string | null; material_description: string | null; unit_price: number | null; source: string | null; material: string | null; sheet_name: string | null }> }[] = [];
+
+      for (let i = 0; i < selectedTemplates.length; i++) {
+        const template = selectedTemplates[i];
+        setStatus(`Fetching: ${template.name || template.facility_name || template.inv_number || 'Template'} (${i + 1}/${selectedTemplates.length})`);
+        setProgress(5 + (i / selectedTemplates.length) * 40);
+
+        // Fetch sections
+        const { data: sections, error: sectionsError } = await withTimeout<any>(
+          supabase.from('template_sections').select('*').eq('template_id', template.id),
+          20000,
+          'Fetching sections'
+        );
+        if (sectionsError) throw sectionsError;
+
+        allSections.push({
+          templateId: template.id,
+          items: (sections || []).map((s: any) => ({
+            sect: s.sect,
+            description: s.description,
+            full_section: s.full_section,
+            cost_sheet: s.cost_sheet,
+          })),
+        });
+
+        // Fetch cost items with pagination
+        let costItemsOffset = 0;
+        const costItemsLimit = 1000;
+        let templateCostItems: Array<{ ndc: string | null; material_description: string | null; unit_price: number | null; source: string | null; material: string | null; sheet_name: string | null }> = [];
+        let hasMore = true;
+        let page = 0;
+
+        while (hasMore) {
+          page++;
+          setStatus(`Fetching cost items: ${template.name || template.inv_number || 'Template'} (page ${page}, ${templateCostItems.length.toLocaleString()} loaded)`);
+          setProgress(prev => Math.min(prev + 0.5, 44));
+
+          const { data: costItems, error: costError } = await withTimeout<any>(
+            supabase.from('template_cost_items').select('*').eq('template_id', template.id).range(costItemsOffset, costItemsOffset + costItemsLimit - 1),
+            30000,
+            'Fetching cost items'
           );
-          if (sectionsError) throw sectionsError;
+          if (costError) throw costError;
 
-          allSections.push({
-            templateId: template.id,
-            items: (sections || []).map((s: any) => ({
-              sect: s.sect,
-              description: s.description,
-              full_section: s.full_section,
-              cost_sheet: s.cost_sheet,
-            })),
-          });
-
-          // Fetch cost items with pagination
-          let costItemsOffset = 0;
-          const costItemsLimit = 1000;
-          let templateCostItems: Array<{ ndc: string | null; material_description: string | null; unit_price: number | null; source: string | null; material: string | null; sheet_name: string | null }> = [];
-          let hasMore = true;
-
-          while (hasMore) {
-            const { data: costItems, error: costError } = await withTimeout<any>(
-              supabase.from('template_cost_items').select('*').eq('template_id', template.id).range(costItemsOffset, costItemsOffset + costItemsLimit - 1),
-              30000,
-              'Fetching cost items'
+          if (costItems && costItems.length > 0) {
+            templateCostItems = templateCostItems.concat(
+              costItems.map((c: any) => ({
+                ndc: c.ndc,
+                material_description: c.material_description,
+                unit_price: c.unit_price,
+                source: c.source,
+                material: c.material,
+                sheet_name: c.sheet_name,
+              }))
             );
-            if (costError) throw costError;
-
-            if (costItems && costItems.length > 0) {
-              templateCostItems = templateCostItems.concat(
-                costItems.map((c: any) => ({
-                  ndc: c.ndc,
-                  material_description: c.material_description,
-                  unit_price: c.unit_price,
-                  source: c.source,
-                  material: c.material,
-                  sheet_name: c.sheet_name,
-                }))
-              );
-              costItemsOffset += costItemsLimit;
-              hasMore = costItems.length === costItemsLimit;
-            } else {
-              hasMore = false;
-            }
+            costItemsOffset += costItemsLimit;
+            hasMore = costItems.length === costItemsLimit;
+          } else {
+            hasMore = false;
           }
-
-          allCostItems.push({ templateId: template.id, items: templateCostItems });
         }
 
-        setProgress(50);
-        setStatus('Building template database...');
-
-        result = await buildDatabaseFromCloudData(
-          selectedTemplates.map(t => ({
-            id: t.id,
-            name: t.name || 'Untitled',
-            inv_date: t.inv_date,
-            facility_name: t.facility_name,
-            inv_number: t.inv_number,
-            cost_file_name: t.cost_file_name,
-            job_ticket_file_name: t.job_ticket_file_name,
-          })),
-          allSections,
-          allCostItems
-        );
+        allCostItems.push({ templateId: template.id, items: templateCostItems });
       }
+
+      setProgress(50);
+      setStatus('Building template database...');
+
+      if (!buildDatabaseFromCloudData) {
+        throw new Error('Database builder not ready');
+      }
+
+      result = await buildDatabaseFromCloudData(
+        selectedTemplates.map(t => ({
+          id: t.id,
+          name: t.name || 'Untitled',
+          inv_date: t.inv_date,
+          facility_name: t.facility_name,
+          inv_number: t.inv_number,
+          cost_file_name: t.cost_file_name,
+          job_ticket_file_name: t.job_ticket_file_name,
+        })),
+        allSections,
+        allCostItems
+      );
 
       if (!result) {
         throw new Error('No data available to export');
@@ -604,11 +638,15 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <HardDrive className="h-5 w-5" />
-            {mode === 'select-templates' ? 'Select Templates to Export' : 'Offline Data Transfer'}
+            {mode === 'select-templates' ? 'Select Templates to Export (JSON)' 
+              : mode === 'select-templates-db' ? 'Select Templates (.templatedb)'
+              : 'Offline Data Transfer'}
           </DialogTitle>
           <DialogDescription>
             {mode === 'select-templates' 
-              ? 'Choose which templates to include in the export file'
+              ? 'Choose which templates to include in the JSON export file'
+              : mode === 'select-templates-db'
+              ? 'Choose templates for fast binary export'
               : 'Export data to a flash drive or import from another device'}
           </DialogDescription>
         </DialogHeader>
@@ -652,8 +690,8 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleExportTemplateDb}
-                  disabled={!canExportTemplateDb || isProcessing}
+                  onClick={() => setMode('select-templates-db')}
+                  disabled={cloudTemplates.length === 0 || isProcessing}
                   className="flex-1"
                 >
                   <Download className="h-4 w-4 mr-1" />
@@ -821,6 +859,83 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
               {selectedTemplateIds.length === 0
                 ? 'Export FDA Only'
                 : `Export ${selectedTemplateIds.length} Template${selectedTemplateIds.length !== 1 ? 's' : ''}`}
+            </Button>
+          </div>
+        )}
+
+        {mode === 'select-templates-db' && (
+          <div className="flex flex-col flex-1 min-h-0 py-2">
+            {/* Selection controls */}
+            <div className="flex items-center justify-between pb-3 border-b">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setMode('menu')}
+                  className="h-8 px-2"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  {selectedDbTemplateIds.length} of {cloudTemplates.length} selected
+                </span>
+              </div>
+              <div className="flex gap-1">
+                <Button variant="ghost" size="sm" onClick={selectAllDbTemplates} className="text-xs h-7">
+                  Select All
+                </Button>
+                <Button variant="ghost" size="sm" onClick={deselectAllDbTemplates} className="text-xs h-7">
+                  Clear
+                </Button>
+              </div>
+            </div>
+
+            {/* Template list */}
+            <ScrollArea className="flex-1 min-h-0 py-2">
+              {cloudLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
+              ) : cloudTemplates.length === 0 ? (
+                <div className="text-center text-muted-foreground py-8 text-sm">
+                  No templates available in cloud
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {cloudTemplates.map(template => (
+                    <label
+                      key={template.id}
+                      className="flex items-start gap-3 p-2 rounded-md hover:bg-muted cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={selectedDbTemplateIds.includes(template.id)}
+                        onCheckedChange={() => toggleDbTemplate(template.id)}
+                        className="mt-0.5"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm truncate">
+                          {template.name || template.facility_name || template.inv_number || 'Untitled'}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {template.inv_number && `#${template.inv_number}`}
+                          {template.inv_date && ` • ${new Date(template.inv_date).toLocaleDateString()}`}
+                          {template.facility_name && template.name !== template.facility_name && ` • ${template.facility_name}`}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+
+            {/* Export button */}
+            <Button
+              className="mt-4 w-full"
+              onClick={handleExportTemplateDb}
+              disabled={selectedDbTemplateIds.length === 0}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export {selectedDbTemplateIds.length} Template{selectedDbTemplateIds.length !== 1 ? 's' : ''} (.templatedb)
             </Button>
           </div>
         )}
