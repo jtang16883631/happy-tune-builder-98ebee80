@@ -102,31 +102,62 @@ const Scan = () => {
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const resizingRef = useRef<{ key: string; startX: number; startWidth: number } | null>(null);
   
-  // Fetch user profile for short name
+  // Fetch user profile for short name - with offline caching
   useEffect(() => {
+    const CACHE_KEY = 'cached_user_short_name';
+    
     const fetchUserProfile = async () => {
-      if (!user?.id) return;
+      // If we're offline, use cached value immediately
+      if (!navigator.onLine) {
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+          setUserShortName(cached);
+        }
+        return;
+      }
       
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('first_name, last_name, full_name')
-        .eq('id', user.id)
-        .maybeSingle();
+      if (!user?.id) {
+        // No user but check for cached name for offline mode
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+          setUserShortName(cached);
+        }
+        return;
+      }
       
-      if (profile) {
-        // Generate short name: FirstNameLastInitial (e.g., "JiaweiT")
-        let shortName = '';
-        if (profile.first_name && profile.last_name) {
-          shortName = `${profile.first_name}${profile.last_name.charAt(0)}`;
-        } else if (profile.full_name) {
-          const parts = profile.full_name.trim().split(' ');
-          if (parts.length >= 2) {
-            shortName = `${parts[0]}${parts[parts.length - 1].charAt(0)}`;
-          } else {
-            shortName = parts[0];
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('first_name, last_name, full_name')
+          .eq('id', user.id)
+          .maybeSingle();
+        
+        if (profile) {
+          // Generate short name: FirstNameLastInitial (e.g., "JiaweiT")
+          let shortName = '';
+          if (profile.first_name && profile.last_name) {
+            shortName = `${profile.first_name}${profile.last_name.charAt(0)}`;
+          } else if (profile.full_name) {
+            const parts = profile.full_name.trim().split(' ');
+            if (parts.length >= 2) {
+              shortName = `${parts[0]}${parts[parts.length - 1].charAt(0)}`;
+            } else {
+              shortName = parts[0];
+            }
+          }
+          setUserShortName(shortName);
+          // Cache for offline use
+          if (shortName) {
+            localStorage.setItem(CACHE_KEY, shortName);
           }
         }
-        setUserShortName(shortName);
+      } catch (err) {
+        console.error('Error fetching profile:', err);
+        // Fallback to cached value
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+          setUserShortName(cached);
+        }
       }
     };
     
