@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Upload, FileSpreadsheet, CheckCircle, XCircle, Trash2, Download, FolderOpen, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
 import { applyValidationStylesToWorksheet } from '@/lib/cellValidation';
+import { applyExcelFormulas, applySummaryFormulas, COLUMN_INDICES, getColLetter } from '@/lib/excelFormulas';
 
 interface UploadedFile {
   id: string;
@@ -145,6 +146,7 @@ export function CompileTab() {
       const masterData: any[][] = [];
       let masterHeaders: string[] = [];
       const sectionTotals: { section: string; count: number; value: number }[] = [];
+      const sectionSheetNames: string[] = [];
 
       // First, get headers from the first file
       if (uploadedFiles.length > 0 && uploadedFiles[0].headers.length > 0) {
@@ -157,36 +159,30 @@ export function CompileTab() {
         h?.toString().toLowerCase() === 'extended'
       );
 
-      // First pass: calculate grand total across all files
-      let calculatedGrandTotal = 0;
-      if (extendedColIndex >= 0) {
-        uploadedFiles.forEach((file) => {
-          file.data.forEach(row => {
-            const val = parseFloat(row[extendedColIndex]);
-            if (!isNaN(val)) {
-              calculatedGrandTotal += val;
-            }
-          });
-        });
-      }
-
-      // Update the header cell right after "Extended" with the grand total
-      // Find the column index for the "$-" placeholder (it's right after Extended)
+      // Clear the SUM column header placeholder (will be formula)
       const dollarColIndex = masterHeaders.findIndex(h => 
         h?.toString() === '$-' || h?.toString().startsWith('$')
       );
       if (dollarColIndex >= 0) {
-        masterHeaders[dollarColIndex] = `$${calculatedGrandTotal.toFixed(2)}`;
+        masterHeaders[dollarColIndex] = ''; // Will be SUM formula
       }
 
       // Process each uploaded file/sheet
-      uploadedFiles.forEach((file, idx) => {
-        // Add to master
+      uploadedFiles.forEach((file) => {
+        // Add to master (with formula placeholders for Unit Cost/Extended)
         file.data.forEach(row => {
-          masterData.push(row);
+          const newRow = [...row];
+          // Clear Unit Cost and Extended columns for formula insertion
+          if (extendedColIndex >= 0) {
+            newRow[extendedColIndex] = ''; // Extended - will be formula
+            if (extendedColIndex > 0) {
+              newRow[extendedColIndex - 1] = ''; // Unit Cost - will be formula
+            }
+          }
+          masterData.push(newRow);
         });
 
-        // Calculate section total
+        // Calculate section total (for reference - actual will be formula)
         let sectionTotal = 0;
         if (extendedColIndex >= 0) {
           file.data.forEach(row => {
@@ -204,40 +200,78 @@ export function CompileTab() {
         });
 
         // Create individual sheet for this section
-        const sheetData = [file.headers, ...file.data];
+        // Clear Unit Cost and Extended for formula insertion
+        const processedData = file.data.map(row => {
+          const newRow = [...row];
+          if (extendedColIndex >= 0) {
+            newRow[extendedColIndex] = ''; // Extended - will be formula
+            if (extendedColIndex > 0) {
+              newRow[extendedColIndex - 1] = ''; // Unit Cost - will be formula
+            }
+          }
+          return newRow;
+        });
+        
+        const sheetData = [file.headers, ...processedData];
         const ws = XLSX.utils.aoa_to_sheet(sheetData);
         
         // Apply validation styling to cells
         applyValidationStylesToWorksheet(ws, sheetData, 1);
         
+        // Apply formulas for Unit Cost, Extended, and SUM
+        const dataRowCount = processedData.length;
+        applyExcelFormulas(ws, dataRowCount, 1);
+        
         // Truncate sheet name to 31 chars (Excel limit)
         const safeSheetName = file.sheetName.slice(0, 31);
+        sectionSheetNames.push(safeSheetName);
         XLSX.utils.book_append_sheet(workbook, ws, safeSheetName);
       });
 
-      // Create Summary sheet (first)
-      const grandTotal = sectionTotals.reduce((sum, s) => sum + s.value, 0);
-      const totalCount = sectionTotals.reduce((sum, s) => sum + s.count, 0);
-      
+      // Create Summary sheet with formula references
       const summaryData = [
         ['COMPILED EXPORT SUMMARY'],
         [],
         ['Compiled Date:', new Date().toLocaleDateString()],
         ['Total Sections:', sectionTotals.length],
-        ['Total Scans:', totalCount],
-        ['Grand Total:', `$${grandTotal.toFixed(2)}`],
+        ['Total Scans:', ''], // Will be formula
+        ['Grand Total:', ''], // Will be formula
         [],
         ['Section', 'Scan Count', 'Total Value'],
-        ...sectionTotals.map(s => [s.section, s.count, `$${s.value.toFixed(2)}`]),
+        ...sectionTotals.map(s => [s.section, '', '']), // Placeholders for formulas
       ];
       
       const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+      
+      // Apply formulas to Summary sheet (start row 9 is first section row after headers)
+      applySummaryFormulas(summaryWs, sectionSheetNames, 9);
+      
+      // Add formulas for Total Scans and Grand Total in header section
+      const sectionStartRow = 9;
+      const sectionEndRow = sectionStartRow + sectionSheetNames.length - 1;
+      
+      // Total Scans formula (cell B5)
+      summaryWs['B5'] = {
+        t: 'n',
+        f: `SUM(B${sectionStartRow}:B${sectionEndRow})`
+      };
+      
+      // Grand Total formula (cell B6)
+      summaryWs['B6'] = {
+        t: 'n',
+        f: `SUM(C${sectionStartRow}:C${sectionEndRow})`,
+        z: '"$"#,##0.00',
+        s: { numFmt: '"$"#,##0.00' }
+      };
       
       // Create Master sheet (all data combined)
       const masterSheetData = [masterHeaders, ...masterData];
       const masterWs = XLSX.utils.aoa_to_sheet(masterSheetData);
       // Apply validation styling to master sheet
       applyValidationStylesToWorksheet(masterWs, masterSheetData, 1);
+      // Apply formulas to master sheet
+      const masterDataRowCount = masterData.length;
+      applyExcelFormulas(masterWs, masterDataRowCount, 1);
 
       // Prepend Summary and Master to the workbook
       const existingSheets = [...workbook.SheetNames];
