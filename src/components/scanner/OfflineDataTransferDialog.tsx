@@ -107,7 +107,7 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
     const { data, error } = await withTimeout<any>(
       supabase
         .from('template_sections')
-        .select('id,template_id,sect,description,full_section,cost_sheet')
+        .select('*')
         .eq('template_id', templateId),
       20000,
       'Fetching sections'
@@ -133,7 +133,7 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
 
       let q = supabase
         .from('template_cost_items')
-        .select('id,template_id,ndc,material_description,unit_price,source,material,sheet_name')
+        .select('*')
         .eq('template_id', templateId)
         .order('id', { ascending: true })
         .limit(costItemsLimit);
