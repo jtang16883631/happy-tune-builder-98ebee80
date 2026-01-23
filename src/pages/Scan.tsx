@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import * as XLSX from 'xlsx-js-style';
 import { getCellValidationColor, getCellValidationClasses, applyValidationStylesToWorksheet } from '@/lib/cellValidation';
+import { applyExcelFormulas, applySummaryFormulas, COLUMN_INDICES, getColLetter } from '@/lib/excelFormulas';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useCloudTemplates, CloudTemplate, CloudSection, TemplateStatus } from '@/hooks/useCloudTemplates';
@@ -1099,13 +1100,13 @@ const Scan = () => {
         }
       }
 
-      // Column headers matching the scan table - with grand total in the Extended sum column
+      // Column headers matching the scan table (SUM column will be populated by formula)
       const headers = [
         'LOC', 'Device', 'REC', 'TIME', 'NDC', 'Scanned NDC', 'QTY', 'MIS Divisor',
         'MIS Count Method', 'Item Number', 'Med Desc', 'MERIDIAN DESC', 'TRADE',
         'GENERIC', 'STRENGTH', 'PACK SZ', 'FDA SIZE', 'SIZE TXT', 'DOSE FORM',
         'MANUFACTURER', 'GENERIC CODE', 'DEA CLASS', 'AHFS', 'SOURCE', 'Pack Cost',
-        'Unit Cost', 'Extended', `$${calculatedGrandTotal.toFixed(2)}`, 'Sheet Type', 'Audit Criteria', 'Original QTY',
+        'Unit Cost', 'Extended', '', 'Sheet Type', 'Audit Criteria', 'Original QTY',
         'Auditor Initials', 'Results', 'Additional Notes'
       ];
 
@@ -1154,9 +1155,9 @@ const Scan = () => {
                 record.ahfs || '',
                 record.source || '',
                 record.packCost ?? '',
-                record.unitCost ?? '',
-                record.extended ?? '',
-                record.blank || '',
+                '', // Unit Cost - will be formula
+                '', // Extended - will be formula
+                '', // SUM column placeholder
                 record.sheetType || '',
                 record.auditCriteria || '',
                 record.originalQty ?? '',
@@ -1183,6 +1184,10 @@ const Scan = () => {
 
         // Apply validation styling to cells
         applyValidationStylesToWorksheet(worksheet, rows, 1);
+        
+        // Apply formulas for Unit Cost, Extended, and SUM
+        const dataRowCount = rows.length - 1; // Exclude header
+        applyExcelFormulas(worksheet, dataRowCount, 1);
 
         // Set column widths
         worksheet['!cols'] = headers.map((_, i) => ({ wch: i === 10 || i === 11 ? 30 : 15 }));
@@ -1200,10 +1205,7 @@ const Scan = () => {
         ? new Date(selectedTemplate.inv_date).toISOString().split('T')[0]
         : new Date().toISOString().split('T')[0];
       
-      const grandTotal = sectionTotals.reduce((sum, s) => sum + s.value, 0);
-      const totalScans = sectionTotals.reduce((sum, s) => sum + s.count, 0);
-      
-      // Build summary sheet content
+      // Build summary sheet content - values will be formulas referencing section sheets
       const summaryRows: any[][] = [
         // Header info
         [selectedTemplate.name],
@@ -1214,20 +1216,29 @@ const Scan = () => {
         ['Sections', 'Scans', 'Value'],
       ];
       
-      // Add each section row with $ formatting
+      // Add placeholder rows for each section (will be replaced by formulas)
       sectionTotals.forEach(st => {
-        summaryRows.push([st.section, st.count, `$${st.value.toFixed(2)}`]);
+        summaryRows.push([st.section, '', '']); // Placeholders for formula cells
       });
       
       // Empty row before total
       summaryRows.push([]);
-      // Grand total row with $ formatting
-      summaryRows.push(['Total', totalScans, `$${grandTotal.toFixed(2)}`]);
+      // Grand total row (placeholders for formula cells)
+      summaryRows.push(['Total', '', '']);
       
       const summaryWorksheet = XLSX.utils.aoa_to_sheet(summaryRows);
       
       // Set column widths for summary
       summaryWorksheet['!cols'] = [{ wch: 40 }, { wch: 10 }, { wch: 15 }];
+      
+      // Get section sheet names for formula references
+      const sectionSheetNames = sections.map(section => {
+        let sheetName = section.full_section || section.sect || 'Sheet';
+        return sheetName.replace(/[\\/*?[\]:]/g, '-').substring(0, 31);
+      });
+      
+      // Apply formulas to Summary sheet (start row 6 is first section row)
+      applySummaryFormulas(summaryWorksheet, sectionSheetNames, 6);
 
       // Create Master sheet - combine all sections
       const masterRows: any[][] = [headers];
@@ -1264,9 +1275,9 @@ const Scan = () => {
                 record.ahfs || '',
                 record.source || '',
                 record.packCost ?? '',
-                record.unitCost ?? '',
-                record.extended ?? '',
-                record.blank || '',
+                '', // Unit Cost - will be formula
+                '', // Extended - will be formula
+                '', // SUM column placeholder
                 record.sheetType || '',
                 record.auditCriteria || '',
                 record.originalQty ?? '',
@@ -1284,10 +1295,13 @@ const Scan = () => {
       const masterWorksheet = XLSX.utils.aoa_to_sheet(masterRows);
       // Apply validation styling to master sheet
       applyValidationStylesToWorksheet(masterWorksheet, masterRows, 1);
+      // Apply formulas to master sheet
+      const masterDataRowCount = masterRows.length - 1;
+      applyExcelFormulas(masterWorksheet, masterDataRowCount, 1);
       masterWorksheet['!cols'] = headers.map((_, i) => ({ wch: i === 10 || i === 11 ? 30 : 15 }));
       
       // Clear all sheets and rebuild in correct order: Summary, Master, then sections
-      const sectionSheetNames = [...workbook.SheetNames];
+      const existingSectionSheetNames = [...workbook.SheetNames];
       const sectionSheets = { ...workbook.Sheets };
       
       // Clear workbook
@@ -1301,7 +1315,7 @@ const Scan = () => {
       XLSX.utils.book_append_sheet(workbook, masterWorksheet, 'Master');
       
       // Add all section sheets
-      sectionSheetNames.forEach(name => {
+      existingSectionSheetNames.forEach(name => {
         XLSX.utils.book_append_sheet(workbook, sectionSheets[name], name);
       });
 
@@ -1425,31 +1439,13 @@ const Scan = () => {
       // Track section totals for summary
       const sectionTotals: { section: string; count: number; value: number }[] = [];
 
-      // First pass: calculate grand total for all sections from cloud
-      let calculatedGrandTotal = 0;
-      for (const section of sections) {
-        const { data: cloudRecords } = await supabase
-          .from('scan_records')
-          .select('extended')
-          .eq('template_id', selectedTemplate.id)
-          .eq('section_id', section.id);
-
-        if (cloudRecords) {
-          cloudRecords.forEach(record => {
-            if (record.extended !== null && record.extended !== undefined) {
-              calculatedGrandTotal += Number(record.extended);
-            }
-          });
-        }
-      }
-
-      // Column headers with grand total in the Extended sum column
+      // Column headers (SUM column will be populated by formula)
       const headers = [
         'LOC', 'Device', 'REC', 'TIME', 'NDC', 'Scanned NDC', 'QTY', 'MIS Divisor',
         'MIS Count Method', 'Item Number', 'Med Desc', 'MERIDIAN DESC', 'TRADE',
         'GENERIC', 'STRENGTH', 'PACK SZ', 'FDA SIZE', 'SIZE TXT', 'DOSE FORM',
         'MANUFACTURER', 'GENERIC CODE', 'DEA CLASS', 'AHFS', 'SOURCE', 'Pack Cost',
-        'Unit Cost', 'Extended', `$${calculatedGrandTotal.toFixed(2)}`, 'Sheet Type', 'Audit Criteria', 'Original QTY',
+        'Unit Cost', 'Extended', '', 'Sheet Type', 'Audit Criteria', 'Original QTY',
         'Auditor Initials', 'Results', 'Additional Notes'
       ];
       
@@ -1475,7 +1471,7 @@ const Scan = () => {
 
         if (cloudRecords && cloudRecords.length > 0) {
           cloudRecords.forEach(record => {
-            // Sum up Extended values for this section
+            // Sum up Extended values for this section (for reference, actual will be formula)
             if (record.extended !== null && record.extended !== undefined) {
               sectionTotal += Number(record.extended);
             }
@@ -1506,9 +1502,9 @@ const Scan = () => {
               record.ahfs || '',
               record.source || '',
               record.pack_cost ?? '',
-              record.unit_cost ?? '',
-              record.extended ?? '',
-              record.blank || '',
+              '', // Unit Cost - will be formula
+              '', // Extended - will be formula
+              '', // SUM column placeholder
               record.sheet_type || '',
               record.audit_criteria || '',
               record.original_qty ?? '',
@@ -1532,6 +1528,9 @@ const Scan = () => {
         const worksheet = XLSX.utils.aoa_to_sheet(rows);
         // Apply validation styling to cells
         applyValidationStylesToWorksheet(worksheet, rows, 1);
+        // Apply formulas for Unit Cost, Extended, and SUM
+        const dataRowCount = rows.length - 1;
+        applyExcelFormulas(worksheet, dataRowCount, 1);
         worksheet['!cols'] = headers.map((_, i) => ({ wch: i === 10 || i === 11 ? 30 : 15 }));
 
         let sheetName = section.full_section || section.sect || 'Sheet';
@@ -1545,10 +1544,7 @@ const Scan = () => {
         ? new Date(selectedTemplate.inv_date).toISOString().split('T')[0]
         : new Date().toISOString().split('T')[0];
       
-      const grandTotal = sectionTotals.reduce((sum, s) => sum + s.value, 0);
-      const totalScans = sectionTotals.reduce((sum, s) => sum + s.count, 0);
-      
-      // Build summary sheet content
+      // Build summary sheet content - values will be formulas referencing section sheets
       const summaryRows: any[][] = [
         // Header info
         [selectedTemplate.name],
@@ -1559,28 +1555,40 @@ const Scan = () => {
         ['Sections', 'Scans', 'Value'],
       ];
       
-      // Add each section row with $ formatting
+      // Add placeholder rows for each section (will be replaced by formulas)
       sectionTotals.forEach(st => {
-        summaryRows.push([st.section, st.count, `$${st.value.toFixed(2)}`]);
+        summaryRows.push([st.section, '', '']); // Placeholders for formula cells
       });
       
       // Empty row before total
       summaryRows.push([]);
-      // Grand total row with $ formatting
-      summaryRows.push(['Total', totalScans, `$${grandTotal.toFixed(2)}`]);
+      // Grand total row (placeholders for formula cells)
+      summaryRows.push(['Total', '', '']);
       
       const summaryWorksheet = XLSX.utils.aoa_to_sheet(summaryRows);
       summaryWorksheet['!cols'] = [{ wch: 40 }, { wch: 10 }, { wch: 15 }];
+      
+      // Get section sheet names for formula references
+      const sectionSheetNames = sections.map(section => {
+        let sheetName = section.full_section || section.sect || 'Sheet';
+        return sheetName.replace(/[\\/*?[\]:]/g, '-').substring(0, 31);
+      });
+      
+      // Apply formulas to Summary sheet (start row 6 is first section row)
+      applySummaryFormulas(summaryWorksheet, sectionSheetNames, 6);
 
       // Create Master sheet - combine all sections
       const masterRows: any[][] = [headers, ...allMasterRows];
       const masterWorksheet = XLSX.utils.aoa_to_sheet(masterRows);
       // Apply validation styling to master sheet
       applyValidationStylesToWorksheet(masterWorksheet, masterRows, 1);
+      // Apply formulas to master sheet
+      const masterDataRowCount = masterRows.length - 1;
+      applyExcelFormulas(masterWorksheet, masterDataRowCount, 1);
       masterWorksheet['!cols'] = headers.map((_, i) => ({ wch: i === 10 || i === 11 ? 30 : 15 }));
       
       // Clear all sheets and rebuild in correct order: Summary, Master, then sections
-      const sectionSheetNames = [...workbook.SheetNames];
+      const existingSectionSheetNames = [...workbook.SheetNames];
       const sectionSheets = { ...workbook.Sheets };
       
       // Clear workbook
@@ -1594,7 +1602,7 @@ const Scan = () => {
       XLSX.utils.book_append_sheet(workbook, masterWorksheet, 'Master');
       
       // Add all section sheets
-      sectionSheetNames.forEach(name => {
+      existingSectionSheetNames.forEach(name => {
         XLSX.utils.book_append_sheet(workbook, sectionSheets[name], name);
       });
 
