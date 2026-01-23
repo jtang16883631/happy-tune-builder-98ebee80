@@ -103,6 +103,60 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
     }
   };
 
+  const fetchTemplateSectionsFromCloud = async (templateId: string) => {
+    const { data, error } = await withTimeout<any>(
+      supabase
+        .from('template_sections')
+        .select('id,template_id,sect,description,full_section,cost_sheet')
+        .eq('template_id', templateId),
+      20000,
+      'Fetching sections'
+    );
+    if (error) throw error;
+    return data || [];
+  };
+
+  const fetchTemplateCostItemsFromCloud = async (templateId: string, label: string) => {
+    const costItemsLimit = 1000;
+    let hasMore = true;
+    let lastId: string | null = null;
+    let page = 0;
+    let items: any[] = [];
+
+    while (hasMore) {
+      page += 1;
+      setStatus(
+        `Fetching cost items: ${label} (page ${page}, ${items.length.toLocaleString()} loaded...)`
+      );
+      // ensure UI never looks stuck
+      setProgress((prev) => Math.min(prev + 0.5, 44));
+
+      let q = supabase
+        .from('template_cost_items')
+        .select('id,template_id,ndc,material_description,unit_price,source,material,sheet_name')
+        .eq('template_id', templateId)
+        .order('id', { ascending: true })
+        .limit(costItemsLimit);
+
+      if (lastId) q = q.gt('id', lastId);
+
+      const { data, error } = await withTimeout<any>(q, 30000, 'Fetching cost items');
+      if (error) throw error;
+
+      const batch = data || [];
+      if (batch.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      items = items.concat(batch);
+      lastId = batch[batch.length - 1]?.id ?? null;
+      hasMore = batch.length === costItemsLimit;
+    }
+
+    return items;
+  };
+
   const toggleTemplate = (id: string) => {
     setSelectedTemplateIds(prev => 
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
@@ -163,17 +217,8 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
         setStatus(`Fetching data for: ${template.name || template.facility_name || 'Template'} (${i + 1}/${selectedTemplates.length})`);
         setProgress(templateSpanStart + (i / Math.max(1, selectedTemplates.length)) * templateSpan);
 
-        // Fetch sections from cloud
-        const { data: sections, error: sectionsError } = await withTimeout<any>(
-          supabase
-            .from('template_sections')
-            .select('*')
-            .eq('template_id', template.id),
-          20000,
-          'Fetching sections'
-        );
-
-        if (sectionsError) throw sectionsError;
+        // Fetch sections from cloud (minimal columns)
+        const sections = await fetchTemplateSectionsFromCloud(template.id);
 
         allSections.push({
           templateId: template.id,
@@ -187,55 +232,24 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
           })),
         });
 
-        // Fetch cost items from cloud with pagination
-        let costItemsOffset = 0;
-        const costItemsLimit = 1000;
-        let templateCostItems: OfflineCostItem[] = [];
-        let hasMore = true;
-        let page = 0;
-
-        while (hasMore) {
-          page += 1;
-          setStatus(
-            `Fetching cost items for: ${template.name || template.facility_name || 'Template'} (page ${page}, ${templateCostItems.length.toLocaleString()} loaded...)`
-          );
-
-          // small progress bump so UI never looks stuck
-          setProgress(prev => Math.min(templateSpanEnd - 1, prev + 0.5));
-
-          const { data: costItems, error: costError } = await withTimeout<any>(
-            supabase
-              .from('template_cost_items')
-              .select('*')
-              .eq('template_id', template.id)
-              .range(costItemsOffset, costItemsOffset + costItemsLimit - 1),
-            30000,
-            'Fetching cost items'
-          );
-
-          if (costError) throw costError;
-
-          if (costItems && costItems.length > 0) {
-            templateCostItems = templateCostItems.concat(
-              costItems.map(c => ({
-                id: c.id,
-                template_id: c.template_id,
-                ndc: c.ndc,
-                material_description: c.material_description,
-                unit_price: c.unit_price,
-                source: c.source,
-                material: c.material,
-                sheet_name: c.sheet_name,
-              }))
-            );
-            costItemsOffset += costItemsLimit;
-            hasMore = costItems.length === costItemsLimit;
-          } else {
-            hasMore = false;
-          }
-        }
-
-        allCostItems.push({ templateId: template.id, items: templateCostItems });
+        // Fetch cost items from cloud with cursor-based pagination (avoids large OFFSET timeouts)
+        const costItems = await fetchTemplateCostItemsFromCloud(
+          template.id,
+          template.name || template.facility_name || template.inv_number || 'Template'
+        );
+        allCostItems.push({
+          templateId: template.id,
+          items: (costItems || []).map((c: any) => ({
+            id: c.id,
+            template_id: c.template_id,
+            ndc: c.ndc,
+            material_description: c.material_description,
+            unit_price: c.unit_price,
+            source: c.source,
+            material: c.material,
+            sheet_name: c.sheet_name,
+          })),
+        });
       }
 
       setProgress(50);
@@ -409,13 +423,8 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
         setStatus(`Fetching: ${template.name || template.facility_name || template.inv_number || 'Template'} (${i + 1}/${selectedTemplates.length})`);
         setProgress(5 + (i / selectedTemplates.length) * 40);
 
-        // Fetch sections
-        const { data: sections, error: sectionsError } = await withTimeout<any>(
-          supabase.from('template_sections').select('*').eq('template_id', template.id),
-          20000,
-          'Fetching sections'
-        );
-        if (sectionsError) throw sectionsError;
+        // Fetch sections (minimal columns)
+        const sections = await fetchTemplateSectionsFromCloud(template.id);
 
         allSections.push({
           templateId: template.id,
@@ -427,44 +436,23 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
           })),
         });
 
-        // Fetch cost items with pagination
-        let costItemsOffset = 0;
-        const costItemsLimit = 1000;
-        let templateCostItems: Array<{ ndc: string | null; material_description: string | null; unit_price: number | null; source: string | null; material: string | null; sheet_name: string | null }> = [];
-        let hasMore = true;
-        let page = 0;
+        // Fetch cost items with cursor-based pagination (avoids large OFFSET timeouts)
+        const costItems = await fetchTemplateCostItemsFromCloud(
+          template.id,
+          template.name || template.facility_name || template.inv_number || 'Template'
+        );
 
-        while (hasMore) {
-          page++;
-          setStatus(`Fetching cost items: ${template.name || template.inv_number || 'Template'} (page ${page}, ${templateCostItems.length.toLocaleString()} loaded)`);
-          setProgress(prev => Math.min(prev + 0.5, 44));
-
-          const { data: costItems, error: costError } = await withTimeout<any>(
-            supabase.from('template_cost_items').select('*').eq('template_id', template.id).range(costItemsOffset, costItemsOffset + costItemsLimit - 1),
-            30000,
-            'Fetching cost items'
-          );
-          if (costError) throw costError;
-
-          if (costItems && costItems.length > 0) {
-            templateCostItems = templateCostItems.concat(
-              costItems.map((c: any) => ({
-                ndc: c.ndc,
-                material_description: c.material_description,
-                unit_price: c.unit_price,
-                source: c.source,
-                material: c.material,
-                sheet_name: c.sheet_name,
-              }))
-            );
-            costItemsOffset += costItemsLimit;
-            hasMore = costItems.length === costItemsLimit;
-          } else {
-            hasMore = false;
-          }
-        }
-
-        allCostItems.push({ templateId: template.id, items: templateCostItems });
+        allCostItems.push({
+          templateId: template.id,
+          items: (costItems || []).map((c: any) => ({
+            ndc: c.ndc,
+            material_description: c.material_description,
+            unit_price: c.unit_price,
+            source: c.source,
+            material: c.material,
+            sheet_name: c.sheet_name,
+          })),
+        });
       }
 
       setProgress(50);
