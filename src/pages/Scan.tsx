@@ -207,10 +207,16 @@ const Scan = () => {
   const [outerNDCOptions, setOuterNDCOptions] = useState<OuterNDCOption[]>([]);
   const [pendingNDCLookup, setPendingNDCLookup] = useState<{ scannedNDC: string; rowIndex: number } | null>(null);
   
-  // State for last scan info display (passive, no dialog)
+  // State for last scan info display (passive, no dialog) - global across all templates
   const [lastScanInfo, setLastScanInfo] = useState<{
     templateId: string;
     templateName: string;
+    sectionId: string;
+    sectionName: string;
+  } | null>(null);
+  
+  // State for current template's last scan (specific to selected template)
+  const [currentTemplateLastScan, setCurrentTemplateLastScan] = useState<{
     sectionId: string;
     sectionName: string;
   } | null>(null);
@@ -472,14 +478,46 @@ const Scan = () => {
     setSelectedSection(section);
     loadSectionRecords(selectedTemplate.id, section.id, section.full_section || '');
     
-    // Save last scan location to localStorage
+    // Save last scan location to localStorage (global for template selection page)
     localStorage.setItem('last_scan_location', JSON.stringify({
       templateId: selectedTemplate.id,
       templateName: selectedTemplate.name,
       sectionId: section.id,
       sectionName: section.full_section || section.sect,
     }));
+    
+    // Also save per-template last scan location
+    localStorage.setItem(`last_scan_section_${selectedTemplate.id}`, JSON.stringify({
+      sectionId: section.id,
+      sectionName: section.full_section || section.sect,
+    }));
+    
+    // Update current template's last scan state
+    setCurrentTemplateLastScan({
+      sectionId: section.id,
+      sectionName: section.full_section || section.sect,
+    });
   }, [selectedTemplate, loadSectionRecords]);
+
+  // Load current template's last scan when template changes
+  useEffect(() => {
+    if (!selectedTemplate) {
+      setCurrentTemplateLastScan(null);
+      return;
+    }
+    
+    const savedSection = localStorage.getItem(`last_scan_section_${selectedTemplate.id}`);
+    if (savedSection) {
+      try {
+        const parsed = JSON.parse(savedSection);
+        setCurrentTemplateLastScan(parsed);
+      } catch {
+        setCurrentTemplateLastScan(null);
+      }
+    } else {
+      setCurrentTemplateLastScan(null);
+    }
+  }, [selectedTemplate]);
 
   // Load sections when template is selected
   const loadSections = useCallback(async (templateId: string) => {
@@ -3179,21 +3217,24 @@ const Scan = () => {
                 {scanRows.filter(r => r.source === 'not_found').length} not found
               </span>
               
-              {/* Last Scan Location Reminder */}
-              {lastScanInfo && (
-                <div className="ml-auto inline-flex items-center gap-2 px-3 py-1.5 bg-muted/50 border border-border rounded-md text-xs">
-                  <ScanBarcode className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="text-muted-foreground">Last:</span>
-                  <span className="font-medium">{lastScanInfo.templateName}</span>
-                  <span className="text-muted-foreground">→</span>
-                  <Badge variant="secondary" className="text-xs h-5">{lastScanInfo.sectionName}</Badge>
+              {/* Current Template's Last Scan Section Reminder */}
+              {currentTemplateLastScan && selectedSection?.id !== currentTemplateLastScan.sectionId && (
+                <div className="ml-auto inline-flex items-center gap-2 px-3 py-1.5 bg-primary/10 border border-primary/20 rounded-md text-xs">
+                  <ScanBarcode className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-muted-foreground">Last scan:</span>
+                  <Badge variant="secondary" className="text-xs h-5">{currentTemplateLastScan.sectionName}</Badge>
                   <Button 
                     size="sm" 
                     variant="ghost" 
                     className="h-6 px-2 text-xs"
-                    onClick={handleResumeLastScan}
+                    onClick={() => {
+                      const section = sections.find(s => s.id === currentTemplateLastScan.sectionId);
+                      if (section) {
+                        handleSelectSection(section);
+                      }
+                    }}
                   >
-                    Resume
+                    Go to
                   </Button>
                 </div>
               )}
