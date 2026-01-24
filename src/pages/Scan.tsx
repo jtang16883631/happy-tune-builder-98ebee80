@@ -1974,21 +1974,42 @@ const Scan = () => {
     const activeElement = document.activeElement;
     if (!activeElement || !(activeElement instanceof HTMLInputElement)) return;
     
+    // Try to extract row/col from the focused element's data attribute or ref key
+    const focusedKey = Array.from(cellInputRefs.current.entries()).find(([_, el]) => el === activeElement)?.[0];
+    let focusedRow = activeRowIndex;
+    let focusedCol = activeColKey;
+    
+    if (focusedKey) {
+      const [rowStr, ...colParts] = focusedKey.split('-');
+      const parsedRow = parseInt(rowStr, 10);
+      const parsedCol = colParts.join('-');
+      if (!isNaN(parsedRow) && parsedCol) {
+        focusedRow = parsedRow;
+        focusedCol = parsedCol;
+      }
+    }
+    
     const clipboardData = e.clipboardData?.getData('text');
     if (!clipboardData) return;
     
-    const pasteRows = clipboardData.split('\n').map(line => line.split('\t'));
+    const pasteRows = clipboardData.split('\n').filter(line => line.trim()).map(line => line.split('\t'));
     
     // If we have a selection, paste starting from selection start
-    // Otherwise paste starting from active cell
-    const startRow = selectionStart?.row ?? activeRowIndex;
-    const startColKey = selectionStart?.col ?? activeColKey;
+    // Otherwise paste starting from active/focused cell
+    const startRow = selectionStart?.row ?? focusedRow;
+    const startColKey = selectionStart?.col ?? focusedCol;
     
-    if (startColKey === null) return;
+    if (startColKey === null) {
+      console.log('Paste failed: no column key');
+      return;
+    }
     
     const colKeys = getVisibleColKeys();
     const startColIdx = colKeys.indexOf(startColKey);
-    if (startColIdx === -1) return;
+    if (startColIdx === -1) {
+      console.log('Paste failed: column not found in visible columns', startColKey);
+      return;
+    }
     
     e.preventDefault();
     
@@ -2099,41 +2120,49 @@ const Scan = () => {
           ref?.focus();
         }, 0);
       }
-    } else if (e.key === 'ArrowLeft' && (e.currentTarget.selectionStart === 0 || e.altKey)) {
-      if (e.altKey) e.preventDefault();
-      const newColIdx = Math.max(0, currentColIdx - 1);
-      const newColKey = colKeys[newColIdx];
-      if (isShift) {
-        if (!selectionStart) {
-          setSelectionStart({ row: rowIndex, col: colKey });
+    } else if (e.key === 'ArrowLeft') {
+      // Move left when cursor is at start of text, or Alt is pressed
+      const atStart = e.currentTarget.selectionStart === 0;
+      if (atStart || e.altKey) {
+        e.preventDefault();
+        const newColIdx = Math.max(0, currentColIdx - 1);
+        const newColKey = colKeys[newColIdx];
+        if (isShift) {
+          if (!selectionStart) {
+            setSelectionStart({ row: rowIndex, col: colKey });
+          }
+          setSelectionEnd({ row: rowIndex, col: newColKey });
+        } else {
+          setSelectionStart(null);
+          setSelectionEnd(null);
+          setActiveColKey(newColKey);
+          setTimeout(() => {
+            const ref = cellInputRefs.current.get(`${rowIndex}-${newColKey}`);
+            ref?.focus();
+          }, 0);
         }
-        setSelectionEnd({ row: rowIndex, col: newColKey });
-      } else if (e.altKey) {
-        setSelectionStart(null);
-        setSelectionEnd(null);
-        setActiveColKey(newColKey);
-        setTimeout(() => {
-          const ref = cellInputRefs.current.get(`${rowIndex}-${newColKey}`);
-          ref?.focus();
-        }, 0);
       }
-    } else if (e.key === 'ArrowRight' && (e.currentTarget.selectionStart === e.currentTarget.value.length || e.altKey)) {
-      if (e.altKey) e.preventDefault();
-      const newColIdx = Math.min(colKeys.length - 1, currentColIdx + 1);
-      const newColKey = colKeys[newColIdx];
-      if (isShift) {
-        if (!selectionStart) {
-          setSelectionStart({ row: rowIndex, col: colKey });
+    } else if (e.key === 'ArrowRight') {
+      // Move right when cursor is at end of text, or Alt is pressed
+      const atEnd = e.currentTarget.selectionStart === e.currentTarget.value.length;
+      if (atEnd || e.altKey) {
+        e.preventDefault();
+        const newColIdx = Math.min(colKeys.length - 1, currentColIdx + 1);
+        const newColKey = colKeys[newColIdx];
+        if (isShift) {
+          if (!selectionStart) {
+            setSelectionStart({ row: rowIndex, col: colKey });
+          }
+          setSelectionEnd({ row: rowIndex, col: newColKey });
+        } else {
+          setSelectionStart(null);
+          setSelectionEnd(null);
+          setActiveColKey(newColKey);
+          setTimeout(() => {
+            const ref = cellInputRefs.current.get(`${rowIndex}-${newColKey}`);
+            ref?.focus();
+          }, 0);
         }
-        setSelectionEnd({ row: rowIndex, col: newColKey });
-      } else if (e.altKey) {
-        setSelectionStart(null);
-        setSelectionEnd(null);
-        setActiveColKey(newColKey);
-        setTimeout(() => {
-          const ref = cellInputRefs.current.get(`${rowIndex}-${newColKey}`);
-          ref?.focus();
-        }, 0);
       }
     } else if (e.key === 'Tab') {
       // Tab moves right, Shift+Tab moves left
