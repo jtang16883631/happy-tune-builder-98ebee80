@@ -2845,22 +2845,40 @@ const Scan = () => {
                           }
                           
                           if (col.editable) {
-                            // For currency fields, display with $ format but edit as number
+                          // For currency fields, display with $ format but edit as number
                             const displayValue = col.type === 'currency' && value !== null && value !== undefined
                               ? `$${Number(value).toFixed(2)}`
                               : (value?.toString() || '');
                             
+                            // Check if cell is in selection range
+                            const isSelected = isCellSelected(realIndex, col.key);
+                            
                             // Determine ref and keydown handler based on field type
-                            const getRef = () => {
-                              if (col.isNdcInput) return (el: HTMLInputElement | null) => ndcInputRefs.current[realIndex] = el;
-                              if (col.key === 'qty') return (el: HTMLInputElement | null) => qtyInputRefs.current[realIndex] = el;
-                              return undefined;
+                            const getRef = (el: HTMLInputElement | null) => {
+                              // Store ref for navigation
+                              if (el) {
+                                cellInputRefs.current.set(`${realIndex}-${col.key}`, el);
+                              }
+                              // Also store special refs for NDC and QTY
+                              if (col.isNdcInput && el) ndcInputRefs.current[realIndex] = el;
+                              if (col.key === 'qty' && el) qtyInputRefs.current[realIndex] = el;
                             };
                             
-                            const getKeyDownHandler = () => {
-                              if (col.isNdcInput) return (e: React.KeyboardEvent<HTMLInputElement>) => handleNdcKeyDown(e, realIndex);
-                              if (col.key === 'qty') return (e: React.KeyboardEvent<HTMLInputElement>) => handleQtyKeyDown(e, realIndex);
-                              return undefined;
+                            // Combined keydown handler
+                            const getKeyDownHandler = (e: React.KeyboardEvent<HTMLInputElement>) => {
+                              // Special handlers first
+                              if (col.isNdcInput) {
+                                handleNdcKeyDown(e, realIndex);
+                                // If Enter was pressed for NDC lookup, don't do navigation
+                                if (e.key === 'Enter') return;
+                              }
+                              if (col.key === 'qty') {
+                                handleQtyKeyDown(e, realIndex);
+                                // If Enter was pressed for QTY calculation, don't do navigation
+                                if (e.key === 'Enter') return;
+                              }
+                              // Then arrow key navigation
+                              handleCellKeyDown(e, realIndex, col.key);
                             };
                             
                             // Special handling for QTY - in-cell calculator (type expression like "5+3")
@@ -2869,18 +2887,29 @@ const Scan = () => {
                               const qtyBgStyle = qtyValidationColor 
                                 ? getCellValidationClasses(qtyValidationColor)
                                 : 'bg-transparent';
+                              const qtyIsSelected = isSelected ? 'ring-2 ring-primary ring-inset' : '';
                               
                               return (
-                                <TableCell key={col.key} className="p-0" style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
+                                <TableCell 
+                                  key={col.key} 
+                                  className="p-0" 
+                                  style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}
+                                  onMouseDown={(e) => handleCellMouseDown(e, realIndex, col.key)}
+                                  onMouseEnter={() => handleCellMouseEnter(realIndex, col.key)}
+                                >
                                   <div className="relative">
                                     <Input
-                                      ref={getRef()}
+                                      ref={getRef}
                                       value={getQtyDisplayValue(row, realIndex)}
                                       onChange={(e) => handleQtyInputChange(e.target.value, realIndex)}
                                       onBlur={() => handleQtyBlur(realIndex)}
-                                      onKeyDown={(e) => handleQtyExpressionKeyDown(e, realIndex)}
+                                      onKeyDown={(e) => {
+                                        handleQtyExpressionKeyDown(e, realIndex);
+                                        if (e.key !== 'Enter') handleCellKeyDown(e, realIndex, col.key);
+                                      }}
                                       onFocus={() => {
                                         setActiveRowIndex(realIndex);
+                                        setActiveColKey(col.key);
                                         // Initialize expression with current value
                                         if (qtyExpressions[row.id] === undefined && row.qty !== null) {
                                           setQtyExpressions(prev => ({ ...prev, [row.id]: row.qty!.toString() }));
@@ -2888,7 +2917,7 @@ const Scan = () => {
                                       }}
                                       placeholder="e.g. 5+3"
                                       disabled={!selectedSection}
-                                      className={`font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0 disabled:opacity-50 disabled:cursor-not-allowed rounded-none pr-6 ${qtyBgStyle}`}
+                                      className={`font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0 disabled:opacity-50 disabled:cursor-not-allowed rounded-none pr-6 ${qtyBgStyle} ${qtyIsSelected}`}
                                     />
                                     <Calculator className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
                                   </div>
@@ -2901,11 +2930,18 @@ const Scan = () => {
                             const inputBgStyle = cellValidationColor 
                               ? getCellValidationClasses(cellValidationColor) 
                               : 'bg-transparent';
+                            const selectionStyle = isSelected ? 'ring-2 ring-primary ring-inset' : '';
                             
                             return (
-                              <TableCell key={col.key} className="p-0" style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}>
+                              <TableCell 
+                                key={col.key} 
+                                className="p-0" 
+                                style={{ width: getColumnWidth(col.key), minWidth: getColumnWidth(col.key) }}
+                                onMouseDown={(e) => handleCellMouseDown(e, realIndex, col.key)}
+                                onMouseEnter={() => handleCellMouseEnter(realIndex, col.key)}
+                              >
                                 <Input
-                                  ref={getRef()}
+                                  ref={getRef}
                                   value={col.type === 'currency' ? (value !== null && value !== undefined ? Number(value).toFixed(2) : '') : (value?.toString() || '')}
                                   onChange={(e) => {
                                     if (col.isNdcInput) {
@@ -2919,13 +2955,16 @@ const Scan = () => {
                                       : e.target.value;
                                     handleFieldChange(col.key as keyof ScanRow, newValue, realIndex);
                                   }}
-                                  onKeyDown={getKeyDownHandler()}
-                                  onFocus={() => setActiveRowIndex(realIndex)}
+                                  onKeyDown={getKeyDownHandler}
+                                  onFocus={() => {
+                                    setActiveRowIndex(realIndex);
+                                    setActiveColKey(col.key);
+                                  }}
                                   type={col.isNdcInput ? 'text' : (col.type === 'number' || col.type === 'currency' ? 'number' : 'text')}
                                   step={col.type === 'currency' ? '0.01' : undefined}
                                   placeholder={col.type === 'currency' ? '$0.00' : undefined}
                                   disabled={!selectedSection}
-                                  className={`font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0 disabled:opacity-50 disabled:cursor-not-allowed rounded-none ${inputBgStyle}`}
+                                  className={`font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0 disabled:opacity-50 disabled:cursor-not-allowed rounded-none ${inputBgStyle} ${selectionStyle}`}
                                 />
                               </TableCell>
                             );
@@ -2936,11 +2975,14 @@ const Scan = () => {
                           const nonEditableCellStyle = nonEditableCellColor 
                             ? getCellValidationClasses(nonEditableCellColor) 
                             : '';
+                          const nonEditableSelected = isCellSelected(realIndex, col.key) ? 'ring-2 ring-primary ring-inset' : '';
                           
                           return (
                             <TableCell 
                               key={col.key} 
-                              className={`text-xs ${row.source === 'not_found' && (col.key === 'medDesc' || col.key === 'source') ? 'text-destructive' : ''} ${nonEditableCellStyle}`}
+                              className={`text-xs ${row.source === 'not_found' && (col.key === 'medDesc' || col.key === 'source') ? 'text-destructive' : ''} ${nonEditableCellStyle} ${nonEditableSelected}`}
+                              onMouseDown={(e) => handleCellMouseDown(e, realIndex, col.key)}
+                              onMouseEnter={() => handleCellMouseEnter(realIndex, col.key)}
                             >
                               {col.type === 'currency' 
                                 ? formatCurrency(value as number | null)
