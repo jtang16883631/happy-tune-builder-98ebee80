@@ -320,20 +320,39 @@ export function useOfflineTemplates() {
   }, [db]);
 
   // Get cost item by NDC
-  // sheetName is accepted for API compatibility with cloud mode; offline storage currently
-  // doesn't track cost tabs, so we ignore it.
+  // If sheetName is provided, filter by that specific cost sheet (tab)
   const getCostItemByNDC = useCallback(
-    async (templateId: string, ndc: string, _sheetName?: string | null): Promise<OfflineCostItem | null> => {
+    async (templateId: string, ndc: string, sheetName?: string | null): Promise<OfflineCostItem | null> => {
       if (!db) return null;
 
       try {
         const cleanNdc = ndc.replace(/\D/g, '');
-        const results = db.exec(`
-          SELECT id, template_id, ndc, material_description, unit_price, source, material
-          FROM cost_items
-          WHERE template_id = ? AND (ndc = ? OR ndc = ?)
-          LIMIT 1
-        `, [templateId, cleanNdc, ndc]);
+        
+        // Build query based on whether sheetName filter is provided
+        let query: string;
+        let params: (string | null)[];
+        
+        if (sheetName) {
+          // Filter by specific cost sheet
+          query = `
+            SELECT id, template_id, ndc, material_description, unit_price, source, material, sheet_name
+            FROM cost_items
+            WHERE template_id = ? AND (ndc = ? OR ndc = ?) AND sheet_name = ?
+            LIMIT 1
+          `;
+          params = [templateId, cleanNdc, ndc, sheetName];
+        } else {
+          // No sheet filter - return first match
+          query = `
+            SELECT id, template_id, ndc, material_description, unit_price, source, material, sheet_name
+            FROM cost_items
+            WHERE template_id = ? AND (ndc = ? OR ndc = ?)
+            LIMIT 1
+          `;
+          params = [templateId, cleanNdc, ndc];
+        }
+        
+        const results = db.exec(query, params);
 
         if (results.length === 0 || results[0].values.length === 0) return null;
 
@@ -346,6 +365,7 @@ export function useOfflineTemplates() {
           unit_price: row[4] as number | null,
           source: row[5] as string | null,
           material: row[6] as string | null,
+          sheet_name: row[7] as string | null,
         };
       } catch (err) {
         console.error('Get cost item error:', err);
