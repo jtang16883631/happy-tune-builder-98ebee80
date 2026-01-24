@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useTeamChat } from '@/hooks/useTeamChat';
-import { useAuth } from '@/contexts/AuthContext';
+
 import { ChatRoomList } from '@/components/chat/ChatRoomList';
 import { ChatMessageList } from '@/components/chat/ChatMessageList';
 import { ChatInput } from '@/components/chat/ChatInput';
@@ -18,8 +18,8 @@ import {
 } from '@/components/ui/tooltip';
 
 const Chat = () => {
-  const { user } = useAuth();
   const {
+    userId,
     rooms,
     currentRoom,
     messages,
@@ -113,7 +113,7 @@ const Chat = () => {
               </div>
 
               {/* Messages */}
-              <ChatMessageList messages={messages} currentUserId={user?.id} />
+              <ChatMessageList messages={messages} currentUserId={userId ?? undefined} />
 
               {/* Input */}
               <ChatInput onSend={sendMessage} isSending={isSending} />
