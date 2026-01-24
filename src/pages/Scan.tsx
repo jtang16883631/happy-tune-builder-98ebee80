@@ -2548,6 +2548,28 @@ const Scan = () => {
               <span>Offline Mode - Data saved locally</span>
             </div>
           )}
+          
+            {/* Last Scan Location Reminder */}
+            {lastScanInfo && (
+              <div className="mt-4 inline-flex items-center gap-3 px-4 py-3 bg-primary/5 border border-primary/20 rounded-lg text-sm">
+                <ScanBarcode className="h-5 w-5 text-primary" />
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Last scan:</span>
+                  <span className="font-semibold">{lastScanInfo.templateName}</span>
+                  <span className="text-muted-foreground">→</span>
+                  <Badge variant="secondary">{lastScanInfo.sectionName}</Badge>
+                </div>
+                <Button 
+                  size="sm" 
+                  variant="default" 
+                  className="ml-2"
+                  onClick={handleResumeLastScan}
+                >
+                  <ArrowLeft className="h-4 w-4 mr-1" />
+                  Resume
+                </Button>
+              </div>
+            )}
             
           </div>
 
