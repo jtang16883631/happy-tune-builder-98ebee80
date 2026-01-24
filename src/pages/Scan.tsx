@@ -281,9 +281,17 @@ const Scan = () => {
 
   const [scanRows, setScanRows] = useState<ScanRow[]>([createEmptyRow()]);
   const [activeRowIndex, setActiveRowIndex] = useState(0);
+  const [activeColKey, setActiveColKey] = useState<string | null>(null);
+  
+  // Multi-cell selection state (Excel-like range selection)
+  const [selectionStart, setSelectionStart] = useState<{ row: number; col: string } | null>(null);
+  const [selectionEnd, setSelectionEnd] = useState<{ row: number; col: string } | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  
   const ndcInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const qtyInputRefs = useRef<(HTMLInputElement | null)[]>([]);
-  
+  // Refs for all cell inputs keyed by "rowIndex-colKey"
+  const cellInputRefs = useRef<Map<string, HTMLInputElement | null>>(new Map());
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Collect all section records from localStorage for summary
@@ -784,11 +792,85 @@ const Scan = () => {
     // Don't auto-focus next row's NDC here - we want to focus QTY first
   }, [fdaLookup, getCostItemByNDC, selectedTemplate, scanRows, generateRecForRow, selectedSection, createEmptyRow]);
 
+  // Fallback lookup when FDA doesn't have the NDC - try cost data directly
+  const lookupCostDataOnly = useCallback(async (scannedNdc: string, rowIndex: number): Promise<boolean> => {
+    if (!scannedNdc || !selectedTemplate) return false;
+    
+    const cleanNdc = scannedNdc.replace(/\D/g, '');
+    
+    // Try to get cost item using the scanned NDC directly
+    const costItem = await getCostItemByNDC(selectedTemplate.id, cleanNdc, selectedSection?.cost_sheet ?? null);
+    
+    if (!costItem) {
+      return false;
+    }
+    
+    console.log('[Cost Lookup] Found cost item for NDC:', cleanNdc, costItem);
+    
+    // Extract data from cost item
+    const itemNumber = costItem?.material || '';
+    const medDesc = costItem?.material_description || '';
+    const manufacturer = costItem?.manufacturer || '';
+    const generic = costItem?.generic || '';
+    const strength = costItem?.strength || '';
+    const packSz = costItem?.size || '';
+    const doseForm = costItem?.dose || '';
+    const source = costItem?.source || '';
+    const packCost = costItem?.unit_price !== null && costItem?.unit_price !== undefined 
+      ? Number(costItem.unit_price) 
+      : null;
+    
+    const rec = generateRecForRow(rowIndex);
+    
+    setScanRows(prev => {
+      const updated = [...prev];
+      updated[rowIndex] = {
+        ...updated[rowIndex],
+        ndc: '', // No outer NDC mapping found
+        scannedNdc: scannedNdc.replace(/\D/g, ''),
+        rec,
+        device: '',
+        time: new Date().toLocaleTimeString(),
+        itemNumber,
+        medDesc,
+        meridianDesc: '', // No FDA data
+        trade: '',
+        generic,
+        strength,
+        packSz,
+        fdaSize: '',
+        sizeTxt: '',
+        doseForm,
+        packCost,
+        source,
+        misDivisor: null,
+        unitCost: null,
+        extended: null,
+        manufacturer,
+        genericCode: '',
+        deaClass: '',
+        ahfs: '',
+        misCountMethod: '',
+      };
+      return updated;
+    });
+    
+    // Auto-add new row if this is the last row
+    setScanRows(prev => {
+      if (rowIndex === prev.length - 1) {
+        return [...prev, createEmptyRow(selectedSection?.full_section || '')];
+      }
+      return prev;
+    });
+    
+    return true;
+  }, [getCostItemByNDC, selectedTemplate, selectedSection, generateRecForRow, createEmptyRow]);
+
   // Initiate NDC lookup with outer NDC selection logic
   // 1. Extract NDC9 from scanned NDC
   // 2. Look up by innerpack_outer_left9 (column AG)
   // 3. Get unique outerpack_ndc values (column AE)
-  // 4. If 0: show error, if 1: auto-use, if >1: show selection dialog
+  // 4. If 0: try cost data fallback, if 1: auto-use, if >1: show selection dialog
   const initiateNDCLookup = useCallback(async (scannedNdc: string, rowIndex: number): Promise<boolean> => {
     // Scanner input may contain dashes/spaces or be shorter than 10 chars.
     // Business rule only requires the first 9 digits (NDC9 key).
@@ -832,11 +914,22 @@ const Scan = () => {
     console.log('[NDC Lookup] Found drugs count:', drugs.length);
 
     if (outerNDCs.length === 0) {
-      // Still record TIME and REC for manual entry support
+      // FDA lookup failed - try cost data fallback
+      console.log('[NDC Lookup] No FDA match, trying cost data fallback...');
+      const costFound = await lookupCostDataOnly(scannedNdc, rowIndex);
+      
+      if (costFound) {
+        toast.success('NDC found in cost data', {
+          description: `No FDA mapping, but found in cost data: ${cleanNdc}`,
+          duration: 4000,
+        });
+        return true;
+      }
+      
+      // Neither FDA nor cost data found
       setTimeAndRec();
-      // Per business rules: if no outer pack NDCs exist for this NDC9, stop and show an error.
-      toast.error('NDC not found in FDA mapping', {
-        description: `No outer pack NDC (AE) found for NDC9: ${cleanNdc.slice(0, 9)}`,
+      toast.error('NDC not found', {
+        description: `Not in FDA mapping or cost data: ${cleanNdc.slice(0, 9)}`,
         duration: 6000,
       });
       return false;
@@ -877,7 +970,7 @@ const Scan = () => {
     setOuterNDCDialogOpen(true);
 
     return false; // Indicate that we're waiting for user selection
-  }, [findOuterNDCsByNDC9, fdaLookup, getDrugByOuterNDC, lookupNDC, generateRecForRow]);
+  }, [findOuterNDCsByNDC9, fdaLookup, getDrugByOuterNDC, lookupNDC, generateRecForRow, lookupCostDataOnly]);
 
 
   // Handle outer NDC selection from dialog
@@ -1778,6 +1871,299 @@ const Scan = () => {
     }
     return row.qty !== null && row.qty !== undefined ? row.qty.toString() : '';
   };
+
+  // Static column keys for navigation (defined early to avoid circular dependency)
+  const allColumnKeys = ['loc', 'device', 'rec', 'time', 'ndc', 'scannedNdc', 'qty', 'misDivisor', 'misCountMethod', 
+    'itemNumber', 'medDesc', 'meridianDesc', 'trade', 'generic', 'strength', 'packSz', 'fdaSize', 'sizeTxt', 
+    'doseForm', 'manufacturer', 'genericCode', 'deaClass', 'ahfs', 'source', 'packCost', 'unitCost', 'extended', 
+    'blank', 'sheetType', 'auditCriteria', 'originalQty', 'auditorInitials', 'results', 'additionalNotes'];
+
+  // Helper to get visible column keys
+  const getVisibleColKeys = useCallback(() => {
+    return allColumnKeys.filter(key => !hiddenColumns.has(key));
+  }, [hiddenColumns]);
+
+  // Helper to check if a cell is within the selection range
+  const isCellSelected = useCallback((rowIndex: number, colKey: string): boolean => {
+    if (!selectionStart || !selectionEnd) return false;
+    
+    const minRow = Math.min(selectionStart.row, selectionEnd.row);
+    const maxRow = Math.max(selectionStart.row, selectionEnd.row);
+    
+    const colKeys = getVisibleColKeys();
+    const startColIdx = colKeys.indexOf(selectionStart.col);
+    const endColIdx = colKeys.indexOf(selectionEnd.col);
+    const currentColIdx = colKeys.indexOf(colKey);
+    
+    if (startColIdx === -1 || endColIdx === -1 || currentColIdx === -1) return false;
+    
+    const minCol = Math.min(startColIdx, endColIdx);
+    const maxCol = Math.max(startColIdx, endColIdx);
+    
+    return rowIndex >= minRow && rowIndex <= maxRow && currentColIdx >= minCol && currentColIdx <= maxCol;
+  }, [selectionStart, selectionEnd, getVisibleColKeys]);
+
+  // Get selected cells data for copy
+  const getSelectedCellsData = useCallback((): string => {
+    if (!selectionStart || !selectionEnd) return '';
+    
+    const minRow = Math.min(selectionStart.row, selectionEnd.row);
+    const maxRow = Math.max(selectionStart.row, selectionEnd.row);
+    
+    const colKeys = getVisibleColKeys();
+    const startColIdx = colKeys.indexOf(selectionStart.col);
+    const endColIdx = colKeys.indexOf(selectionEnd.col);
+    
+    if (startColIdx === -1 || endColIdx === -1) return '';
+    
+    const minCol = Math.min(startColIdx, endColIdx);
+    const maxCol = Math.max(startColIdx, endColIdx);
+    
+    const rows: string[] = [];
+    for (let r = minRow; r <= maxRow; r++) {
+      const row = scanRows[r];
+      if (!row) continue;
+      
+      const cells: string[] = [];
+      for (let c = minCol; c <= maxCol; c++) {
+        const key = colKeys[c] as keyof ScanRow;
+        const val = row[key];
+        cells.push(val?.toString() || '');
+      }
+      rows.push(cells.join('\t'));
+    }
+    return rows.join('\n');
+  }, [selectionStart, selectionEnd, getVisibleColKeys, scanRows]);
+
+  // Handle paste into selected cells or current cell
+  const handlePaste = useCallback(async (e: ClipboardEvent) => {
+    // Only handle if focus is within the table
+    const activeElement = document.activeElement;
+    if (!activeElement || !(activeElement instanceof HTMLInputElement)) return;
+    
+    const clipboardData = e.clipboardData?.getData('text');
+    if (!clipboardData) return;
+    
+    const pasteRows = clipboardData.split('\n').map(line => line.split('\t'));
+    
+    // If we have a selection, paste starting from selection start
+    // Otherwise paste starting from active cell
+    const startRow = selectionStart?.row ?? activeRowIndex;
+    const startColKey = selectionStart?.col ?? activeColKey;
+    
+    if (startColKey === null) return;
+    
+    const colKeys = getVisibleColKeys();
+    const startColIdx = colKeys.indexOf(startColKey);
+    if (startColIdx === -1) return;
+    
+    e.preventDefault();
+    
+    setScanRows(prev => {
+      const updated = [...prev];
+      
+      pasteRows.forEach((pasteRow, pasteRowIdx) => {
+        const targetRowIdx = startRow + pasteRowIdx;
+        
+        // Add new rows if needed
+        while (targetRowIdx >= updated.length) {
+          updated.push(createEmptyRow(selectedSection?.full_section || ''));
+        }
+        
+        pasteRow.forEach((value, pasteColIdx) => {
+          const targetColIdx = startColIdx + pasteColIdx;
+          if (targetColIdx >= colKeys.length) return;
+          
+          const colKey = colKeys[targetColIdx] as keyof ScanRow;
+          const col = columns.find(c => c.key === colKey);
+          if (!col?.editable) return;
+          
+          // Parse value based on column type
+          let parsedValue: any = value;
+          if (col.type === 'number' || col.type === 'currency') {
+            const num = parseFloat(value.replace(/[^0-9.-]/g, ''));
+            parsedValue = isNaN(num) ? null : num;
+          }
+          
+          updated[targetRowIdx] = { ...updated[targetRowIdx], [colKey]: parsedValue };
+        });
+      });
+      
+      return updated;
+    });
+    
+    toast.success(`Pasted ${pasteRows.length} row(s)`);
+  }, [selectionStart, activeRowIndex, activeColKey, getVisibleColKeys, columns, createEmptyRow, selectedSection]);
+
+  // Handle copy from selected cells
+  const handleCopy = useCallback((e: ClipboardEvent) => {
+    // Only handle if we have a selection
+    if (!selectionStart || !selectionEnd) return;
+    
+    const data = getSelectedCellsData();
+    if (!data) return;
+    
+    e.preventDefault();
+    e.clipboardData?.setData('text/plain', data);
+    toast.success('Copied to clipboard');
+  }, [selectionStart, selectionEnd, getSelectedCellsData]);
+
+  // Set up copy/paste listeners
+  useEffect(() => {
+    const handleCopyEvent = (e: ClipboardEvent) => handleCopy(e);
+    const handlePasteEvent = (e: ClipboardEvent) => handlePaste(e);
+    
+    document.addEventListener('copy', handleCopyEvent);
+    document.addEventListener('paste', handlePasteEvent);
+    
+    return () => {
+      document.removeEventListener('copy', handleCopyEvent);
+      document.removeEventListener('paste', handlePasteEvent);
+    };
+  }, [handleCopy, handlePaste]);
+
+  // Arrow key navigation handler for cells
+  const handleCellKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>, rowIndex: number, colKey: string) => {
+    const colKeys = getVisibleColKeys();
+    const currentColIdx = colKeys.indexOf(colKey);
+    
+    // Handle Shift+Arrow for selection
+    const isShift = e.shiftKey;
+    
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const newRowIndex = Math.max(0, rowIndex - 1);
+      if (isShift) {
+        // Extend selection
+        if (!selectionStart) {
+          setSelectionStart({ row: rowIndex, col: colKey });
+        }
+        setSelectionEnd({ row: newRowIndex, col: colKey });
+      } else {
+        // Clear selection and move
+        setSelectionStart(null);
+        setSelectionEnd(null);
+        setActiveRowIndex(newRowIndex);
+        setTimeout(() => {
+          const ref = cellInputRefs.current.get(`${newRowIndex}-${colKey}`);
+          ref?.focus();
+        }, 0);
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const newRowIndex = Math.min(scanRows.length - 1, rowIndex + 1);
+      if (isShift) {
+        if (!selectionStart) {
+          setSelectionStart({ row: rowIndex, col: colKey });
+        }
+        setSelectionEnd({ row: newRowIndex, col: colKey });
+      } else {
+        setSelectionStart(null);
+        setSelectionEnd(null);
+        setActiveRowIndex(newRowIndex);
+        setTimeout(() => {
+          const ref = cellInputRefs.current.get(`${newRowIndex}-${colKey}`);
+          ref?.focus();
+        }, 0);
+      }
+    } else if (e.key === 'ArrowLeft' && (e.currentTarget.selectionStart === 0 || e.altKey)) {
+      if (e.altKey) e.preventDefault();
+      const newColIdx = Math.max(0, currentColIdx - 1);
+      const newColKey = colKeys[newColIdx];
+      if (isShift) {
+        if (!selectionStart) {
+          setSelectionStart({ row: rowIndex, col: colKey });
+        }
+        setSelectionEnd({ row: rowIndex, col: newColKey });
+      } else if (e.altKey) {
+        setSelectionStart(null);
+        setSelectionEnd(null);
+        setActiveColKey(newColKey);
+        setTimeout(() => {
+          const ref = cellInputRefs.current.get(`${rowIndex}-${newColKey}`);
+          ref?.focus();
+        }, 0);
+      }
+    } else if (e.key === 'ArrowRight' && (e.currentTarget.selectionStart === e.currentTarget.value.length || e.altKey)) {
+      if (e.altKey) e.preventDefault();
+      const newColIdx = Math.min(colKeys.length - 1, currentColIdx + 1);
+      const newColKey = colKeys[newColIdx];
+      if (isShift) {
+        if (!selectionStart) {
+          setSelectionStart({ row: rowIndex, col: colKey });
+        }
+        setSelectionEnd({ row: rowIndex, col: newColKey });
+      } else if (e.altKey) {
+        setSelectionStart(null);
+        setSelectionEnd(null);
+        setActiveColKey(newColKey);
+        setTimeout(() => {
+          const ref = cellInputRefs.current.get(`${rowIndex}-${newColKey}`);
+          ref?.focus();
+        }, 0);
+      }
+    } else if (e.key === 'Tab') {
+      // Tab moves right, Shift+Tab moves left
+      e.preventDefault();
+      const direction = e.shiftKey ? -1 : 1;
+      let newColIdx = currentColIdx + direction;
+      let newRowIndex = rowIndex;
+      
+      if (newColIdx >= colKeys.length) {
+        newColIdx = 0;
+        newRowIndex = Math.min(scanRows.length - 1, rowIndex + 1);
+      } else if (newColIdx < 0) {
+        newColIdx = colKeys.length - 1;
+        newRowIndex = Math.max(0, rowIndex - 1);
+      }
+      
+      const newColKey = colKeys[newColIdx];
+      setSelectionStart(null);
+      setSelectionEnd(null);
+      setActiveRowIndex(newRowIndex);
+      setActiveColKey(newColKey);
+      setTimeout(() => {
+        const ref = cellInputRefs.current.get(`${newRowIndex}-${newColKey}`);
+        ref?.focus();
+      }, 0);
+    } else if (e.key === 'Escape') {
+      // Clear selection on Escape
+      setSelectionStart(null);
+      setSelectionEnd(null);
+    }
+  }, [getVisibleColKeys, scanRows.length, selectionStart]);
+
+  // Mouse down handler for starting selection
+  const handleCellMouseDown = useCallback((e: React.MouseEvent, rowIndex: number, colKey: string) => {
+    if (e.shiftKey && selectionStart) {
+      // Shift-click extends selection
+      setSelectionEnd({ row: rowIndex, col: colKey });
+    } else {
+      // Start new selection
+      setSelectionStart({ row: rowIndex, col: colKey });
+      setSelectionEnd({ row: rowIndex, col: colKey });
+      setIsSelecting(true);
+    }
+    setActiveRowIndex(rowIndex);
+    setActiveColKey(colKey);
+  }, [selectionStart]);
+
+  // Mouse enter handler for extending selection during drag
+  const handleCellMouseEnter = useCallback((rowIndex: number, colKey: string) => {
+    if (isSelecting) {
+      setSelectionEnd({ row: rowIndex, col: colKey });
+    }
+  }, [isSelecting]);
+
+  // Mouse up handler to stop selection
+  useEffect(() => {
+    const handleMouseUp = () => {
+      setIsSelecting(false);
+    };
+    
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => document.removeEventListener('mouseup', handleMouseUp);
+  }, []);
 
   // Filter rows by search query
   const filteredRows = searchQuery.trim() 
