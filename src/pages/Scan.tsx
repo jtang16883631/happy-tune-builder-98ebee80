@@ -206,6 +206,15 @@ const Scan = () => {
   const [outerNDCDialogOpen, setOuterNDCDialogOpen] = useState(false);
   const [outerNDCOptions, setOuterNDCOptions] = useState<OuterNDCOption[]>([]);
   const [pendingNDCLookup, setPendingNDCLookup] = useState<{ scannedNDC: string; rowIndex: number } | null>(null);
+  
+  // State for last scan reminder dialog
+  const [lastScanReminderOpen, setLastScanReminderOpen] = useState(false);
+  const [lastScanInfo, setLastScanInfo] = useState<{
+    templateId: string;
+    templateName: string;
+    sectionId: string;
+    sectionName: string;
+  } | null>(null);
 
   // Use cloud templates when online, offline templates when offline
   const templates = isOnline ? cloudTemplates : offlineTemplates as unknown as CloudTemplate[];
@@ -376,6 +385,27 @@ const Scan = () => {
     }
   }, [authLoading, hasRole, navigate]);
 
+  // Check for last scan location on initial load
+  useEffect(() => {
+    // Only check once when templates are loaded and no template is selected yet
+    if (templatesLoading || selectedTemplate) return;
+    
+    const savedLocation = localStorage.getItem('last_scan_location');
+    if (savedLocation) {
+      try {
+        const parsed = JSON.parse(savedLocation);
+        // Verify the template still exists
+        const templateExists = templates.some(t => t.id === parsed.templateId);
+        if (templateExists && parsed.templateId && parsed.sectionName) {
+          setLastScanInfo(parsed);
+          setLastScanReminderOpen(true);
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+  }, [templatesLoading, selectedTemplate, templates]);
+
   // Update LOC field when section changes (for empty rows only)
   useEffect(() => {
     if (!selectedSection) return;
@@ -438,11 +468,19 @@ const Scan = () => {
     }
   }, [createEmptyRow]);
 
-  // Handle section selection - load records for this section
+  // Handle section selection - load records for this section + save last scan location
   const handleSelectSection = useCallback((section: CloudSection) => {
     if (!selectedTemplate) return;
     setSelectedSection(section);
     loadSectionRecords(selectedTemplate.id, section.id, section.full_section || '');
+    
+    // Save last scan location to localStorage
+    localStorage.setItem('last_scan_location', JSON.stringify({
+      templateId: selectedTemplate.id,
+      templateName: selectedTemplate.name,
+      sectionId: section.id,
+      sectionName: section.full_section || section.sect,
+    }));
   }, [selectedTemplate, loadSectionRecords]);
 
   // Load sections when template is selected
@@ -496,7 +534,56 @@ const Scan = () => {
     }
   }, []);
 
-  // Handle template selection - just load sections, don't load records yet
+  // Handle resume last scan
+  const handleResumeLastScan = useCallback(async () => {
+    if (!lastScanInfo) return;
+    
+    // Find the template
+    const template = templates.find(t => t.id === lastScanInfo.templateId);
+    if (!template) {
+      toast.error('Template no longer exists');
+      setLastScanReminderOpen(false);
+      return;
+    }
+    
+    // Select the template
+    setSelectedTemplate(template);
+    
+    // Load sections and cost sheets
+    setSectionsLoading(true);
+    try {
+      const [sectionData] = await Promise.all([
+        getSections(template.id),
+        loadAvailableCostSheets(template.id),
+      ]);
+      setSections(sectionData);
+      
+      // Find and select the section
+      const section = sectionData.find(s => s.id === lastScanInfo.sectionId);
+      if (section) {
+        setSelectedSection(section);
+        loadSectionRecords(template.id, section.id, section.full_section || '');
+        toast.success(`Resumed: ${template.name} → ${section.full_section || section.sect}`);
+        // Re-save location since we're resuming (update timestamp implicitly)
+        localStorage.setItem('last_scan_location', JSON.stringify({
+          templateId: template.id,
+          templateName: template.name,
+          sectionId: section.id,
+          sectionName: section.full_section || section.sect,
+        }));
+      } else {
+        toast.info(`Section no longer exists, but template "${template.name}" is selected`);
+      }
+    } catch (err) {
+      console.error('Error resuming last scan:', err);
+      toast.error('Failed to resume last scan');
+    } finally {
+      setSectionsLoading(false);
+    }
+    
+    setLastScanReminderOpen(false);
+  }, [lastScanInfo, templates, getSections, loadAvailableCostSheets, loadSectionRecords]);
+
   const handleSelectTemplate = async (template: CloudTemplate) => {
     setSelectedTemplate(template);
     setSelectedSection(null); // Reset section selection
@@ -3233,6 +3320,42 @@ const Scan = () => {
         onOpenChange={setCostLookupDialogOpen}
         templateId={selectedTemplate?.id || null}
       />
+
+      {/* Last Scan Reminder Dialog */}
+      <Dialog open={lastScanReminderOpen} onOpenChange={setLastScanReminderOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ScanBarcode className="h-5 w-5 text-primary" />
+              Resume Last Scan?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground mb-3">
+              You were last scanning in:
+            </p>
+            <div className="bg-muted rounded-lg p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium">{lastScanInfo?.templateName}</span>
+              </div>
+              <div className="flex items-center gap-2 pl-6">
+                <span className="text-sm text-muted-foreground">Section:</span>
+                <Badge variant="secondary">{lastScanInfo?.sectionName}</Badge>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="flex gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setLastScanReminderOpen(false)}>
+              Start Fresh
+            </Button>
+            <Button onClick={handleResumeLastScan}>
+              <ArrowLeft className="h-4 w-4 mr-1" />
+              Resume
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 };
