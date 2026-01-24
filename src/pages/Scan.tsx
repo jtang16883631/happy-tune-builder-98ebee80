@@ -1879,7 +1879,7 @@ const Scan = () => {
     rec: { editable: true },
     time: { editable: true },
     ndc: { editable: true },
-    scannedNdc: { editable: false },
+    scannedNdc: { editable: true },
     qty: { editable: true, type: 'number' },
     misDivisor: { editable: true, type: 'number' },
     misCountMethod: { editable: true },
