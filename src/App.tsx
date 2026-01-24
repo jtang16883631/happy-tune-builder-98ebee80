@@ -13,6 +13,7 @@ import Auth from "./pages/Auth";
 import Profile from "./pages/Profile";
 import Users from "./pages/Users";
 import Scan from "./pages/Scan";
+import Automation from "./pages/Automation";
 import FDA from "./pages/FDA";
 import Compile from "./pages/Compile";
 import About from "./pages/About";
@@ -183,6 +184,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute allowOffline>
               <Scan />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/automation"
+          element={
+            <ProtectedRoute>
+              <Automation />
             </ProtectedRoute>
           }
         />
