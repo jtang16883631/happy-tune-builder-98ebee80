@@ -1,6 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
 export interface ChatRoom {
@@ -34,8 +33,26 @@ export interface RoomMember {
   user_avatar?: string;
 }
 
+/**
+ * Ensures there's an active session (even anonymous).
+ * Returns the current user id, or null if something failed.
+ */
+async function ensureSession(): Promise<string | null> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (sessionData?.session?.user) {
+    return sessionData.session.user.id;
+  }
+  // No session – sign in anonymously
+  const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously();
+  if (anonError) {
+    console.error('Anonymous sign-in failed:', anonError);
+    return null;
+  }
+  return anonData?.user?.id ?? null;
+}
+
 export function useTeamChat() {
-  const { user } = useAuth();
+  const [userId, setUserId] = useState<string | null>(null);
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [currentRoom, setCurrentRoom] = useState<ChatRoom | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -43,16 +60,30 @@ export function useTeamChat() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
 
+  const initDone = useRef(false);
+
+  // Initialise session (once)
+  useEffect(() => {
+    if (initDone.current) return;
+    initDone.current = true;
+
+    (async () => {
+      const uid = await ensureSession();
+      setUserId(uid);
+      setIsLoading(false);
+    })();
+  }, []);
+
   // Fetch all rooms the user is a member of
   const fetchRooms = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
 
     try {
       // Get rooms where user is a member
       const { data: membershipData, error: memberError } = await supabase
         .from('chat_room_members')
         .select('room_id')
-        .eq('user_id', user.id);
+        .eq('user_id', userId);
 
       if (memberError) throw memberError;
 
@@ -62,7 +93,7 @@ export function useTeamChat() {
       }
 
       const roomIds = membershipData.map(m => m.room_id);
-      
+
       const { data: roomsData, error: roomsError } = await supabase
         .from('chat_rooms')
         .select('*')
@@ -76,7 +107,7 @@ export function useTeamChat() {
       console.error('Error fetching rooms:', error);
       toast.error('Failed to load chat rooms');
     }
-  }, [user]);
+  }, [userId]);
 
   // Fetch messages for current room
   const fetchMessages = useCallback(async (roomId: string) => {
@@ -103,7 +134,7 @@ export function useTeamChat() {
         content: msg.content,
         created_at: msg.created_at,
         updated_at: msg.updated_at,
-        user_name: msg.profiles?.full_name || 'Unknown',
+        user_name: msg.profiles?.full_name || 'Guest',
         user_avatar: msg.profiles?.avatar_url,
       }));
 
@@ -136,7 +167,7 @@ export function useTeamChat() {
         user_id: m.user_id,
         is_admin: m.is_admin || false,
         joined_at: m.joined_at,
-        user_name: m.profiles?.full_name || 'Unknown',
+        user_name: m.profiles?.full_name || 'Guest',
         user_avatar: m.profiles?.avatar_url,
       }));
 
@@ -154,7 +185,7 @@ export function useTeamChat() {
 
   // Send a message
   const sendMessage = useCallback(async (content: string) => {
-    if (!user || !currentRoom || !content.trim()) return;
+    if (!userId || !currentRoom || !content.trim()) return;
 
     setIsSending(true);
     try {
@@ -162,7 +193,7 @@ export function useTeamChat() {
         .from('chat_messages')
         .insert({
           room_id: currentRoom.id,
-          user_id: user.id,
+          user_id: userId,
           content: content.trim(),
         });
 
@@ -173,23 +204,18 @@ export function useTeamChat() {
     } finally {
       setIsSending(false);
     }
-  }, [user, currentRoom]);
+  }, [userId, currentRoom]);
 
   // Create a new room
   const createRoom = useCallback(async (name: string, description?: string) => {
-    if (!user) {
-      toast.error('Please sign in to create a chat room');
-      return null;
+    // Ensure we have a session (anonymous is fine)
+    let uid = userId;
+    if (!uid) {
+      uid = await ensureSession();
+      if (uid) setUserId(uid);
     }
-
-    // Extra guard: sometimes UI state can have a user while the auth session is missing/expired.
-    // If the request has no valid session JWT, backend policies will see auth.uid() as NULL.
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError) {
-      console.error('Error reading session:', sessionError);
-    }
-    if (!sessionData?.session) {
-      toast.error('Your session has expired — please sign in again.');
+    if (!uid) {
+      toast.error('Could not authenticate – please try again.');
       return null;
     }
 
@@ -199,7 +225,7 @@ export function useTeamChat() {
         .insert({
           name,
           description,
-          created_by: user.id,
+          created_by: uid,
         })
         .select()
         .single();
@@ -211,7 +237,7 @@ export function useTeamChat() {
         .from('chat_room_members')
         .insert({
           room_id: room.id,
-          user_id: user.id,
+          user_id: uid,
           is_admin: true,
         });
 
@@ -222,7 +248,6 @@ export function useTeamChat() {
       return room;
     } catch (error: any) {
       console.error('Error creating room:', error);
-      // Surface the real reason (most commonly: not signed in, or permission policy/RLS)
       const details =
         error?.message ||
         error?.error_description ||
@@ -232,16 +257,16 @@ export function useTeamChat() {
       toast.error(details);
       return null;
     }
-  }, [user, fetchRooms]);
+  }, [userId, fetchRooms]);
 
   // Add member to room
-  const addMember = useCallback(async (roomId: string, userId: string) => {
+  const addMember = useCallback(async (roomId: string, targetUserId: string) => {
     try {
       const { error } = await supabase
         .from('chat_room_members')
         .insert({
           room_id: roomId,
-          user_id: userId,
+          user_id: targetUserId,
           is_admin: false,
         });
 
@@ -257,21 +282,12 @@ export function useTeamChat() {
     }
   }, [currentRoom, fetchMembers]);
 
-  // Initial load
+  // Reload rooms when userId becomes available
   useEffect(() => {
-    if (!user) {
-      setIsLoading(false);
-      return;
+    if (userId) {
+      fetchRooms();
     }
-
-    const loadRooms = async () => {
-      setIsLoading(true);
-      await fetchRooms();
-      setIsLoading(false);
-    };
-
-    loadRooms();
-  }, [user, fetchRooms]);
+  }, [userId, fetchRooms]);
 
   // Real-time subscription for messages
   useEffect(() => {
@@ -299,7 +315,7 @@ export function useTeamChat() {
               )
             `)
             .eq('id', payload.new.id)
-            .single();
+            .maybeSingle();
 
           if (data) {
             const newMessage: ChatMessage = {
@@ -309,7 +325,7 @@ export function useTeamChat() {
               content: data.content,
               created_at: data.created_at,
               updated_at: data.updated_at,
-              user_name: (data as any).profiles?.full_name || 'Unknown',
+              user_name: (data as any).profiles?.full_name || 'Guest',
               user_avatar: (data as any).profiles?.avatar_url,
             };
 
@@ -329,6 +345,7 @@ export function useTeamChat() {
   }, [currentRoom]);
 
   return {
+    userId,
     rooms,
     currentRoom,
     messages,
