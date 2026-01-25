@@ -116,8 +116,8 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
     return data || [];
   };
 
-  const fetchTemplateCostItemsFromCloud = async (templateId: string, label: string) => {
-    const costItemsLimit = 1000;
+  const fetchTemplateCostItemsFromCloud = async (templateId: string, label: string, silent = false) => {
+    const costItemsLimit = 5000; // Increased from 1000 for fewer round trips
     let hasMore = true;
     let lastId: string | null = null;
     let page = 0;
@@ -125,11 +125,13 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
 
     while (hasMore) {
       page += 1;
-      setStatus(
-        `Fetching cost items: ${label} (page ${page}, ${items.length.toLocaleString()} loaded...)`
-      );
-      // ensure UI never looks stuck
-      setProgress((prev) => Math.min(prev + 0.5, 44));
+      if (!silent) {
+        setStatus(
+          `Fetching cost items: ${label} (page ${page}, ${items.length.toLocaleString()} loaded...)`
+        );
+        // ensure UI never looks stuck
+        setProgress((prev) => Math.min(prev + 0.5, 44));
+      }
 
       let q = supabase
         .from('template_cost_items')
@@ -140,7 +142,7 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
 
       if (lastId) q = q.gt('id', lastId);
 
-      const { data, error } = await withTimeout<any>(q, 30000, 'Fetching cost items');
+      const { data, error } = await withTimeout<any>(q, 60000, 'Fetching cost items');
       if (error) throw error;
 
       const batch = data || [];
@@ -155,6 +157,67 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
     }
 
     return items;
+  };
+
+  // Parallel fetch helper - fetches multiple templates concurrently
+  const fetchTemplatesDataInParallel = async (
+    templates: typeof cloudTemplates,
+    concurrency = 5
+  ): Promise<{
+    sections: { templateId: string; items: any[] }[];
+    costItems: { templateId: string; items: any[] }[];
+  }> => {
+    const allSections: { templateId: string; items: any[] }[] = [];
+    const allCostItems: { templateId: string; items: any[] }[] = [];
+
+    // Process templates in batches for parallel execution
+    for (let i = 0; i < templates.length; i += concurrency) {
+      const batch = templates.slice(i, i + concurrency);
+      const batchNum = Math.floor(i / concurrency) + 1;
+      const totalBatches = Math.ceil(templates.length / concurrency);
+      
+      setStatus(`Fetching batch ${batchNum}/${totalBatches} (${batch.length} templates in parallel)...`);
+      setProgress(5 + ((i / templates.length) * 40));
+
+      // Fetch all templates in this batch concurrently
+      const batchResults = await Promise.all(
+        batch.map(async (template) => {
+          const templateLabel = template.name || template.facility_name || template.inv_number || 'Template';
+          
+          // Fetch sections and cost items in parallel for each template
+          const [sections, costItems] = await Promise.all([
+            fetchTemplateSectionsFromCloud(template.id),
+            fetchTemplateCostItemsFromCloud(template.id, templateLabel, true) // silent mode
+          ]);
+
+          return {
+            templateId: template.id,
+            sections: (sections || []).map((s: any) => ({
+              sect: s.sect,
+              description: s.description,
+              full_section: s.full_section,
+              cost_sheet: s.cost_sheet,
+            })),
+            costItems: (costItems || []).map((c: any) => ({
+              ndc: c.ndc,
+              material_description: c.material_description,
+              unit_price: c.unit_price,
+              source: c.source,
+              material: c.material,
+              sheet_name: c.sheet_name,
+            })),
+          };
+        })
+      );
+
+      // Collect results
+      for (const result of batchResults) {
+        allSections.push({ templateId: result.templateId, items: result.sections });
+        allCostItems.push({ templateId: result.templateId, items: result.costItems });
+      }
+    }
+
+    return { sections: allSections, costItems: allCostItems };
   };
 
   const toggleTemplate = (id: string) => {
@@ -204,53 +267,35 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
         is_dirty: false,
       }));
 
-      // Fetch sections and cost items for each template from cloud
-      const allSections: { templateId: string; items: OfflineSection[] }[] = [];
-      const allCostItems: { templateId: string; items: OfflineCostItem[] }[] = [];
-
-      const templateSpanStart = 5;
-      const templateSpanEnd = 45;
-      const templateSpan = templateSpanEnd - templateSpanStart;
-
-      for (let i = 0; i < selectedTemplates.length; i++) {
-        const template = selectedTemplates[i];
-        setStatus(`Fetching data for: ${template.name || template.facility_name || 'Template'} (${i + 1}/${selectedTemplates.length})`);
-        setProgress(templateSpanStart + (i / Math.max(1, selectedTemplates.length)) * templateSpan);
-
-        // Fetch sections from cloud (minimal columns)
-        const sections = await fetchTemplateSectionsFromCloud(template.id);
-
-        allSections.push({
-          templateId: template.id,
-          items: (sections || []).map(s => ({
-            id: s.id,
-            template_id: s.template_id,
-            sect: s.sect,
-            description: s.description,
-            full_section: s.full_section,
-            cost_sheet: s.cost_sheet,
-          })),
-        });
-
-        // Fetch cost items from cloud with cursor-based pagination (avoids large OFFSET timeouts)
-        const costItems = await fetchTemplateCostItemsFromCloud(
-          template.id,
-          template.name || template.facility_name || template.inv_number || 'Template'
-        );
-        allCostItems.push({
-          templateId: template.id,
-          items: (costItems || []).map((c: any) => ({
-            id: c.id,
-            template_id: c.template_id,
-            ndc: c.ndc,
-            material_description: c.material_description,
-            unit_price: c.unit_price,
-            source: c.source,
-            material: c.material,
-            sheet_name: c.sheet_name,
-          })),
-        });
-      }
+      // Use parallel fetching for significant speedup
+      const { sections: fetchedSections, costItems: fetchedCostItems } = await fetchTemplatesDataInParallel(selectedTemplates, 5);
+      
+      // Convert to the expected format with full IDs
+      const allSections: { templateId: string; items: OfflineSection[] }[] = fetchedSections.map(s => ({
+        templateId: s.templateId,
+        items: s.items.map((item: any) => ({
+          id: item.id || crypto.randomUUID(),
+          template_id: s.templateId,
+          sect: item.sect,
+          description: item.description,
+          full_section: item.full_section,
+          cost_sheet: item.cost_sheet,
+        })),
+      }));
+      
+      const allCostItems: { templateId: string; items: OfflineCostItem[] }[] = fetchedCostItems.map(c => ({
+        templateId: c.templateId,
+        items: c.items.map((item: any) => ({
+          id: item.id || crypto.randomUUID(),
+          template_id: c.templateId,
+          ndc: item.ndc,
+          material_description: item.material_description,
+          unit_price: item.unit_price,
+          source: item.source,
+          material: item.material,
+          sheet_name: item.sheet_name,
+        })),
+      }));
 
       setProgress(50);
       setStatus(includeFDA ? 'Gathering FDA data...' : 'Skipping FDA data...');
@@ -415,45 +460,8 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
       setProgress(5);
       setStatus(`Fetching data for ${selectedTemplates.length} template(s)...`);
 
-      const allSections: { templateId: string; items: Array<{ sect: string; description: string | null; full_section: string | null; cost_sheet: string | null }> }[] = [];
-      const allCostItems: { templateId: string; items: Array<{ ndc: string | null; material_description: string | null; unit_price: number | null; source: string | null; material: string | null; sheet_name: string | null }> }[] = [];
-
-      for (let i = 0; i < selectedTemplates.length; i++) {
-        const template = selectedTemplates[i];
-        setStatus(`Fetching: ${template.name || template.facility_name || template.inv_number || 'Template'} (${i + 1}/${selectedTemplates.length})`);
-        setProgress(5 + (i / selectedTemplates.length) * 40);
-
-        // Fetch sections (minimal columns)
-        const sections = await fetchTemplateSectionsFromCloud(template.id);
-
-        allSections.push({
-          templateId: template.id,
-          items: (sections || []).map((s: any) => ({
-            sect: s.sect,
-            description: s.description,
-            full_section: s.full_section,
-            cost_sheet: s.cost_sheet,
-          })),
-        });
-
-        // Fetch cost items with cursor-based pagination (avoids large OFFSET timeouts)
-        const costItems = await fetchTemplateCostItemsFromCloud(
-          template.id,
-          template.name || template.facility_name || template.inv_number || 'Template'
-        );
-
-        allCostItems.push({
-          templateId: template.id,
-          items: (costItems || []).map((c: any) => ({
-            ndc: c.ndc,
-            material_description: c.material_description,
-            unit_price: c.unit_price,
-            source: c.source,
-            material: c.material,
-            sheet_name: c.sheet_name,
-          })),
-        });
-      }
+      // Use parallel fetching for significant speedup
+      const { sections: allSections, costItems: allCostItems } = await fetchTemplatesDataInParallel(selectedTemplates, 5);
 
       setProgress(50);
       setStatus('Building template database...');
