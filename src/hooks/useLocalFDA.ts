@@ -451,66 +451,82 @@ export function useLocalFDA() {
     }
   }, [db]);
 
-  // Find outer NDCs by Left 9 (AG column)
-  // This PRIMARILY searches column AG (innerpack_outer_left9) using the first 9 digits
-  // and returns unique column AE (outerpack_ndc) values
-  // The scanned NDC is kept as-is in scannedNdc field, but we lookup based on Left 9
-  const findOuterNDCsByNDC9 = useCallback((ndc: string): { outerNDCs: string[]; drugs: FDADrug[] } => {
-    if (!db) return { outerNDCs: [], drugs: [] };
+  // Check if an NDC is an Inner pack by looking at column X (io)
+  // Returns: { isInner: boolean, drug: FDADrug | null }
+  const checkIsInnerPack = useCallback((ndc: string): { isInner: boolean; drug: FDADrug | null } => {
+    if (!db) return { isInner: false, drug: null };
 
     try {
       const digits = (ndc ?? '').replace(/\D/g, '');
       const ndc11 = digits.length >= 11 ? digits.slice(0, 11) : digits.padStart(11, '0');
       const ndc11Trim = ndc11.replace(/^0+/, '') || ndc11;
 
-      // Extract Left 9 (first 9 digits) for AG column search
-      const ndc9 = ndc11.slice(0, 9);
-      const ndc9Trim = ndc9.replace(/^0+/, '') || ndc9;
-
-      // 1) PRIMARY: Search by AG column (innerpack_outer_left9) using Left 9
-      // This is the main lookup path as per user requirement
-      let results = db.exec(
+      const results = db.exec(
         `
         SELECT * FROM drugs
-        WHERE REPLACE(REPLACE(innerpack_outer_left9, '-', ''), ' ', '') = ?
-           OR REPLACE(REPLACE(innerpack_outer_left9, '-', ''), ' ', '') = ?
-        LIMIT 200
+        WHERE REPLACE(REPLACE(ndc, '-', ''), ' ', '') = ?
+           OR REPLACE(REPLACE(ndc, '-', ''), ' ', '') = ?
+        LIMIT 1
         `,
-        [ndc9, ndc9Trim]
+        [ndc11, ndc11Trim]
       );
 
-      // 2) Fallback: exact match on scanned NDC (for items without AG mapping)
       if (results.length === 0 || results[0].values.length === 0) {
-        results = db.exec(
-          `
-          SELECT * FROM drugs
-          WHERE REPLACE(REPLACE(ndc, '-', ''), ' ', '') = ?
-             OR REPLACE(REPLACE(ndc, '-', ''), ' ', '') = ?
-          LIMIT 50
-          `,
-          [ndc11, ndc11Trim]
-        );
-      }
-
-      // 3) Last resort: prefix match on NDC by NDC9
-      if (results.length === 0 || results[0].values.length === 0) {
-        results = db.exec(
-          `
-          SELECT * FROM drugs
-          WHERE REPLACE(REPLACE(ndc, '-', ''), ' ', '') LIKE ?
-             OR REPLACE(REPLACE(ndc, '-', ''), ' ', '') LIKE ?
-          LIMIT 200
-          `,
-          [`${ndc9}%`, `${ndc9Trim}%`]
-        );
-      }
-
-      if (results.length === 0 || results[0].values.length === 0) {
-        return { outerNDCs: [], drugs: [] };
+        return { isInner: false, drug: null };
       }
 
       const columns = results[0].columns;
-      const drugs: FDADrug[] = results[0].values.map((row: any[]) => {
+      const row = results[0].values[0];
+
+      const drug: any = {};
+      columns.forEach((col, idx) => {
+        drug[col] = row[idx];
+      });
+
+      // Check IO column (column X) - "I" means Inner pack
+      const io = drug.io?.toString().toUpperCase().trim();
+      return { isInner: io === 'I', drug: drug as FDADrug };
+    } catch (err) {
+      console.error('checkIsInnerPack error:', err);
+      return { isInner: false, drug: null };
+    }
+  }, [db]);
+
+  // Find outer NDC candidates using the new workflow:
+  // Step B: outerKey = left9 + "O", search AD column (ndc9_outer), get AE column (outerpack_ndc)
+  // Returns candidates with their full drug info for display (AF = ndc column for outer, B = meridian_desc, G = fda_size)
+  const findOuterCandidates = useCallback((ndc: string): { candidates: FDADrug[]; outerNDCs: string[] } => {
+    if (!db) return { candidates: [], outerNDCs: [] };
+
+    try {
+      const digits = (ndc ?? '').replace(/\D/g, '');
+      const ndc11 = digits.length >= 11 ? digits.slice(0, 11) : digits.padStart(11, '0');
+      
+      // Extract Left 9 (first 9 digits) and append "O" for outerKey
+      const left9 = ndc11.slice(0, 9);
+      const outerKey = left9 + 'O';
+      const outerKeyTrim = outerKey.replace(/^0+/, '') || outerKey;
+
+      console.log('[findOuterCandidates] left9:', left9, 'outerKey:', outerKey);
+
+      // Search AD column (ndc9_outer) for outerKey
+      const results = db.exec(
+        `
+        SELECT * FROM drugs
+        WHERE REPLACE(REPLACE(ndc9_outer, '-', ''), ' ', '') = ?
+           OR REPLACE(REPLACE(ndc9_outer, '-', ''), ' ', '') = ?
+        LIMIT 200
+        `,
+        [outerKey, outerKeyTrim]
+      );
+
+      if (results.length === 0 || results[0].values.length === 0) {
+        console.log('[findOuterCandidates] No matches found for outerKey:', outerKey);
+        return { candidates: [], outerNDCs: [] };
+      }
+
+      const columns = results[0].columns;
+      const candidates: FDADrug[] = results[0].values.map((row: any[]) => {
         const drug: any = {};
         columns.forEach((col, idx) => {
           drug[col] = row[idx];
@@ -520,27 +536,34 @@ export function useLocalFDA() {
 
       // Extract unique outerpack_ndc values (column AE)
       const outerNDCSet = new Set<string>();
-      drugs.forEach((drug) => {
+      candidates.forEach((drug) => {
         const raw = drug.outerpack_ndc;
         if (!raw) return;
 
         const outerDigits = String(raw).replace(/\D/g, '');
         if (!outerDigits) return;
 
-        // Many Excel imports drop leading zeros; pad to 11 when possible.
         const normalized = outerDigits.length >= 11 ? outerDigits.slice(0, 11) : outerDigits.padStart(11, '0');
         outerNDCSet.add(normalized);
       });
 
+      console.log('[findOuterCandidates] Found', outerNDCSet.size, 'unique outer NDCs');
+
       return {
+        candidates,
         outerNDCs: Array.from(outerNDCSet),
-        drugs,
       };
     } catch (err) {
-      console.error('findOuterNDCsByNDC9 error:', err);
-      return { outerNDCs: [], drugs: [] };
+      console.error('findOuterCandidates error:', err);
+      return { candidates: [], outerNDCs: [] };
     }
   }, [db]);
+
+  // Legacy function for backward compatibility - now uses the new workflow internally
+  const findOuterNDCsByNDC9 = useCallback((ndc: string): { outerNDCs: string[]; drugs: FDADrug[] } => {
+    const { candidates, outerNDCs } = findOuterCandidates(ndc);
+    return { outerNDCs, drugs: candidates };
+  }, [findOuterCandidates]);
 
   // Get drug info for a specific outer NDC
   const getDrugByOuterNDC = useCallback((outerNDC: string): FDADrug | null => {
@@ -697,6 +720,8 @@ export function useLocalFDA() {
     importData,
     searchDrugs,
     lookupNDC,
+    checkIsInnerPack,
+    findOuterCandidates,
     findOuterNDCsByNDC9,
     getDrugByOuterNDC,
     getCount,

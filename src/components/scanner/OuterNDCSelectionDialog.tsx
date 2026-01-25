@@ -21,6 +21,9 @@ export interface OuterNDCOption {
   packageSize: string | null;
   manufacturer: string | null;
   doseForm: string | null;
+  // Display fields: B column (meridian_desc) + G column (fda_size)
+  meridianDesc: string | null;
+  fdaSize: string | null;
 }
 
 interface OuterNDCSelectionDialogProps {
@@ -89,10 +92,9 @@ export function OuterNDCSelectionDialog({
             className="divide-y"
           >
             {options.map((option, index) => {
-              const drugName = option.trade || option.generic || 'Unknown Drug';
-              const details = [option.strength, option.packageSize, option.doseForm, option.manufacturer]
-                .filter(Boolean)
-                .join(' ');
+              // Display format: outerNDC (11 digits) + B column (meridian_desc) + G column (fda_size)
+              const displayDesc = option.meridianDesc || option.trade || option.generic || 'Unknown Drug';
+              const displaySize = option.fdaSize || option.packageSize || '';
               
               return (
                 <Label
@@ -111,7 +113,7 @@ export function OuterNDCSelectionDialog({
                     {formatNDC(option.outerNDC)}
                   </span>
                   <span className="text-sm truncate">
-                    {drugName} {details}
+                    {displayDesc} {displaySize}
                   </span>
                 </Label>
               );
