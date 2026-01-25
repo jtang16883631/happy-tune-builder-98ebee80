@@ -2,7 +2,7 @@ import { ReactNode, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, Users, ScanBarcode, FolderOpen, Pill, LayoutDashboard, CalendarDays, Clock, PanelLeftClose, PanelLeft, Radio, ClipboardList, AlertTriangle, HardDrive, FileText, Database, ShieldX, MessageSquare, UserCog, Ticket, FileStack, Info, Zap } from 'lucide-react';
+import { LogOut, Users, ScanBarcode, FolderOpen, Pill, LayoutDashboard, CalendarDays, Clock, PanelLeftClose, PanelLeft, Radio, ClipboardList, AlertTriangle, HardDrive, FileText, Database, ShieldX, MessageSquare, UserCog, Ticket, FileStack, Zap, History } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { AnnouncementBell } from '@/components/announcements/AnnouncementBell';
@@ -62,7 +62,7 @@ const navSections: NavSection[] = [
       { href: '#', label: 'Reports', icon: FileText, roles: allRoles, disabled: true },
       { href: '/fda', label: 'Master Data', icon: Database, roles: allRoles },
       { href: '/compile', label: 'Compile', icon: FileStack, roles: allRoles },
-      { href: '/about', label: 'About', icon: Info, roles: allRoles },
+      { href: '/update-log', label: 'Update Log', icon: History, roles: allRoles },
     ],
   },
   {

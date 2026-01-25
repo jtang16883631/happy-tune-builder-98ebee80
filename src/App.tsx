@@ -16,7 +16,7 @@ import Scan from "./pages/Scan";
 import Automation from "./pages/Automation";
 import FDA from "./pages/FDA";
 import Compile from "./pages/Compile";
-import About from "./pages/About";
+import UpdateLog from "./pages/UpdateLog";
 import Dashboard from "./pages/Dashboard";
 import ScheduleHub from "./pages/ScheduleHub";
 import Timesheet from "./pages/Timesheet";
@@ -212,10 +212,10 @@ function AppRoutes() {
           }
         />
         <Route
-          path="/about"
+          path="/update-log"
           element={
             <ProtectedRoute>
-              <About />
+              <UpdateLog />
             </ProtectedRoute>
           }
         />
