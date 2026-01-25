@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -7,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog,
   DialogContent,
@@ -14,46 +17,95 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { Calendar, Tag, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Calendar, Tag, Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const VERSION = '1.0.0';
-
-interface UpdateEntry {
-  date: string;
+interface ChangelogEntry {
+  id: string;
   version: string;
+  release_date: string;
   changes: string[];
 }
 
-const initialLog: UpdateEntry[] = [
-  {
-    date: '2026-01-25',
-    version: '1.0.0',
-    changes: [
-      'Initial release of Meridian Portal',
-      'Added NDC scanning with IO-based outer pack detection',
-      'Implemented Live Tracker workflow management',
-      'Added Schedule Hub for job scheduling',
-      'Team Chat with real-time messaging',
-      'Timesheet tracking functionality',
-      'Master Data (FDA) database management',
-      'Compile tool for Excel aggregation',
-    ],
-  },
-];
-
 const UpdateLog = () => {
-  const [updateLog, setUpdateLog] = useState<UpdateEntry[]>(initialLog);
+  const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingEntry, setEditingEntry] = useState<ChangelogEntry | null>(null);
   const [formData, setFormData] = useState({
     date: '',
     version: '',
     changes: '',
   });
 
+  // Fetch changelog entries
+  const { data: updateLog = [], isLoading } = useQuery({
+    queryKey: ['changelog-entries'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('changelog_entries')
+        .select('*')
+        .order('release_date', { ascending: false });
+
+      if (error) throw error;
+      return data as ChangelogEntry[];
+    },
+  });
+
+  // Get current version (latest entry)
+  const currentVersion = updateLog[0]?.version || '1.0.0';
+
+  // Insert mutation
+  const insertMutation = useMutation({
+    mutationFn: async (entry: { version: string; release_date: string; changes: string[] }) => {
+      const { error } = await supabase.from('changelog_entries').insert(entry);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['changelog-entries'] });
+      toast.success('Entry added');
+      setIsDialogOpen(false);
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to add: ${error.message}`);
+    },
+  });
+
+  // Update mutation
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, ...entry }: { id: string; version: string; release_date: string; changes: string[] }) => {
+      const { error } = await supabase
+        .from('changelog_entries')
+        .update(entry)
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['changelog-entries'] });
+      toast.success('Entry updated');
+      setIsDialogOpen(false);
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to update: ${error.message}`);
+    },
+  });
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('changelog_entries').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['changelog-entries'] });
+      toast.success('Entry deleted');
+    },
+    onError: (error: Error) => {
+      toast.error(`Failed to delete: ${error.message}`);
+    },
+  });
+
   const openAddDialog = () => {
-    setEditingIndex(null);
+    setEditingEntry(null);
     setFormData({
       date: new Date().toISOString().split('T')[0],
       version: '',
@@ -62,11 +114,10 @@ const UpdateLog = () => {
     setIsDialogOpen(true);
   };
 
-  const openEditDialog = (index: number) => {
-    const entry = updateLog[index];
-    setEditingIndex(index);
+  const openEditDialog = (entry: ChangelogEntry) => {
+    setEditingEntry(entry);
     setFormData({
-      date: entry.date,
+      date: entry.release_date,
       version: entry.version,
       changes: entry.changes.join('\n'),
     });
@@ -79,30 +130,29 @@ const UpdateLog = () => {
       return;
     }
 
-    const newEntry: UpdateEntry = {
-      date: formData.date,
-      version: formData.version.trim(),
-      changes: formData.changes.split('\n').filter((c) => c.trim()),
-    };
+    const changes = formData.changes.split('\n').filter((c) => c.trim());
 
-    if (editingIndex !== null) {
-      const updated = [...updateLog];
-      updated[editingIndex] = newEntry;
-      setUpdateLog(updated);
-      toast.success('Entry updated');
+    if (editingEntry) {
+      updateMutation.mutate({
+        id: editingEntry.id,
+        version: formData.version.trim(),
+        release_date: formData.date,
+        changes,
+      });
     } else {
-      setUpdateLog([newEntry, ...updateLog]);
-      toast.success('Entry added');
+      insertMutation.mutate({
+        version: formData.version.trim(),
+        release_date: formData.date,
+        changes,
+      });
     }
-
-    setIsDialogOpen(false);
   };
 
-  const handleDelete = (index: number) => {
-    const updated = updateLog.filter((_, i) => i !== index);
-    setUpdateLog(updated);
-    toast.success('Entry deleted');
+  const handleDelete = (id: string) => {
+    deleteMutation.mutate(id);
   };
+
+  const isSaving = insertMutation.isPending || updateMutation.isPending;
 
   return (
     <AppLayout>
@@ -121,7 +171,7 @@ const UpdateLog = () => {
             </Button>
             <Badge variant="outline" className="text-lg px-4 py-2 font-mono">
               <Tag className="h-4 w-4 mr-2" />
-              v{VERSION}
+              v{currentVersion}
             </Badge>
           </div>
         </div>
@@ -135,54 +185,67 @@ const UpdateLog = () => {
           </CardHeader>
           <CardContent>
             <ScrollArea className="h-[calc(100vh-280px)]">
-              <div className="space-y-6">
-                {updateLog.map((entry, index) => (
-                  <div
-                    key={index}
-                    className="border-l-2 border-primary pl-4 pb-4 group"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <Badge variant="secondary" className="font-mono">
-                          v{entry.version}
-                        </Badge>
-                        <span className="text-sm text-muted-foreground">
-                          {entry.date}
-                        </span>
-                      </div>
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7"
-                          onClick={() => openEditDialog(index)}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-destructive"
-                          onClick={() => handleDelete(index)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
+              {isLoading ? (
+                <div className="space-y-6">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="border-l-2 border-muted pl-4 pb-4">
+                      <Skeleton className="h-6 w-32 mb-2" />
+                      <Skeleton className="h-4 w-full mb-1" />
+                      <Skeleton className="h-4 w-3/4" />
                     </div>
-                    <ul className="space-y-1">
-                      {entry.changes.map((change, changeIndex) => (
-                        <li
-                          key={changeIndex}
-                          className="text-sm text-foreground flex items-start gap-2"
-                        >
-                          <span className="text-primary mt-1">•</span>
-                          {change}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {updateLog.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="border-l-2 border-primary pl-4 pb-4 group"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <Badge variant="secondary" className="font-mono">
+                            v{entry.version}
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">
+                            {entry.release_date}
+                          </span>
+                        </div>
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => openEditDialog(entry)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive"
+                            onClick={() => handleDelete(entry.id)}
+                            disabled={deleteMutation.isPending}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                      <ul className="space-y-1">
+                        {entry.changes.map((change, changeIndex) => (
+                          <li
+                            key={changeIndex}
+                            className="text-sm text-foreground flex items-start gap-2"
+                          >
+                            <span className="text-primary mt-1">•</span>
+                            {change}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
             </ScrollArea>
           </CardContent>
         </Card>
@@ -192,7 +255,7 @@ const UpdateLog = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {editingIndex !== null ? 'Edit Entry' : 'Add New Entry'}
+              {editingEntry ? 'Edit Entry' : 'Add New Entry'}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -237,8 +300,9 @@ const UpdateLog = () => {
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSave}>
-              {editingIndex !== null ? 'Update' : 'Add'}
+            <Button onClick={handleSave} disabled={isSaving}>
+              {isSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {editingEntry ? 'Update' : 'Add'}
             </Button>
           </DialogFooter>
         </DialogContent>
