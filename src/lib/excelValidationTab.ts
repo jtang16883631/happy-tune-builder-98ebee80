@@ -3,9 +3,15 @@
  * Creates a Validation sheet with balance checks and analytics
  */
 
-import type { WorkSheet, WorkBook } from 'xlsx-js-style';
+import type { WorkSheet } from 'xlsx-js-style';
 import * as XLSX from 'xlsx-js-style';
 import { getColLetter, COLUMN_INDICES } from './excelFormulas';
+
+// Column indices for Master sheet (0-based)
+export const MASTER_COLUMN_INDICES = {
+  LOC: 0,           // Column A - Section name
+  EXTENDED: 26,     // Column AA - Extended value
+};
 
 export interface SectionAnalytics {
   section: string;
@@ -317,6 +323,8 @@ export function createValidationWorksheet(
   for (let i = 0; i < balanceChecks.length; i++) {
     const excelRow = dataStartRow + i;
     const summaryRow = summaryStartRow + i;
+    const sectionName = sectionSheetNames[i] || balanceChecks[i]?.dataSheet || '';
+    const escapedSectionName = sectionName.replace(/"/g, '""'); // Escape double quotes for SUMIF criteria
     
     // From Summary formula: references Summary sheet's Value column (C)
     const fromSummaryCell = `B${excelRow}`;
@@ -326,25 +334,16 @@ export function createValidationWorksheet(
       z: '"$"#,##0.00'
     };
     
-    // From Master formula: reference the section sheet's SUM cell directly
-    // This ensures changes in each section sheet update both Summary AND Validation
+    // From Master formula: SUMIF on Master sheet's LOC column (A) matching section name, summing Extended column (AA)
+    // This ensures changes in Master tab update Validation, independent of section sheets
     const fromMasterCell = `C${excelRow}`;
-    if (sectionSheetNames[i]) {
-      const escapedName = sectionSheetNames[i].replace(/'/g, "''");
-      // Reference the SUM formula cell in the section sheet (AB1 has the SUM formula)
-      worksheet[fromMasterCell] = {
-        t: 'n',
-        f: `IF('${escapedName}'!${getColLetter(COLUMN_INDICES.SUM_COLUMN)}1="",0,IFERROR('${escapedName}'!${getColLetter(COLUMN_INDICES.SUM_COLUMN)}1,0))`,
-        z: '"$"#,##0.00'
-      };
-    } else {
-      // Fallback: use static value if no sheet name available
-      worksheet[fromMasterCell] = {
-        t: 'n',
-        v: balanceChecks[i]?.fromMaster ?? 0,
-        z: '"$"#,##0.00'
-      };
-    }
+    const locCol = getColLetter(MASTER_COLUMN_INDICES.LOC);       // A
+    const extendedCol = getColLetter(MASTER_COLUMN_INDICES.EXTENDED); // AA
+    worksheet[fromMasterCell] = {
+      t: 'n',
+      f: `IFERROR(SUMIF(Master!${locCol}:${locCol},"${escapedSectionName}",Master!${extendedCol}:${extendedCol}),0)`,
+      z: '"$"#,##0.00'
+    };
     
     // Difference formula: =B{row}-C{row}
     const differenceCell = `D${excelRow}`;
