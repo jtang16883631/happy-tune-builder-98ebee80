@@ -3,7 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff, Download, GripVertical, Eye, EyeOff, Settings2, FileUp, Cloud, RefreshCw, Search, Calculator, DollarSign, ShieldCheck, BarChart3, HardDrive } from 'lucide-react';
+import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, AlertCircle, ChevronDown, Edit2, Check, X, CloudOff, Download, GripVertical, Eye, EyeOff, Settings2, FileUp, Cloud, RefreshCw, Search, Calculator, DollarSign, ShieldCheck, BarChart3, HardDrive, Smartphone } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import * as XLSX from 'xlsx-js-style';
@@ -16,6 +16,8 @@ import { useCloudTemplates, CloudTemplate, CloudSection, TemplateStatus } from '
 import { useOfflineTemplates, OfflineTemplate } from '@/hooks/useOfflineTemplates';
 import { useLocalFDA, FDADrug } from '@/hooks/useLocalFDA';
 import { SyncButton } from '@/components/scanner/SyncButton';
+import { DeviceSyncDialog } from '@/components/scanner/DeviceSyncDialog';
+import { FlashDriveTransferDialog } from '@/components/scanner/FlashDriveTransferDialog';
 import { OuterNDCSelectionDialog, OuterNDCOption } from '@/components/scanner/OuterNDCSelectionDialog';
 import { CostDataLookupDialog } from '@/components/scanner/CostDataLookupDialog';
 import { ScanSummaryTab } from '@/components/scanner/ScanSummaryTab';
@@ -194,6 +196,9 @@ const Scan = () => {
   
   const { lookupNDC: fdaLookup, checkIsInnerPack, findOuterCandidates, getDrugByOuterNDC } = useLocalFDA();
 
+  // State for offline sync dialogs
+  const [deviceSyncDialogOpen, setDeviceSyncDialogOpen] = useState(false);
+  const [flashDriveDialogOpen, setFlashDriveDialogOpen] = useState(false);
 
   // State for outer NDC selection dialog
   const [outerNDCDialogOpen, setOuterNDCDialogOpen] = useState(false);
@@ -2566,8 +2571,28 @@ const Scan = () => {
       <AppLayout>
         <div className="space-y-8" style={{ fontFamily: 'Arial, sans-serif' }}>
           <div className="text-center py-4 relative">
-            {/* Sync button in top right */}
+            {/* Sync buttons in top right */}
             <div className="absolute right-0 top-0 flex items-center gap-2">
+              {isOnline && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDeviceSyncDialogOpen(true)}
+                  className="gap-2"
+                >
+                  <Smartphone className="h-4 w-4" />
+                  <span className="hidden sm:inline">Download to Device</span>
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFlashDriveDialogOpen(true)}
+                className="gap-2"
+              >
+                <HardDrive className="h-4 w-4" />
+                <span className="hidden sm:inline">Flash Drive</span>
+              </Button>
               <SyncButton
                 isOnline={isOnline}
                 isSyncing={isSyncing}
@@ -2575,6 +2600,7 @@ const Scan = () => {
                 lastSyncedAt={syncMeta.lastSyncedAt}
                 onSync={syncWithCloud}
               />
+            </div>
             </div>
             
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 mb-4">
@@ -2617,6 +2643,22 @@ const Scan = () => {
             
           </div>
 
+          {/* Device Sync Dialog */}
+          <DeviceSyncDialog
+            open={deviceSyncDialogOpen}
+            onOpenChange={setDeviceSyncDialogOpen}
+            cloudTemplates={cloudTemplates}
+            syncedTemplateIds={syncedTemplateIds}
+            onSyncTemplates={syncSelectedTemplates}
+            isSyncing={isSyncing}
+            syncProgress={syncProgress}
+          />
+
+          {/* Flash Drive Transfer Dialog */}
+          <FlashDriveTransferDialog
+            open={flashDriveDialogOpen}
+            onOpenChange={setFlashDriveDialogOpen}
+          />
 
           {sortedTemplates.length === 0 ? (
             <Card className="border-dashed max-w-md mx-auto">
