@@ -225,8 +225,10 @@ export function buildValidationData(
 }
 
 /**
- * Create the Validation worksheet with formulas for dynamic "From Summary" column
+ * Create the Validation worksheet with formulas for dynamic "From Summary" and "From Master" columns
+ * Both columns use formulas so changes in Summary or Master sheets auto-propagate
  * @param summaryStartRow - The row number in Summary sheet where section data starts (1-based)
+ * @param sectionSheetNames - Array of section sheet names for Master sheet row mapping
  */
 export function createValidationWorksheet(
   balanceChecks: BalanceCheckRow[],
@@ -234,7 +236,8 @@ export function createValidationWorksheet(
   sectionAnalytics: SectionAnalytics[],
   totalSheets: number,
   inBalance: boolean,
-  summaryStartRow: number = 6 // Default matches applySummaryFormulas
+  summaryStartRow: number = 6, // Default matches applySummaryFormulas
+  sectionSheetNames: string[] = [] // Section names for Master formula mapping
 ): WorkSheet {
   // Now rebuild with all columns
   const finalRows: any[][] = [];
@@ -275,7 +278,7 @@ export function createValidationWorksheet(
       // Balance check columns (A-E)
       balanceRow?.dataSheet || '',
       '', // From Summary - will be formula
-      balanceRow ? balanceRow.fromMaster : '', // From Master - static value
+      '', // From Master - will be formula (now dynamic!)
       '', // Difference - will be formula
       '',
       // Employee analytics columns (F-N)
@@ -302,16 +305,20 @@ export function createValidationWorksheet(
 
   const worksheet = XLSX.utils.aoa_to_sheet(finalRows);
 
-  // Add formulas for "From Summary" (column B) and "Difference" (column D)
-  // These reference the Summary sheet's Value column (C) which has formulas
+  // Add formulas for "From Summary" (column B), "From Master" (column C), and "Difference" (column D)
   const dataStartRow = 5; // Row 5 is first data row (1-indexed)
+  
+  // Calculate starting row offset for Master sheet lookups
+  // Master sheet has header row 1, then data rows starting at row 2
+  // We need to find where each section's data starts in Master
+  // For simplicity, use SUMIF to match section data from Master based on the section name
+  // Or use the SUM formula from each section sheet directly for "From Master"
   
   for (let i = 0; i < balanceChecks.length; i++) {
     const excelRow = dataStartRow + i;
     const summaryRow = summaryStartRow + i;
     
-    // From Summary formula: handles empty, blank, or error values - returns 0
-    // Use IF to check for blank/empty, then IFERROR for formula errors
+    // From Summary formula: references Summary sheet's Value column (C)
     const fromSummaryCell = `B${excelRow}`;
     worksheet[fromSummaryCell] = {
       t: 'n',
@@ -319,15 +326,25 @@ export function createValidationWorksheet(
       z: '"$"#,##0.00'
     };
     
-    // From Master: always set to explicit value with currency format
-    // The static value from balanceChecks array (already calculated)
+    // From Master formula: reference the section sheet's SUM cell directly
+    // This ensures changes in each section sheet update both Summary AND Validation
     const fromMasterCell = `C${excelRow}`;
-    const masterValue = balanceChecks[i]?.fromMaster ?? 0;
-    worksheet[fromMasterCell] = {
-      t: 'n',
-      v: masterValue,
-      z: '"$"#,##0.00'
-    };
+    if (sectionSheetNames[i]) {
+      const escapedName = sectionSheetNames[i].replace(/'/g, "''");
+      // Reference the SUM formula cell in the section sheet (AB1 has the SUM formula)
+      worksheet[fromMasterCell] = {
+        t: 'n',
+        f: `IF('${escapedName}'!${getColLetter(COLUMN_INDICES.SUM_COLUMN)}1="",0,IFERROR('${escapedName}'!${getColLetter(COLUMN_INDICES.SUM_COLUMN)}1,0))`,
+        z: '"$"#,##0.00'
+      };
+    } else {
+      // Fallback: use static value if no sheet name available
+      worksheet[fromMasterCell] = {
+        t: 'n',
+        v: balanceChecks[i]?.fromMaster ?? 0,
+        z: '"$"#,##0.00'
+      };
+    }
     
     // Difference formula: =B{row}-C{row}
     const differenceCell = `D${excelRow}`;

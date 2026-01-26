@@ -1525,80 +1525,8 @@ const Scan = () => {
       // Add hyperlinks to section names in Summary
       addSummaryHyperlinks(summaryWorksheet, sectionSheetNames, 6);
 
-      // Create Master sheet - combine all sections
-      const masterRows: any[][] = [headers];
-      const allSectionRecordsForValidation: Record<string, ScanRow[]> = {};
-      
-      for (const section of sections) {
-        const savedData = localStorage.getItem(`scan_records_${selectedTemplate.id}_${section.id}`);
-        if (savedData) {
-          try {
-            const savedRecords = JSON.parse(savedData) as ScanRow[];
-            allSectionRecordsForValidation[section.id] = savedRecords;
-            savedRecords.forEach(record => {
-              masterRows.push([
-                record.loc || '',
-                record.device || '',
-                record.rec || '',
-                record.time || '',
-                record.ndc || '',
-                record.scannedNdc || '',
-                record.qty ?? '',
-                record.misDivisor ?? '',
-                record.misCountMethod || '',
-                record.itemNumber || '',
-                record.medDesc || '',
-                record.meridianDesc || '',
-                record.trade || '',
-                record.generic || '',
-                record.strength || '',
-                record.packSz || '',
-                record.fdaSize || '',
-                record.sizeTxt || '',
-                record.doseForm || '',
-                record.manufacturer || '',
-                record.genericCode || '',
-                record.deaClass || '',
-                record.ahfs || '',
-                record.source || '',
-                record.packCost ?? '',
-                '', // Unit Cost - will be formula
-                '', // Extended - will be formula
-                '', // SUM column placeholder
-                record.sheetType || '',
-                record.auditCriteria || '',
-                record.originalQty ?? '',
-                record.auditorInitials || '',
-                record.results || '',
-                record.additionalNotes || '',
-              ]);
-            });
-          } catch (e) {
-            console.error('Error parsing section data for master:', e);
-          }
-        }
-      }
-      
-      const masterWorksheet = XLSX.utils.aoa_to_sheet(masterRows);
-      // Apply validation styling to master sheet
-      applyValidationStylesToWorksheet(masterWorksheet, masterRows, 1);
-      // Apply formulas to master sheet
-      const masterDataRowCount = masterRows.length - 1;
-      applyExcelFormulas(masterWorksheet, masterDataRowCount, 1);
-      masterWorksheet['!cols'] = headers.map((_, i) => ({ wch: i === 10 || i === 11 ? 30 : 15 }));
-      
-      // Build Validation tab data
-      const validationData = buildValidationData(sections, allSectionRecordsForValidation, sectionSheetNames);
-      const validationWorksheet = createValidationWorksheet(
-        validationData.balanceChecks,
-        validationData.employeeAnalytics,
-        validationData.sectionAnalytics,
-        validationData.totalSheets,
-        validationData.inBalance,
-        6 // Summary sheet section data starts at row 6
-      );
-      
-      // Clear all sheets and rebuild in correct order: Summary, Master, Validation, then sections
+      // For "Export My Scans" - only include Summary and section sheets (no Master, no Validation)
+      // Clear all sheets and rebuild in correct order: Summary first, then sections
       const existingSectionSheetNames = [...workbook.SheetNames];
       const sectionSheets = { ...workbook.Sheets };
       
@@ -1609,13 +1537,7 @@ const Scan = () => {
       // Add Summary first
       XLSX.utils.book_append_sheet(workbook, summaryWorksheet, 'Summary');
       
-      // Add Master second
-      XLSX.utils.book_append_sheet(workbook, masterWorksheet, 'Master');
-      
-      // Add Validation third
-      XLSX.utils.book_append_sheet(workbook, validationWorksheet, 'Validation');
-      
-      // Add all section sheets
+      // Add all section sheets (NO Master, NO Validation for individual export)
       existingSectionSheetNames.forEach(name => {
         XLSX.utils.book_append_sheet(workbook, sectionSheets[name], name);
       });
@@ -1625,7 +1547,7 @@ const Scan = () => {
 
       // Download the file
       XLSX.writeFile(workbook, filename);
-      toast.success(`Exported ${sections.length} sections + Summary + Master to Excel`);
+      toast.success(`Exported ${sections.length} sections + Summary to Excel`);
     } catch (error) {
       console.error('Export error:', error);
       toast.error('Failed to export to Excel');
@@ -1907,7 +1829,8 @@ const Scan = () => {
         validationData.sectionAnalytics,
         validationData.totalSheets,
         validationData.inBalance,
-        6 // Summary sheet section data starts at row 6
+        6, // Summary sheet section data starts at row 6
+        sectionSheetNames // Pass sheet names for Master formula references
       );
       
       // Clear all sheets and rebuild in correct order: Summary, Master, Validation, then sections
