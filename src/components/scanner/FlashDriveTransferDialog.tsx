@@ -26,6 +26,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { useDataTemplates } from '@/hooks/useDataTemplates';
+import { useOfflineTemplates, OfflineTemplate } from '@/hooks/useOfflineTemplates';
 import { formatFileSize } from '@/lib/dataIntegrity';
 
 interface TemplateInfo {
@@ -58,6 +59,7 @@ export function FlashDriveTransferDialog({
   const [isImporting, setIsImporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [importProgress, setImportProgress] = useState(0);
+  const [exportStatus, setExportStatus] = useState<string>('');
   
   // Import preview state
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -70,16 +72,21 @@ export function FlashDriveTransferDialog({
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   
+  // Use offline templates (the synced data) for export
   const { 
-    exportDatabase, 
-    importDatabase, 
+    templates: offlineTemplates,
+    getSections: getOfflineSections,
+    getAllCostItems: getOfflineCostItems,
+  } = useOfflineTemplates();
+
+  const { 
+    buildDatabaseFromLocalData,
     previewImportDatabase,
     importSelectedTemplates,
-    getLocalTemplatesForExport 
   } = useDataTemplates();
 
-  // Get templates available for export (from local cache)
-  const localTemplates = getLocalTemplatesForExport();
+  // Get templates available for export (from offline synced cache)
+  const localTemplates = offlineTemplates;
 
   const handleExport = async () => {
     if (localTemplates.length === 0) {
@@ -89,38 +96,88 @@ export function FlashDriveTransferDialog({
 
     setIsExporting(true);
     setExportProgress(0);
+    setExportStatus('Preparing templates...');
 
     try {
-      setExportProgress(30);
-      const result = exportDatabase((progress) => {
-        setExportProgress(30 + progress * 0.5);
-      });
+      // Prepare data for buildDatabaseFromLocalData
+      const templatesForExport = localTemplates.map(t => ({
+        id: t.id,
+        cloud_id: t.cloud_id,
+        name: t.name,
+        inv_date: t.inv_date,
+        facility_name: t.facility_name,
+        inv_number: t.inv_number,
+        cost_file_name: t.cost_file_name,
+        job_ticket_file_name: t.job_ticket_file_name,
+      }));
+
+      // Build the database using the local offline data
+      const result = await buildDatabaseFromLocalData(
+        templatesForExport,
+        async (templateId) => {
+          const sections = await getOfflineSections(templateId);
+          return sections.map(s => ({
+            sect: s.sect,
+            description: s.description,
+            full_section: s.full_section,
+            cost_sheet: s.cost_sheet ?? null,
+          }));
+        },
+        async (templateId) => {
+          return await getOfflineCostItems(templateId);
+        },
+        (progress) => {
+          setExportProgress(Math.round((progress.current / progress.total) * 80));
+          setExportStatus(`Processing ${progress.template} (${progress.current}/${progress.total})...`);
+        }
+      );
 
       if (!result) {
         toast.error('Export failed - no data available');
         return;
       }
 
-      setExportProgress(80);
+      setExportProgress(90);
+      setExportStatus('Creating file...');
+
+      // Generate filename based on templates
+      let filename = 'templates';
+      if (localTemplates.length === 1) {
+        const t = localTemplates[0];
+        const parts: string[] = [];
+        if (t.inv_number) parts.push(t.inv_number.replace(/[^a-zA-Z0-9]/g, ''));
+        if (t.facility_name) parts.push(t.facility_name.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_'));
+        if (parts.length > 0) {
+          filename = parts.join('_');
+        }
+      } else if (localTemplates.length > 1) {
+        // Multiple templates - use date + count
+        filename = `templates_${localTemplates.length}_${new Date().toISOString().split('T')[0]}`;
+      }
 
       // Create and download the file
       const blob = new Blob([new Uint8Array(result.data)], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `templates_${new Date().toISOString().split('T')[0]}.templatedb`;
+      a.download = `${filename}.templatedb`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
       setExportProgress(100);
-      toast.success(`Exported ${result.meta.templateCount} templates to file`);
+      setExportStatus('Complete!');
+      
+      const sizeStr = formatFileSize(result.data.length);
+      const costItemCount = result.meta.costItemCount?.toLocaleString() || '0';
+      toast.success(`Exported ${result.meta.templateCount} templates (${costItemCount} cost items, ${sizeStr})`);
     } catch (err: any) {
       toast.error(err.message || 'Export failed');
     } finally {
       setIsExporting(false);
       setExportProgress(0);
+      setExportStatus('');
     }
   };
 
@@ -279,11 +336,11 @@ export function FlashDriveTransferDialog({
                   </ScrollArea>
                 </div>
               ) : (
-                <div className="mt-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                <div className="mt-4 p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
                   <div className="flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5" />
+                    <AlertTriangle className="h-4 w-4 text-destructive mt-0.5" />
                     <div>
-                      <p className="text-sm font-medium text-amber-600">No templates on device</p>
+                      <p className="text-sm font-medium text-destructive">No templates on device</p>
                       <p className="text-xs text-muted-foreground mt-1">
                         Download templates to your device first using "Download to Device" before exporting to flash drive.
                       </p>
@@ -296,7 +353,7 @@ export function FlashDriveTransferDialog({
                 <div className="mt-4 space-y-2">
                   <div className="flex items-center gap-2 text-sm">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Building export file...</span>
+                    <span>{exportStatus || 'Building export file...'}</span>
                   </div>
                   <Progress value={exportProgress} className="h-2" />
                 </div>
@@ -379,7 +436,7 @@ export function FlashDriveTransferDialog({
 
                 {/* Verification status */}
                 {importPreview.metadata?.checksum && (
-                  <div className="flex items-center gap-2 text-sm text-green-600">
+                  <div className="flex items-center gap-2 text-sm text-primary">
                     <CheckCircle2 className="h-4 w-4" />
                     <span>File integrity verified</span>
                   </div>
