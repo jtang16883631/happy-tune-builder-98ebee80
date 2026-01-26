@@ -76,7 +76,7 @@ function getEmployeeFromRec(rec: string | null): string {
  * Build validation data from scan records
  */
 export function buildValidationData(
-  sections: Array<{ full_section?: string; sect?: string }>,
+  sections: Array<{ id?: string; full_section?: string; sect?: string }>,
   sectionRecords: Record<string, any[]>,
   sectionSheetNames: string[]
 ): {
@@ -101,7 +101,9 @@ export function buildValidationData(
 
   sections.forEach((section, index) => {
     const sectionName = sectionSheetNames[index] || section.full_section || section.sect || 'Unknown';
-    const records = sectionRecords[Object.keys(sectionRecords)[index]] || [];
+    // Use section.id to look up records directly, matching how records are stored
+    const sectionId = section.id || Object.keys(sectionRecords)[index] || '';
+    const records = sectionRecords[sectionId] || [];
     
     // Calculate section total from records
     let sectionTotal = 0;
