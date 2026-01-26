@@ -16,8 +16,6 @@ import { useCloudTemplates, CloudTemplate, CloudSection, TemplateStatus } from '
 import { useOfflineTemplates, OfflineTemplate } from '@/hooks/useOfflineTemplates';
 import { useLocalFDA, FDADrug } from '@/hooks/useLocalFDA';
 import { SyncButton } from '@/components/scanner/SyncButton';
-import { OfflineSyncDialog } from '@/components/scanner/OfflineSyncDialog';
-import { OfflineDataTransferDialog } from '@/components/scanner/OfflineDataTransferDialog';
 import { OuterNDCSelectionDialog, OuterNDCOption } from '@/components/scanner/OuterNDCSelectionDialog';
 import { CostDataLookupDialog } from '@/components/scanner/CostDataLookupDialog';
 import { ScanSummaryTab } from '@/components/scanner/ScanSummaryTab';
@@ -196,11 +194,6 @@ const Scan = () => {
   
   const { lookupNDC: fdaLookup, checkIsInnerPack, findOuterCandidates, getDrugByOuterNDC } = useLocalFDA();
 
-  // State for offline sync dialog
-  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
-  
-  // State for offline data transfer dialog
-  const [transferDialogOpen, setTransferDialogOpen] = useState(false);
 
   // State for outer NDC selection dialog
   const [outerNDCDialogOpen, setOuterNDCDialogOpen] = useState(false);
@@ -2573,29 +2566,8 @@ const Scan = () => {
       <AppLayout>
         <div className="space-y-8" style={{ fontFamily: 'Arial, sans-serif' }}>
           <div className="text-center py-4 relative">
-            {/* Sync buttons in top right */}
+            {/* Sync button in top right */}
             <div className="absolute right-0 top-0 flex items-center gap-2">
-              {isOnline && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSyncDialogOpen(true)}
-                  className="gap-2"
-                >
-                  <Download className="h-4 w-4" />
-                  <span className="hidden sm:inline">Sync for Offline</span>
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setTransferDialogOpen(true)}
-                className="gap-2"
-                title="Export/Import offline data via flash drive"
-              >
-                <HardDrive className="h-4 w-4" />
-                <span className="hidden sm:inline">Transfer</span>
-              </Button>
               <SyncButton
                 isOnline={isOnline}
                 isSyncing={isSyncing}
@@ -2645,22 +2617,6 @@ const Scan = () => {
             
           </div>
 
-          {/* Offline Sync Dialog */}
-          <OfflineSyncDialog
-            open={syncDialogOpen}
-            onOpenChange={setSyncDialogOpen}
-            cloudTemplates={cloudTemplates}
-            syncedTemplateIds={syncedTemplateIds}
-            onSyncTemplates={syncSelectedTemplates}
-            isSyncing={isSyncing}
-            syncProgress={syncProgress}
-          />
-
-          {/* Offline Data Transfer Dialog */}
-          <OfflineDataTransferDialog
-            open={transferDialogOpen}
-            onOpenChange={setTransferDialogOpen}
-          />
 
           {sortedTemplates.length === 0 ? (
             <Card className="border-dashed max-w-md mx-auto">
