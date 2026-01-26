@@ -989,8 +989,8 @@ const Scan = () => {
 
   // Initiate NDC lookup with IO-based outer NDC selection logic:
   // Step A: Check IO column (X) - if IO = "O", use scanned NDC directly; if IO = "I", go to Step B
-  // Step B: If IO == "I", calculate outerKey = left9 + "O", search AD column (ndc9_outer)
-  // Step C: Based on candidate count - 0: use scanned, 1: auto-use AF column (ndc), >1: show dialog
+  // Step B: If IO == "I", first check AE column (outerpack_ndc) of same row, then search AD column
+  // Step C: Based on candidate count - 0: use scanned, 1: auto-use AF/AE, >1: show dialog
   const initiateNDCLookup = useCallback(async (scannedNdc: string, rowIndex: number): Promise<boolean> => {
     const cleanNdc = (scannedNdc ?? '').replace(/\D/g, '');
 
@@ -1000,7 +1000,7 @@ const Scan = () => {
         const updated = [...prev];
         updated[rowIndex] = {
           ...updated[rowIndex],
-          scannedNdc: cleanNdc || scannedNdc, // Store cleaned scanned value
+          scannedNdc: cleanNdc || scannedNdc,
           time: updated[rowIndex].time || new Date().toLocaleTimeString(),
           rec: generateRecForRow(rowIndex),
         };
@@ -1027,12 +1027,11 @@ const Scan = () => {
     // Step A: Look up scanned NDC in FDA to check IO column (column X)
     const { isInner, drug: scannedDrug } = checkIsInnerPack(cleanNdc);
     const ioValue = scannedDrug?.io?.toString().toUpperCase().trim() || '';
-    console.log('[NDC Lookup] IO value:', ioValue, '| isInner:', isInner);
+    console.log('[NDC Lookup] IO value:', ioValue, '| isInner:', isInner, '| drug found:', !!scannedDrug);
 
     // Step A: If IO = "O" (Outer pack), use scanned NDC directly - no dialog
     if (ioValue === 'O') {
       console.log('[NDC Lookup] IO = "O", using scanned NDC directly');
-      // Set row.ndc = ndc_input
       await lookupNDC(cleanNdc, cleanNdc, rowIndex);
       return true;
     }
@@ -1045,7 +1044,6 @@ const Scan = () => {
         await lookupNDC(cleanNdc, cleanNdc, rowIndex);
         return true;
       } else {
-        // Try cost data fallback
         const costFound = await lookupCostDataOnly(scannedNdc, rowIndex);
         if (costFound) {
           toast.success('NDC found in cost data', {
@@ -1063,10 +1061,27 @@ const Scan = () => {
       }
     }
 
-    // Step B: IO == "I" (Inner Pack) - find outer NDC candidates
-    console.log('[NDC Lookup] IO = "I" (Inner Pack), searching for outer candidates...');
+    // Step B: IO == "I" (Inner Pack) - find outer NDC
+    console.log('[NDC Lookup] IO = "I" (Inner Pack), checking for outer NDC...');
+    
+    // FIRST: Check if the scanned row already has outer NDC in AE column (outerpack_ndc)
+    // This is the most common case - the outer NDC is stored directly on the inner pack row
+    const aeValue = scannedDrug?.outerpack_ndc?.toString().replace(/\D/g, '') || '';
+    console.log('[NDC Lookup] AE column (outerpack_ndc) value:', aeValue);
+    
+    if (aeValue.length >= 10) {
+      // Found outer NDC directly in the same row's AE column - use it automatically
+      const normalizedAE = aeValue.length >= 11 ? aeValue.slice(0, 11) : aeValue.padStart(11, '0');
+      console.log('[NDC Lookup] Found outer NDC in AE column, auto-using:', normalizedAE);
+      await lookupNDC(normalizedAE, cleanNdc, rowIndex);
+      toast.success(`Outer NDC 自动选择: ${normalizedAE}`);
+      return true;
+    }
+
+    // SECOND: Search AD column (ndc9_outer) for candidates using outerKey
+    console.log('[NDC Lookup] AE column empty, searching AD column for outer candidates...');
     const { candidates, outerNDCs } = findOuterCandidates(cleanNdc);
-    console.log('[NDC Lookup] Found', outerNDCs.length, 'outer NDC candidates from AE column');
+    console.log('[NDC Lookup] Found', outerNDCs.length, 'outer NDC candidates from AD search');
 
     // Step C: Branch based on outerCount
     if (outerNDCs.length === 0) {
@@ -1100,16 +1115,14 @@ const Scan = () => {
 
     if (outerNDCs.length === 1) {
       // outerCount == 1: Auto-select the single outer NDC
-      // Prioritize AF column (ndc field from the matched drug), fallback to AE (outerpack_ndc)
       const matchedDrug = candidates[0];
-      // AF column = ndc field of the outer pack drug
       const afValue = matchedDrug?.ndc?.toString().replace(/\D/g, '') || '';
-      const aeValue = outerNDCs[0];
+      const aeFromSearch = outerNDCs[0];
       
       // Use AF (ndc) if available, otherwise use AE (outerpack_ndc)
-      const finalOuterNDC = afValue.length >= 10 ? afValue : aeValue;
+      const finalOuterNDC = afValue.length >= 10 ? afValue : aeFromSearch;
       
-      console.log('[NDC Lookup] Single outer NDC - AF:', afValue, 'AE:', aeValue, '-> using:', finalOuterNDC);
+      console.log('[NDC Lookup] Single outer NDC - AF:', afValue, 'AE:', aeFromSearch, '-> using:', finalOuterNDC);
       await lookupNDC(finalOuterNDC, cleanNdc, rowIndex);
       toast.success(`Outer NDC 自动选择: ${finalOuterNDC}`);
       return true;
@@ -1120,7 +1133,6 @@ const Scan = () => {
 
     // Build options with: outerNDC (11 digits) + B column (meridian_desc) + G column (fda_size)
     const options: OuterNDCOption[] = outerNDCs.map(outerNDC => {
-      // Find the drug record that has this outer NDC in AE column
       const matchByAE = (d: FDADrug) => {
         const digits = String(d?.outerpack_ndc ?? '').replace(/\D/g, '');
         const normalized = digits.length >= 11 ? digits.slice(0, 11) : digits.padStart(11, '0');
@@ -1136,7 +1148,6 @@ const Scan = () => {
         packageSize: drug?.package_size || null,
         manufacturer: drug?.manufacturer || null,
         doseForm: drug?.dose_form || null,
-        // Display fields: B column (meridian_desc) + G column (fda_size)
         meridianDesc: drug?.meridian_desc || null,
         fdaSize: drug?.fda_size || null,
       };
