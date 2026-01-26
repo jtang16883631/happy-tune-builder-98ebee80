@@ -12,7 +12,7 @@ export interface ScanRowValidation {
   auditCriteria?: string | null;
 }
 
-export type ValidationColor = 'yellow' | 'red' | 'gray' | 'orange' | null;
+export type ValidationColor = 'yellow' | 'red' | 'gray' | 'orange' | 'green' | null;
 
 // Column indices for Excel exports
 export const EXCEL_COLUMN_INDICES = {
@@ -75,6 +75,13 @@ export function getCellValidationColor(
     }
   }
 
+  // Scanned NDC green highlight when audit criteria is triggered
+  if (fieldKey === 'scannedNdc') {
+    if (typeof row.auditCriteria === 'string' && row.auditCriteria.includes('need attention')) {
+      return 'green';
+    }
+  }
+
   return null;
 }
 
@@ -92,6 +99,8 @@ export function getCellValidationClasses(color: ValidationColor): string {
       return 'bg-gray-200 dark:bg-gray-700/50 border border-black dark:border-gray-600';
     case 'orange':
       return 'bg-orange-200 dark:bg-orange-900/50 border border-black dark:border-orange-700 font-medium';
+    case 'green':
+      return 'bg-green-500 dark:bg-green-600 border border-black dark:border-green-800';
     default:
       return '';
   }
@@ -131,6 +140,11 @@ export function getExcelCellStyle(color: ValidationColor): object | null {
         border: blackBorder,
         font: { bold: true },
       };
+    case 'green':
+      return {
+        fill: { fgColor: { rgb: '00FF00' }, patternType: 'solid' },
+        border: blackBorder,
+      };
     default:
       return null;
   }
@@ -166,6 +180,7 @@ export function applyValidationStylesToWorksheet(
 
     // Check each validation column
     const columnsToCheck = [
+      { idx: 5, key: 'scannedNdc' },
       { idx: 6, key: 'qty' },
       { idx: 7, key: 'misDivisor' },
       { idx: 8, key: 'misCountMethod' },
