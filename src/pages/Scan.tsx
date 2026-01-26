@@ -3272,13 +3272,19 @@ const Scan = () => {
 
             {/* Stats */}
             <div className="flex items-center gap-4 mt-4 text-sm text-muted-foreground flex-wrap">
-              <span>{scanRows.filter(r => r.ndc || r.scannedNdc).length} items scanned</span>
+              <span>{scanRows.filter(r => r.ndc || r.scannedNdc).length} scans</span>
               {searchQuery && <span>• {filteredRows.length} shown</span>}
               <span>•</span>
-              <span>{scanRows.filter(r => r.source === 'fda').length} found in FDA</span>
+              <span className="text-yellow-600 dark:text-yellow-400">
+                {scanRows.filter(r => (r.ndc || r.scannedNdc) && !r.source).length} no pricing
+              </span>
               <span>•</span>
               <span className="text-destructive">
-                {scanRows.filter(r => r.source === 'not_found').length} not found
+                {scanRows.filter(r => r.source === 'not_found').length} not found in FDA
+              </span>
+              <span>•</span>
+              <span className="text-muted-foreground">
+                {scanRows.filter(r => r.source && r.source.toUpperCase().startsWith('MIS')).length} MIS
               </span>
               
               {/* Current Template's Last Scan Section Reminder */}
