@@ -966,6 +966,170 @@ export function useDataTemplates() {
     }
   }, []);
 
+  // Build a .templatedb from locally synced offline templates (no internet needed!)
+  // This reads from the useOfflineTemplates SQLite database
+  const buildDatabaseFromLocalData = useCallback(async (
+    templates: Array<{
+      id: string;
+      cloud_id: string | null;
+      name: string;
+      inv_date: string | null;
+      facility_name: string | null;
+      inv_number: string | null;
+      cost_file_name: string | null;
+      job_ticket_file_name: string | null;
+    }>,
+    getSectionsForTemplate: (templateId: string) => Promise<Array<{ sect: string; description: string | null; full_section: string | null; cost_sheet: string | null }>>,
+    getCostItemsForTemplate: (templateId: string) => Promise<Array<{ ndc: string | null; material_description: string | null; unit_price: number | null; source: string | null; material: string | null; sheet_name: string | null }>>,
+    onProgress?: (progress: { template: string; current: number; total: number }) => void
+  ): Promise<{ data: Uint8Array; meta: TemplateMeta } | null> => {
+    if (!sqlRef.current) return null;
+
+    try {
+      // Create a fresh database
+      const tempDb = new sqlRef.current.Database();
+      
+      // Create schema (same as buildDatabaseFromCloudData)
+      tempDb.run(`
+        CREATE TABLE IF NOT EXISTS templates (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          cloud_id TEXT,
+          name TEXT NOT NULL,
+          inv_date TEXT,
+          facility_name TEXT,
+          inv_number TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          cost_file_name TEXT,
+          job_ticket_file_name TEXT
+        );
+        
+        CREATE TABLE IF NOT EXISTS sections (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          template_id INTEGER NOT NULL,
+          sect TEXT NOT NULL,
+          description TEXT,
+          full_section TEXT,
+          cost_sheet TEXT,
+          FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
+        );
+        
+        CREATE TABLE IF NOT EXISTS cost_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          template_id INTEGER NOT NULL,
+          ndc TEXT,
+          material_description TEXT,
+          unit_price REAL,
+          source TEXT,
+          material TEXT,
+          billing_date TEXT,
+          manufacturer TEXT,
+          generic TEXT,
+          strength TEXT,
+          size TEXT,
+          dose TEXT,
+          sheet_name TEXT,
+          FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
+        );
+        
+        CREATE TABLE IF NOT EXISTS scan_records (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          template_id INTEGER NOT NULL,
+          ndc TEXT NOT NULL,
+          description TEXT,
+          price REAL,
+          source TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
+        );
+        
+        CREATE INDEX idx_templates_date ON templates(inv_date DESC);
+        CREATE INDEX idx_templates_cloud ON templates(cloud_id);
+        CREATE INDEX idx_sections_template ON sections(template_id);
+        CREATE INDEX idx_cost_template ON cost_items(template_id);
+        CREATE INDEX idx_cost_ndc ON cost_items(ndc);
+        CREATE INDEX idx_scan_template ON scan_records(template_id);
+      `);
+
+      // Helper to truncate strings
+      const truncate = (val: any, maxLen: number = 255): string | null => {
+        if (val == null) return null;
+        const str = String(val).trim();
+        return str.length > maxLen ? str.substring(0, maxLen) : str;
+      };
+
+      // Process each template
+      for (let i = 0; i < templates.length; i++) {
+        const template = templates[i];
+        onProgress?.({ template: template.name || 'Template', current: i + 1, total: templates.length });
+
+        // Insert template
+        tempDb.run(`
+          INSERT INTO templates (cloud_id, name, inv_date, facility_name, inv_number, cost_file_name, job_ticket_file_name, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          template.cloud_id,
+          truncate(template.name, 255) || 'Untitled',
+          template.inv_date,
+          truncate(template.facility_name, 255),
+          truncate(template.inv_number, 50),
+          truncate(template.cost_file_name, 255),
+          truncate(template.job_ticket_file_name, 255),
+          new Date().toISOString()
+        ]);
+
+        const result = tempDb.exec(`SELECT last_insert_rowid()`);
+        const localId = result[0].values[0][0] as number;
+
+        // Get sections from local cache
+        const sections = await getSectionsForTemplate(template.id);
+        for (const section of sections) {
+          tempDb.run(`
+            INSERT INTO sections (template_id, sect, description, full_section, cost_sheet)
+            VALUES (?, ?, ?, ?, ?)
+          `, [
+            localId,
+            truncate(section.sect, 50) || '0000',
+            truncate(section.description, 255),
+            truncate(section.full_section, 255),
+            truncate(section.cost_sheet, 50)
+          ]);
+        }
+
+        // Get cost items from local cache
+        const costItems = await getCostItemsForTemplate(template.id);
+        for (const item of costItems) {
+          if (!item.ndc) continue;
+          tempDb.run(`
+            INSERT INTO cost_items (template_id, ndc, material_description, unit_price, source, material, sheet_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `, [
+            localId,
+            truncate(item.ndc, 50),
+            truncate(item.material_description, 255),
+            item.unit_price,
+            truncate(item.source, 50),
+            truncate(item.material, 50),
+            truncate(item.sheet_name, 50)
+          ]);
+        }
+      }
+
+      // Export the database
+      const dbData = tempDb.export();
+      tempDb.close();
+
+      const exportMeta: TemplateMeta = {
+        lastUpdated: new Date().toISOString(),
+        templateCount: templates.length
+      };
+
+      return { data: new Uint8Array(dbData), meta: exportMeta };
+    } catch (err) {
+      console.error('Build database from local data error:', err);
+      return null;
+    }
+  }, []);
+
   return {
     isLoading,
     isReady: !!db,
@@ -987,5 +1151,6 @@ export function useDataTemplates() {
     importDatabase,
     getAllCostItems,
     buildDatabaseFromCloudData,
+    buildDatabaseFromLocalData,
   };
 }
