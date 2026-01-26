@@ -36,35 +36,37 @@ interface OfflineDataTransferDialogProps {
 }
 
 export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTransferDialogProps) {
-  const [mode, setMode] = useState<'menu' | 'select-templates' | 'select-templates-db' | 'export' | 'import'>('menu');
+  const [mode, setMode] = useState<'menu' | 'select-templates' | 'select-templates-db' | 'select-local-templates' | 'export' | 'import'>('menu');
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('');
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
   const [selectedDbTemplateIds, setSelectedDbTemplateIds] = useState<string[]>([]);
+  const [selectedLocalTemplateIds, setSelectedLocalTemplateIds] = useState<string[]>([]);
   const [includeFDA, setIncludeFDA] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const templateDbInputRef = useRef<HTMLInputElement>(null);
   const hasInitializedDbSelection = useRef(false);
   const hasInitializedSelection = useRef(false);
+  const hasInitializedLocalSelection = useRef(false);
 
-  const { templates, getSections, syncMeta, isReady: templatesReady } = useOfflineTemplates();
+  const { templates: localTemplates, getSections: getLocalSections, getAllCostItems: getLocalCostItems, syncMeta, isReady: templatesReady } = useOfflineTemplates();
   const { templates: cloudTemplates, isLoading: cloudLoading } = useCloudTemplates();
   const { meta: fdaMeta, isReady: fdaReady, searchDrugs } = useLocalFDA();
-  const { meta: templateDbMeta, isReady: templateDbReady, exportDatabase, importDatabase, buildDatabaseFromCloudData } = useDataTemplates();
+  const { meta: templateDbMeta, isReady: templateDbReady, exportDatabase, importDatabase, buildDatabaseFromCloudData, buildDatabaseFromLocalData } = useDataTemplates();
   
   // Pre-select currently synced templates ONLY when first opening selection mode
   useEffect(() => {
     if (mode === 'select-templates' && !hasInitializedSelection.current) {
       hasInitializedSelection.current = true;
       // Pre-select templates that are already synced locally
-      const syncedCloudIds = templates.map(t => t.cloud_id).filter(Boolean) as string[];
+      const syncedCloudIds = localTemplates.map(t => t.cloud_id).filter(Boolean) as string[];
       setSelectedTemplateIds(syncedCloudIds);
     } else if (mode !== 'select-templates') {
       // Reset when leaving selection mode
       hasInitializedSelection.current = false;
     }
-  }, [mode, templates]);
+  }, [mode, localTemplates]);
 
   // Pre-select all cloud templates for .templatedb export when entering that mode
   useEffect(() => {
@@ -75,6 +77,16 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
       hasInitializedDbSelection.current = false;
     }
   }, [mode, cloudTemplates]);
+
+  // Pre-select all local templates for offline .templatedb export
+  useEffect(() => {
+    if (mode === 'select-local-templates' && !hasInitializedLocalSelection.current) {
+      hasInitializedLocalSelection.current = true;
+      setSelectedLocalTemplateIds(localTemplates.map(t => t.id));
+    } else if (mode !== 'select-local-templates') {
+      hasInitializedLocalSelection.current = false;
+    }
+  }, [mode, localTemplates]);
 
   const toggleDbTemplate = (id: string) => {
     setSelectedDbTemplateIds(prev => 
@@ -88,6 +100,20 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
 
   const deselectAllDbTemplates = () => {
     setSelectedDbTemplateIds([]);
+  };
+
+  const toggleLocalTemplate = (id: string) => {
+    setSelectedLocalTemplateIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllLocalTemplates = () => {
+    setSelectedLocalTemplateIds(localTemplates.map(t => t.id));
+  };
+
+  const deselectAllLocalTemplates = () => {
+    setSelectedLocalTemplateIds([]);
   };
 
   const withTimeout = async <T,>(promise: PromiseLike<T>, ms: number, label: string): Promise<T> => {
@@ -537,6 +563,112 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
     }
   };
 
+  // Export Template Database from LOCAL cache (no internet needed!)
+  const handleExportLocalTemplateDb = async () => {
+    setMode('export');
+    setIsProcessing(true);
+    setProgress(0);
+    setStatus('Preparing local template export...');
+
+    try {
+      const selectedTemplates = localTemplates.filter(t => selectedLocalTemplateIds.includes(t.id));
+
+      if (selectedTemplates.length === 0) {
+        throw new Error('Please select at least one template to export');
+      }
+
+      if (!buildDatabaseFromLocalData) {
+        throw new Error('Database builder not ready');
+      }
+
+      setProgress(10);
+      setStatus(`Building database from ${selectedTemplates.length} local template(s)...`);
+
+      // Build database from local cache (no network calls!)
+      const result = await buildDatabaseFromLocalData(
+        selectedTemplates.map(t => ({
+          id: t.id,
+          cloud_id: t.cloud_id,
+          name: t.name || 'Untitled',
+          inv_date: t.inv_date,
+          facility_name: t.facility_name,
+          inv_number: t.inv_number,
+          cost_file_name: t.cost_file_name,
+          job_ticket_file_name: t.job_ticket_file_name,
+        })),
+        async (templateId: string) => {
+          // Get sections from local SQLite
+          const sections = await getLocalSections(templateId);
+          return sections.map(s => ({
+            sect: s.sect,
+            description: s.description,
+            full_section: s.full_section,
+            cost_sheet: s.cost_sheet ?? null,
+          }));
+        },
+        async (templateId: string) => {
+          // Get cost items from local SQLite
+          return await getLocalCostItems(templateId);
+        },
+        (progress) => {
+          const pct = 10 + ((progress.current / progress.total) * 70);
+          setProgress(pct);
+          setStatus(`Processing: ${progress.template} (${progress.current}/${progress.total})`);
+        }
+      );
+
+      if (!result) {
+        throw new Error('Failed to build database from local data');
+      }
+
+      setProgress(85);
+      setStatus('Creating download file...');
+
+      // Create file with metadata header + binary data
+      const metaJson = JSON.stringify(result.meta);
+      const metaBytes = new TextEncoder().encode(metaJson);
+      const metaLengthBytes = new Uint32Array([metaBytes.length]);
+
+      const combined = new Uint8Array(4 + metaBytes.length + result.data.length);
+      combined.set(new Uint8Array(metaLengthBytes.buffer), 0);
+      combined.set(metaBytes, 4);
+      combined.set(result.data, 4 + metaBytes.length);
+
+      const blob = new Blob([combined], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `meridian-templates-${new Date().toISOString().split('T')[0]}.templatedb`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setProgress(100);
+      setStatus('Export complete!');
+
+      toast({
+        title: 'Local export complete!',
+        description: `Exported ${result.meta.templateCount} templates from local cache (no internet needed)`,
+      });
+
+      setTimeout(() => {
+        setMode('menu');
+        setIsProcessing(false);
+      }, 1500);
+
+    } catch (err: any) {
+      console.error('Local template DB export error:', err);
+      toast({
+        title: 'Export failed',
+        description: err.message,
+        variant: 'destructive',
+      });
+      setIsProcessing(false);
+      setMode('menu');
+    }
+  };
+
   // Import Template Database from .templatedb file
   const handleImportTemplateDb = async (file: File) => {
     if (!importDatabase) {
@@ -635,14 +767,17 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
           <DialogTitle className="flex items-center gap-2">
             <HardDrive className="h-5 w-5" />
             {mode === 'select-templates' ? 'Select Templates to Export (JSON)' 
-              : mode === 'select-templates-db' ? 'Select Templates (.templatedb)'
+              : mode === 'select-templates-db' ? 'Select Cloud Templates (.templatedb)'
+              : mode === 'select-local-templates' ? 'Select Local Templates (.templatedb)'
               : 'Offline Data Transfer'}
           </DialogTitle>
           <DialogDescription>
             {mode === 'select-templates' 
               ? 'Choose which templates to include in the JSON export file'
               : mode === 'select-templates-db'
-              ? 'Choose templates for fast binary export'
+              ? 'Download from cloud and export (requires internet)'
+              : mode === 'select-local-templates'
+              ? 'Export from browser cache (instant, no internet needed)'
               : 'Export data to a flash drive or import from another device'}
           </DialogDescription>
         </DialogHeader>
@@ -658,12 +793,12 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
                   <span className="text-muted-foreground">Cloud Templates</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline">{fdaMeta?.rowCount || 0}</Badge>
-                  <span className="text-muted-foreground">FDA Drugs</span>
+                  <Badge variant="outline">{localTemplates.length}</Badge>
+                  <span className="text-muted-foreground">Synced Locally</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline">{templateDbMeta?.templateCount || 0}</Badge>
-                  <span className="text-muted-foreground">Local Templates</span>
+                  <Badge variant="outline">{fdaMeta?.rowCount || 0}</Badge>
+                  <span className="text-muted-foreground">FDA Drugs</span>
                 </div>
               </div>
               {syncMeta?.lastSyncedAt && (
@@ -674,43 +809,66 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
             </div>
 
             {/* Template Database Export/Import Section */}
-            <div className="border rounded-lg p-3 space-y-2">
+            <div className="border rounded-lg p-3 space-y-3">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <Database className="h-4 w-4 text-primary" />
                 <span>Template Database (.templatedb)</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Fast binary format for offline template data with cost items
+                Fast binary format for offline scanning with cost data
               </p>
-              <div className="flex gap-2">
+              
+              {/* Export Options */}
+              <div className="space-y-2">
+                {/* Export from Local Cache - FAST, no internet */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMode('select-local-templates')}
+                  disabled={localTemplates.length === 0 || isProcessing}
+                  className="w-full justify-start gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  <div className="text-left flex-1">
+                    <span className="font-medium">Export from Local Cache</span>
+                    <span className="text-xs text-muted-foreground ml-2">• Instant, no internet</span>
+                  </div>
+                </Button>
+                
+                {/* Export from Cloud - requires internet */}
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setMode('select-templates-db')}
                   disabled={cloudTemplates.length === 0 || isProcessing}
-                  className="flex-1"
+                  className="w-full justify-start gap-2"
                 >
-                  <Download className="h-4 w-4 mr-1" />
-                  Export
+                  <Download className="h-4 w-4" />
+                  <div className="text-left flex-1">
+                    <span className="font-medium">Export from Cloud</span>
+                    <span className="text-xs text-muted-foreground ml-2">• Requires internet</span>
+                  </div>
                 </Button>
-                <div className="relative flex-1">
-                  <input
-                    ref={templateDbInputRef}
-                    type="file"
-                    accept=".templatedb"
-                    onChange={handleTemplateDbFileSelect}
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={isProcessing}
-                    className="w-full"
-                  >
-                    <Upload className="h-4 w-4 mr-1" />
-                    Import
-                  </Button>
-                </div>
+              </div>
+              
+              {/* Import */}
+              <div className="relative">
+                <input
+                  ref={templateDbInputRef}
+                  type="file"
+                  accept=".templatedb"
+                  onChange={handleTemplateDbFileSelect}
+                  className="absolute inset-0 opacity-0 cursor-pointer"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isProcessing}
+                  className="w-full justify-start gap-2"
+                >
+                  <Upload className="h-4 w-4" />
+                  <span className="font-medium">Import from Flash Drive</span>
+                </Button>
               </div>
             </div>
 
@@ -932,6 +1090,81 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
             >
               <Download className="h-4 w-4 mr-2" />
               Export {selectedDbTemplateIds.length} Template{selectedDbTemplateIds.length !== 1 ? 's' : ''} (.templatedb)
+            </Button>
+          </div>
+        )}
+
+        {/* Select Local Templates for Export (no internet needed) */}
+        {mode === 'select-local-templates' && (
+          <div className="flex flex-col flex-1 min-h-0 py-2">
+            {/* Selection controls */}
+            <div className="flex items-center justify-between pb-3 border-b">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setMode('menu')}
+                  className="h-8 px-2"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  {selectedLocalTemplateIds.length} of {localTemplates.length} selected
+                </span>
+              </div>
+              <div className="flex gap-1">
+                <Button variant="ghost" size="sm" onClick={selectAllLocalTemplates} className="text-xs h-7">
+                  Select All
+                </Button>
+                <Button variant="ghost" size="sm" onClick={deselectAllLocalTemplates} className="text-xs h-7">
+                  Clear
+                </Button>
+              </div>
+            </div>
+
+            {/* Template list */}
+            <ScrollArea className="flex-1 min-h-0 py-2">
+              {localTemplates.length === 0 ? (
+                <div className="text-center text-muted-foreground py-8 text-sm">
+                  <p>No templates synced locally yet.</p>
+                  <p className="mt-2 text-xs">Use the Sync button on the main page to download templates first.</p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {localTemplates.map(template => (
+                    <label
+                      key={template.id}
+                      className="flex items-start gap-3 p-2 rounded-md hover:bg-muted cursor-pointer"
+                    >
+                      <Checkbox
+                        checked={selectedLocalTemplateIds.includes(template.id)}
+                        onCheckedChange={() => toggleLocalTemplate(template.id)}
+                        className="mt-0.5"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-sm truncate">
+                          {template.name || template.facility_name || template.inv_number || 'Untitled'}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {template.inv_number && `#${template.inv_number}`}
+                          {template.inv_date && ` • ${new Date(template.inv_date).toLocaleDateString()}`}
+                          {template.facility_name && template.name !== template.facility_name && ` • ${template.facility_name}`}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+
+            {/* Export button */}
+            <Button
+              className="mt-4 w-full"
+              onClick={handleExportLocalTemplateDb}
+              disabled={selectedLocalTemplateIds.length === 0}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export {selectedLocalTemplateIds.length} Template{selectedLocalTemplateIds.length !== 1 ? 's' : ''} (Instant)
             </Button>
           </div>
         )}

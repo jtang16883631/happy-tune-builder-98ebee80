@@ -375,6 +375,43 @@ export function useOfflineTemplates() {
     [db]
   );
 
+  // Get all cost items for a template (for export to flash drive)
+  const getAllCostItems = useCallback(
+    async (templateId: string): Promise<Array<{
+      ndc: string | null;
+      material_description: string | null;
+      unit_price: number | null;
+      source: string | null;
+      material: string | null;
+      sheet_name: string | null;
+    }>> => {
+      if (!db) return [];
+
+      try {
+        const results = db.exec(`
+          SELECT ndc, material_description, unit_price, source, material, sheet_name
+          FROM cost_items
+          WHERE template_id = ?
+        `, [templateId]);
+
+        if (results.length === 0) return [];
+
+        return results[0].values.map((row: any[]) => ({
+          ndc: row[0] as string | null,
+          material_description: row[1] as string | null,
+          unit_price: row[2] as number | null,
+          source: row[3] as string | null,
+          material: row[4] as string | null,
+          sheet_name: row[5] as string | null,
+        }));
+      } catch (err) {
+        console.error('Get all cost items error:', err);
+        return [];
+      }
+    },
+    [db]
+  );
+
   // Get list of synced template cloud IDs
   const getSyncedTemplateIds = useCallback((): string[] => {
     if (!db) return [];
@@ -829,6 +866,7 @@ export function useOfflineTemplates() {
     updateTemplateStatus,
     getSections,
     getCostItemByNDC,
+    getAllCostItems,
     
     // Sync operations
     syncWithCloud,
