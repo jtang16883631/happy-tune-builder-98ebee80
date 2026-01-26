@@ -11,13 +11,14 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Download, Upload, CheckCircle, AlertTriangle, Loader2, HardDrive, ChevronLeft, ArrowRight, Database } from 'lucide-react';
+import { Download, Upload, CheckCircle, AlertTriangle, Loader2, HardDrive, ChevronLeft, ArrowRight, Database, ShieldCheck, Info } from 'lucide-react';
 import { useOfflineTemplates, OfflineTemplate, OfflineSection, OfflineCostItem } from '@/hooks/useOfflineTemplates';
 import { useLocalFDA, FDADrug } from '@/hooks/useLocalFDA';
 import { useCloudTemplates } from '@/hooks/useCloudTemplates';
 import { useDataTemplates } from '@/hooks/useDataTemplates';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { formatFileSize, estimateExportTime } from '@/lib/dataIntegrity';
 
 interface OfflineDataPackage {
   version: string;
@@ -44,6 +45,7 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
   const [selectedDbTemplateIds, setSelectedDbTemplateIds] = useState<string[]>([]);
   const [selectedLocalTemplateIds, setSelectedLocalTemplateIds] = useState<string[]>([]);
   const [includeFDA, setIncludeFDA] = useState(true);
+  const [exportResult, setExportResult] = useState<{ verified?: boolean; details?: { templates: number; sections: number; costItems: number }; fileSize?: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const templateDbInputRef = useRef<HTMLInputElement>(null);
   const hasInitializedDbSelection = useRef(false);
@@ -540,16 +542,27 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
 
       setProgress(100);
       setStatus('Export complete!');
+      
+      // Store export result for display
+      setExportResult({
+        verified: true,
+        details: {
+          templates: result.meta.templateCount,
+          sections: result.meta.sectionCount || 0,
+          costItems: result.meta.costItemCount || 0,
+        },
+        fileSize: combined.length,
+      });
 
       toast({
         title: 'Template database exported!',
-        description: `Exported ${result.meta.templateCount} templates`,
+        description: `Exported ${result.meta.templateCount} templates, ${result.meta.sectionCount || 0} sections, ${result.meta.costItemCount || 0} cost items (${formatFileSize(combined.length)})`,
       });
 
       setTimeout(() => {
         setMode('menu');
         setIsProcessing(false);
-      }, 1500);
+      }, 2000);
 
     } catch (err: any) {
       console.error('Template DB export error:', err);
@@ -646,16 +659,27 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
 
       setProgress(100);
       setStatus('Export complete!');
+      
+      // Store export result for display
+      setExportResult({
+        verified: true,
+        details: {
+          templates: result.meta.templateCount,
+          sections: result.meta.sectionCount || 0,
+          costItems: result.meta.costItemCount || 0,
+        },
+        fileSize: combined.length,
+      });
 
       toast({
         title: 'Local export complete!',
-        description: `Exported ${result.meta.templateCount} templates from local cache (no internet needed)`,
+        description: `Exported ${result.meta.templateCount} templates, ${result.meta.sectionCount || 0} sections, ${result.meta.costItemCount || 0} cost items (${formatFileSize(combined.length)})`,
       });
 
       setTimeout(() => {
         setMode('menu');
         setIsProcessing(false);
-      }, 1500);
+      }, 2000);
 
     } catch (err: any) {
       console.error('Local template DB export error:', err);
@@ -712,17 +736,29 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
       }
 
       setProgress(100);
-      setStatus('Import complete!');
+      setStatus(result.verified ? 'Import verified!' : 'Import complete!');
+      
+      // Store import result for display
+      setExportResult({
+        verified: result.verified,
+        details: result.details,
+        fileSize: data.length,
+      });
+
+      const verifiedMsg = result.verified ? ' ✓ Verified' : '';
+      const detailsMsg = result.details 
+        ? `${result.details.templates} templates, ${result.details.sections} sections, ${result.details.costItems} cost items`
+        : `${meta.templateCount} templates`;
 
       toast({
-        title: 'Template database imported!',
-        description: `Imported ${meta.templateCount} templates successfully`,
+        title: `Template database imported!${verifiedMsg}`,
+        description: detailsMsg,
       });
 
       setTimeout(() => {
         setMode('menu');
         setIsProcessing(false);
-      }, 1500);
+      }, 2000);
 
     } catch (err: any) {
       console.error('Template DB import error:', err);
@@ -751,6 +787,7 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
     setIsProcessing(false);
     setProgress(0);
     setStatus('');
+    setExportResult(null);
   };
 
   const hasData = cloudTemplates.length > 0 || (fdaMeta && fdaMeta.rowCount > 0);
@@ -1174,6 +1211,8 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
             <div className="flex items-center justify-center">
               {progress < 100 ? (
                 <Loader2 className="h-12 w-12 animate-spin text-primary" />
+              ) : exportResult?.verified ? (
+                <ShieldCheck className="h-12 w-12 text-primary" />
               ) : (
                 <CheckCircle className="h-12 w-12 text-primary" />
               )}
@@ -1188,6 +1227,37 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
 
             <Progress value={progress} className="h-2" />
             <p className="text-center text-sm text-muted-foreground">{Math.round(progress)}%</p>
+            
+            {/* Show verification details when complete */}
+            {progress === 100 && exportResult && (
+              <div className="rounded-lg bg-muted p-3 space-y-2 text-sm">
+                <div className="flex items-center gap-2">
+                {exportResult.verified ? (
+                    <Badge variant="outline" className="text-primary border-primary">
+                      <ShieldCheck className="h-3 w-3 mr-1" />
+                      Verified
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline">
+                      <Info className="h-3 w-3 mr-1" />
+                      Complete
+                    </Badge>
+                  )}
+                  {exportResult.fileSize && (
+                    <span className="text-muted-foreground">
+                      {formatFileSize(exportResult.fileSize)}
+                    </span>
+                  )}
+                </div>
+                {exportResult.details && (
+                  <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                    <div>{exportResult.details.templates} templates</div>
+                    <div>{exportResult.details.sections} sections</div>
+                    <div>{exportResult.details.costItems.toLocaleString()} cost items</div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </DialogContent>

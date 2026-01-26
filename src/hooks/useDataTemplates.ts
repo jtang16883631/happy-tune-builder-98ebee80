@@ -1,14 +1,26 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import initSqlJs, { Database } from 'sql.js';
+import { 
+  createExportMetadata, 
+  validateImport, 
+  verifyDatabaseCounts,
+  ExportMetadata 
+} from '@/lib/dataIntegrity';
 
 const DB_NAME = 'data_template_database';
 const DB_STORE = 'sqlite_store';
 const DB_KEY = 'template_db';
 const META_KEY = 'template_meta';
 
+// Extended metadata with integrity information
 interface TemplateMeta {
   lastUpdated: string;
   templateCount: number;
+  sectionCount?: number;
+  costItemCount?: number;
+  checksum?: string;
+  fileSizeBytes?: number;
+  version?: string;
 }
 
 export interface DataTemplate {
@@ -736,11 +748,26 @@ export function useDataTemplates() {
     }
   }, [db, meta]);
 
-  // Import database from binary format (.templatedb)
-  const importDatabase = useCallback(async (data: Uint8Array, importedMeta: TemplateMeta): Promise<{ success: boolean; error?: string }> => {
+  // Import database from binary format (.templatedb) with integrity validation
+  const importDatabase = useCallback(async (
+    data: Uint8Array, 
+    importedMeta: TemplateMeta | ExportMetadata
+  ): Promise<{ success: boolean; error?: string; verified?: boolean; details?: { templates: number; sections: number; costItems: number } }> => {
     if (!sqlRef.current) return { success: false, error: 'SQL.js not initialized' };
 
     try {
+      // Validate integrity if we have v2.0 metadata
+      const extMeta = importedMeta as ExportMetadata;
+      if (extMeta.checksum || extMeta.version === '2.0') {
+        const validation = validateImport(extMeta, data);
+        if (!validation.valid) {
+          return { 
+            success: false, 
+            error: `Data integrity check failed: ${validation.errors.join('; ')}` 
+          };
+        }
+      }
+
       // Close existing database
       if (db) {
         db.close();
@@ -748,14 +775,50 @@ export function useDataTemplates() {
 
       // Create new database from imported data
       const newDb = new sqlRef.current.Database(data);
+      
+      // Verify database contents match expected counts (v2.0+)
+      let verified = false;
+      let verifyDetails: { templates: number; sections: number; costItems: number } | undefined;
+      
+      if (extMeta.templateCount !== undefined) {
+        const verification = verifyDatabaseCounts(
+          newDb,
+          extMeta.templateCount,
+          extMeta.sectionCount ?? -1, // -1 = skip check if not provided
+          extMeta.costItemCount ?? -1
+        );
+        verified = verification.valid;
+        verifyDetails = verification.details;
+        
+        // Only fail if template count is wrong (critical)
+        if (verification.details.templates !== extMeta.templateCount) {
+          newDb.close();
+          return { 
+            success: false, 
+            error: `Template count mismatch: expected ${extMeta.templateCount}, found ${verification.details.templates}` 
+          };
+        }
+      }
+
       setDb(newDb);
+
+      // Convert to TemplateMeta format for storage
+      const storageMeta: TemplateMeta = {
+        lastUpdated: extMeta.exportedAt || new Date().toISOString(),
+        templateCount: extMeta.templateCount,
+        sectionCount: extMeta.sectionCount,
+        costItemCount: extMeta.costItemCount,
+        checksum: extMeta.checksum,
+        fileSizeBytes: extMeta.fileSizeBytes,
+        version: extMeta.version,
+      };
 
       // Save to IndexedDB
       await saveToIndexedDB(DB_KEY, data);
-      await saveToIndexedDB(META_KEY, importedMeta);
-      setMeta(importedMeta);
+      await saveToIndexedDB(META_KEY, storageMeta);
+      setMeta(storageMeta);
 
-      return { success: true };
+      return { success: true, verified, details: verifyDetails };
     } catch (err: any) {
       console.error('Import database error:', err);
       return { success: false, error: err.message };
@@ -950,16 +1013,29 @@ export function useDataTemplates() {
         }
       }
 
+      // Count sections and cost items
+      const sectionCountResult = tempDb.exec('SELECT COUNT(*) FROM sections');
+      const sectionCount = sectionCountResult[0]?.values[0]?.[0] as number || 0;
+      
+      const costItemCountResult = tempDb.exec('SELECT COUNT(*) FROM cost_items');
+      const costItemCount = costItemCountResult[0]?.values[0]?.[0] as number || 0;
+
       // Export the database
       const dbData = tempDb.export();
       tempDb.close();
 
+      const exportData = new Uint8Array(dbData);
+
+      // Create metadata with integrity information
       const exportMeta: TemplateMeta = {
+        ...createExportMetadata(exportData, templates.length, sectionCount, costItemCount),
         lastUpdated: new Date().toISOString(),
-        templateCount: templates.length
+        templateCount: templates.length,
+        sectionCount,
+        costItemCount,
       };
 
-      return { data: new Uint8Array(dbData), meta: exportMeta };
+      return { data: exportData, meta: exportMeta };
     } catch (err) {
       console.error('Build database from cloud data error:', err);
       return null;
@@ -1114,16 +1190,29 @@ export function useDataTemplates() {
         }
       }
 
+      // Count sections and cost items for verification
+      const sectionCountResult = tempDb.exec('SELECT COUNT(*) FROM sections');
+      const sectionCount = sectionCountResult[0]?.values[0]?.[0] as number || 0;
+      
+      const costItemCountResult = tempDb.exec('SELECT COUNT(*) FROM cost_items');
+      const costItemCount = costItemCountResult[0]?.values[0]?.[0] as number || 0;
+
       // Export the database
       const dbData = tempDb.export();
       tempDb.close();
 
+      const exportData = new Uint8Array(dbData);
+
+      // Create metadata with integrity information
       const exportMeta: TemplateMeta = {
+        ...createExportMetadata(exportData, templates.length, sectionCount, costItemCount),
         lastUpdated: new Date().toISOString(),
-        templateCount: templates.length
+        templateCount: templates.length,
+        sectionCount,
+        costItemCount,
       };
 
-      return { data: new Uint8Array(dbData), meta: exportMeta };
+      return { data: exportData, meta: exportMeta };
     } catch (err) {
       console.error('Build database from local data error:', err);
       return null;
