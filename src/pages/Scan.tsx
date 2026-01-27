@@ -783,8 +783,10 @@ const Scan = () => {
   const lookupNDC = useCallback(async (finalNdc: string, scannedNdc: string, rowIndex: number, scannedDrugData?: FDADrug | null) => {
     if (!finalNdc || finalNdc.length < 10 || !selectedTemplate) return;
 
-    const cleanNdc = finalNdc.replace(/-/g, '');
-    const originalScanned = scannedNdc.replace(/-/g, '');
+    const cleanNdc = finalNdc.replace(/-/g, '').replace(/\D/g, '');
+    const originalScanned = scannedNdc.replace(/-/g, '').replace(/\D/g, '');
+    
+    console.log('[lookupNDC] finalNdc (outer):', cleanNdc, '| scannedNdc (original):', originalScanned);
     
     // First try to look up the outer NDC in FDA
     let fdaResult = fdaLookup(cleanNdc);
@@ -792,9 +794,11 @@ const Scan = () => {
     // If outer NDC not found in FDA but we have scanned drug data (from inner pack lookup),
     // use that data instead - the outer NDC might not exist as its own row
     if (!fdaResult && scannedDrugData) {
-      console.log('[lookupNDC] Outer NDC not found, using scanned drug data for metadata');
+      console.log('[lookupNDC] Outer NDC not found in FDA, using scanned drug data for metadata');
       fdaResult = scannedDrugData;
     }
+    
+    console.log('[lookupNDC] fdaResult found:', !!fdaResult, '| cleanNdc !== originalScanned:', cleanNdc !== originalScanned);
     
     const costItem = await getCostItemByNDC(selectedTemplate.id, cleanNdc, selectedSection?.cost_sheet ?? null);
 
@@ -875,7 +879,14 @@ const Scan = () => {
     setScanRows(prev => {
       const updated = [...prev];
       // Populate NDC column with the resolved outer NDC when it differs from scanned
-      const outerNdcIsDifferent = cleanNdc !== originalScanned.replace(/\D/g, '');
+      const outerNdcIsDifferent = cleanNdc !== originalScanned;
+      
+      console.log('[lookupNDC] Setting NDC column:', {
+        cleanNdc,
+        originalScanned,
+        outerNdcIsDifferent,
+        willSetNdcTo: outerNdcIsDifferent ? cleanNdc : ''
+      });
       
       updated[rowIndex] = {
         ...updated[rowIndex],
@@ -1092,7 +1103,7 @@ const Scan = () => {
         const normalizedAE = aeValue.length >= 11 ? aeValue.slice(0, 11) : aeValue.padStart(11, '0');
         console.log('[NDC Lookup] Auto-using AE column:', normalizedAE);
         await lookupNDC(normalizedAE, cleanNdc, rowIndex, scannedDrug);
-        toast.success(`Outer NDC 自动选择: ${normalizedAE}`);
+        toast.success(`Outer NDC auto-selected: ${normalizedAE}`);
         return true;
       }
       
@@ -1101,15 +1112,13 @@ const Scan = () => {
       console.log('[NDC Lookup] AD search found', outerNDCs.length, 'candidates');
       
       if (outerNDCs.length >= 1) {
-        // Use first outer NDC found
-        const matchedDrug = candidates[0];
-        const afValue = matchedDrug?.ndc?.toString().replace(/\D/g, '') || '';
-        const aeFromSearch = outerNDCs[0];
-        const finalOuterNDC = afValue.length >= 10 ? afValue : aeFromSearch;
+        // Use first outer NDC found from AE column of matched rows
+        // outerNDCs already contains normalized outerpack_ndc values from the AD search
+        const finalOuterNDC = outerNDCs[0];
         
-        console.log('[NDC Lookup] Auto-using first outer NDC:', finalOuterNDC);
+        console.log('[NDC Lookup] Auto-using first outer NDC from AD search:', finalOuterNDC);
         await lookupNDC(finalOuterNDC, cleanNdc, rowIndex, scannedDrug);
-        toast.success(`Outer NDC 自动选择: ${finalOuterNDC}`);
+        toast.success(`Outer NDC auto-selected: ${finalOuterNDC}`);
         return true;
       }
       
@@ -1117,8 +1126,8 @@ const Scan = () => {
       console.log('[NDC Lookup] No outer candidates, using scanned NDC');
       if (scannedDrug) {
         await lookupNDC(cleanNdc, cleanNdc, rowIndex);
-        toast.warning('未找到 outer pack 对应关系', {
-          description: `使用扫描的 NDC: ${cleanNdc}`,
+        toast.warning('No outer pack mapping found', {
+          description: `Using scanned NDC: ${cleanNdc}`,
           duration: 5000,
         });
         return true;
@@ -1126,8 +1135,8 @@ const Scan = () => {
         setTimeAndRec();
         const costFound = await lookupCostDataOnly(scannedNdc, rowIndex);
         if (costFound) {
-          toast.warning('未找到 outer pack 对应关系', {
-            description: `使用扫描的 NDC: ${cleanNdc}`,
+          toast.warning('No outer pack mapping found', {
+            description: `Using scanned NDC: ${cleanNdc}`,
             duration: 5000,
           });
           return true;
@@ -1171,8 +1180,8 @@ const Scan = () => {
       console.log('[NDC Lookup] No outer candidates found, using scanned NDC');
       if (scannedDrug) {
         await lookupNDC(cleanNdc, cleanNdc, rowIndex);
-        toast.warning('FDANine1 > 1 但未找到 outer pack', {
-          description: `使用扫描的 NDC: ${cleanNdc}`,
+        toast.warning('FDANine1 > 1 but no outer pack found', {
+          description: `Using scanned NDC: ${cleanNdc}`,
           duration: 5000,
         });
         return true;
@@ -1191,7 +1200,7 @@ const Scan = () => {
       const finalOuterNDC = allOuterNDCs[0];
       console.log('[NDC Lookup] Only 1 outer NDC found, auto-selecting:', finalOuterNDC);
       await lookupNDC(finalOuterNDC, cleanNdc, rowIndex, scannedDrug);
-      toast.success(`Outer NDC 自动选择: ${finalOuterNDC}`);
+      toast.success(`Outer NDC auto-selected: ${finalOuterNDC}`);
       return true;
     }
 
