@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, LogOut, Save, UserCog } from "lucide-react";
+import { Loader2, LogOut, Save, UserCog, Cloud, CloudOff, CheckCircle2 } from "lucide-react";
 import { z } from "zod";
+import { useOneDrive } from "@/hooks/useOneDrive";
 
 const profileSchema = z.object({
   firstName: z.string().trim().min(1, "First name is required").max(50, "First name too long"),
@@ -30,6 +31,14 @@ export default function Profile() {
     email: "",
     phone: "",
   });
+  
+  const { 
+    isConnected: isOneDriveConnected, 
+    isLoading: isOneDriveLoading, 
+    user: oneDriveUser, 
+    connect: connectOneDrive, 
+    disconnect: disconnectOneDrive 
+  } = useOneDrive();
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -221,6 +230,67 @@ export default function Profile() {
                   </Button>
                 </div>
               </form>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* OneDrive Connection Card */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Cloud className="h-5 w-5" />
+              OneDrive Connection
+            </CardTitle>
+            <CardDescription>
+              Connect your Microsoft OneDrive account to access and sync files.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isOneDriveConnected ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/10 border border-primary/20">
+                  <CheckCircle2 className="h-5 w-5 text-primary" />
+                  <div className="flex-1">
+                    <p className="font-medium text-primary">Connected</p>
+                    {oneDriveUser && (
+                      <p className="text-sm text-muted-foreground">
+                        {oneDriveUser.displayName} ({oneDriveUser.mail || oneDriveUser.userPrincipalName})
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <Button 
+                  variant="outline" 
+                  onClick={disconnectOneDrive}
+                  className="w-full sm:w-auto"
+                >
+                  <CloudOff className="mr-2 h-4 w-4" />
+                  Disconnect OneDrive
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  Connect your OneDrive account to browse and manage files directly from the portal.
+                </p>
+                <Button 
+                  onClick={connectOneDrive} 
+                  disabled={isOneDriveLoading}
+                  className="w-full sm:w-auto"
+                >
+                  {isOneDriveLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <Cloud className="mr-2 h-4 w-4" />
+                      Connect OneDrive
+                    </>
+                  )}
+                </Button>
+              </div>
             )}
           </CardContent>
         </Card>
