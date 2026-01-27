@@ -1,8 +1,19 @@
-import { X, Download, ExternalLink, File, Folder, FileImage, FileText, FileSpreadsheet, Calendar, HardDrive } from "lucide-react";
+import { X, Download, ExternalLink, File, Folder, FileImage, FileText, FileSpreadsheet, Calendar, HardDrive, Eye } from "lucide-react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { OneDriveItem } from "./types";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useState } from "react";
 
 interface OneDrivePreviewPanelProps {
   item: OneDriveItem;
@@ -50,6 +61,16 @@ const isPreviewableImage = (item: OneDriveItem) => {
   return mimeType.startsWith("image/") || /\.(jpg|jpeg|png|gif|webp|svg)$/.test(name);
 };
 
+const isOfficeFile = (item: OneDriveItem) => {
+  const name = item.name.toLowerCase();
+  return /\.(xlsx?|docx?|pptx?|csv)$/.test(name);
+};
+
+const getOfficePreviewUrl = (webUrl: string) => {
+  // OneDrive webUrl already points to Office Online viewer
+  return webUrl;
+};
+
 export function OneDrivePreviewPanel({
   item,
   previewUrl,
@@ -57,6 +78,16 @@ export function OneDrivePreviewPanel({
   onClose,
   onDownload,
 }: OneDrivePreviewPanelProps) {
+  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const canPreviewInOffice = isOfficeFile(item) && item.webUrl;
+
+  const handlePreviewClick = () => {
+    if (item.webUrl) {
+      // Open in new window for Office Online preview
+      window.open(item.webUrl, '_blank', 'width=1200,height=800,menubar=no,toolbar=no');
+    }
+  };
+
   return (
     <div className="w-80 border-l bg-background flex flex-col h-full">
       {/* Header */}
@@ -88,26 +119,41 @@ export function OneDrivePreviewPanel({
           </div>
 
           {/* Actions */}
-          <div className="flex gap-2 mb-4">
-            {!item.folder && (
+          <div className="flex flex-col gap-2 mb-4">
+            {/* Preview button for Office files */}
+            {canPreviewInOffice && (
               <Button 
-                variant="outline" 
-                className="flex-1"
-                onClick={() => onDownload(item)}
+                variant="default" 
+                className="w-full bg-[#0078d4] hover:bg-[#106ebe]"
+                onClick={handlePreviewClick}
               >
-                <Download className="h-4 w-4 mr-2" />
-                Download
+                <Eye className="h-4 w-4 mr-2" />
+                Preview in Office Online
               </Button>
             )}
-            {item.webUrl && (
-              <Button 
-                variant="outline" 
-                size="icon"
-                onClick={() => window.open(item.webUrl, '_blank')}
-              >
-                <ExternalLink className="h-4 w-4" />
-              </Button>
-            )}
+            
+            <div className="flex gap-2">
+              {!item.folder && (
+                <Button 
+                  variant="outline" 
+                  className="flex-1"
+                  onClick={() => onDownload(item)}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download
+                </Button>
+              )}
+              {item.webUrl && (
+                <Button 
+                  variant="outline" 
+                  size="icon"
+                  onClick={() => window.open(item.webUrl, '_blank')}
+                  title="Open in OneDrive"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </div>
 
           <Separator className="my-4" />
