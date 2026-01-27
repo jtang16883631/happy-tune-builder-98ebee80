@@ -320,7 +320,13 @@ export default function ScheduleHub() {
       <ScheduleBuilder
         event={editingEvent}
         open={builderOpen}
-        onOpenChange={setBuilderOpen}
+        onOpenChange={(open) => {
+          setBuilderOpen(open);
+          if (!open) {
+            // Clear editing event when dialog closes to prevent stale state
+            setEditingEvent(null);
+          }
+        }}
         teamMembers={teamMembers}
         defaultDate={weekStart}
       />
