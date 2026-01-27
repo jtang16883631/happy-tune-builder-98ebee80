@@ -1095,39 +1095,39 @@ const Scan = () => {
     // - FDANine1 > 1: Multiple outer packs, must show popup
     
     if (fdaNine1Num <= 1) {
-      // Only one outer pack - auto-select without popup
+      // FDANine1 = 0 or 1: Auto-select without popup
+      // Priority: 1) AE column (outerpack_ndc) from scanned row, 2) AD search for candidates
       console.log('[NDC Lookup] FDANine1 <= 1, auto-selecting outer NDC');
       
+      // Step 1: Check AE column (outerpack_ndc) on the scanned row - this is NDCOUTER
       if (aeValue.length >= 10) {
-        // Use outer NDC from AE column, pass scannedDrug for metadata fallback
         const normalizedAE = aeValue.length >= 11 ? aeValue.slice(0, 11) : aeValue.padStart(11, '0');
-        console.log('[NDC Lookup] Auto-using AE column:', normalizedAE);
+        console.log('[NDC Lookup] Using AE column (outerpack_ndc) from scanned row:', normalizedAE);
         await lookupNDC(normalizedAE, cleanNdc, rowIndex, scannedDrug);
-        toast.success(`Outer NDC auto-selected: ${normalizedAE}`);
+        toast.success(`Outer NDC: ${normalizedAE}`);
         return true;
       }
       
-      // AE empty - search AD column for outer candidates
+      // Step 2: AE empty - calculate left9+"O" and search AD column for outer candidates
+      // This finds rows where AD (ndc9_outer) matches left9+"O", then gets their AE (outerpack_ndc)
       const { candidates, outerNDCs } = findOuterCandidates(cleanNdc);
-      console.log('[NDC Lookup] AD search found', outerNDCs.length, 'candidates');
+      console.log('[NDC Lookup] AD search (left9+O) found', outerNDCs.length, 'outer NDC candidates');
       
       if (outerNDCs.length >= 1) {
-        // Use first outer NDC found from AE column of matched rows
-        // outerNDCs already contains normalized outerpack_ndc values from the AD search
+        // Use the first outer NDC found - this is the outerpack_ndc (AE) from matched row
         const finalOuterNDC = outerNDCs[0];
-        
-        console.log('[NDC Lookup] Auto-using first outer NDC from AD search:', finalOuterNDC);
+        console.log('[NDC Lookup] Auto-selecting outer NDC from AD search:', finalOuterNDC);
         await lookupNDC(finalOuterNDC, cleanNdc, rowIndex, scannedDrug);
-        toast.success(`Outer NDC auto-selected: ${finalOuterNDC}`);
+        toast.success(`Outer NDC: ${finalOuterNDC}`);
         return true;
       }
       
-      // No outer pack found - use scanned NDC directly
-      console.log('[NDC Lookup] No outer candidates, using scanned NDC');
+      // Step 3: No outer pack found - use scanned NDC directly (FDANine1 = 0 case)
+      console.log('[NDC Lookup] FDANine1 = 0, no outer pack found, using scanned NDC');
       if (scannedDrug) {
         await lookupNDC(cleanNdc, cleanNdc, rowIndex);
-        toast.warning('No outer pack mapping found', {
-          description: `Using scanned NDC: ${cleanNdc}`,
+        toast.warning('No outer pack mapping', {
+          description: `Using scanned: ${cleanNdc}`,
           duration: 5000,
         });
         return true;
@@ -1135,8 +1135,8 @@ const Scan = () => {
         setTimeAndRec();
         const costFound = await lookupCostDataOnly(scannedNdc, rowIndex);
         if (costFound) {
-          toast.warning('No outer pack mapping found', {
-            description: `Using scanned NDC: ${cleanNdc}`,
+          toast.warning('No outer pack mapping', {
+            description: `Using scanned: ${cleanNdc}`,
             duration: 5000,
           });
           return true;
