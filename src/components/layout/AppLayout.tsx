@@ -70,6 +70,7 @@ const navSections: NavSection[] = [
     title: 'HR',
     items: [
       { href: '/timesheet', label: 'Timesheet', icon: Clock, roles: allRoles },
+      { href: '/timesheet-summary', label: 'Timesheet Summary', icon: Users, roles: allRoles },
       { href: '/users', label: 'Users', icon: Users, roles: ['developer'] },
     ],
   },

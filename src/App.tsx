@@ -21,6 +21,7 @@ import Suggestion from "./pages/Suggestion";
 import Dashboard from "./pages/Dashboard";
 import ScheduleHub from "./pages/ScheduleHub";
 import Timesheet from "./pages/Timesheet";
+import TimesheetSummary from "./pages/TimesheetSummary";
 import Issues from "./pages/Issues";
 import LiveTracker from "./pages/LiveTracker";
 import Tickets from "./pages/Tickets";
@@ -242,6 +243,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <Timesheet />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/timesheet-summary"
+          element={
+            <ProtectedRoute>
+              <TimesheetSummary />
             </ProtectedRoute>
           }
         />
