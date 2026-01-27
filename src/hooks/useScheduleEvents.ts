@@ -89,19 +89,27 @@ export function useAllScheduleEvents() {
   });
 }
 
-// Fetch team members
+// Fetch team members from profiles table (registered users)
 export function useTeamMembers() {
   return useQuery({
     queryKey: ['team-members'],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('team_members')
-        .select('*')
-        .eq('is_active', true)
-        .order('name');
+        .from('profiles')
+        .select('id, full_name, email, phone, avatar_url')
+        .order('full_name');
 
       if (error) throw error;
-      return data as TeamMember[];
+      
+      // Map profiles to TeamMember format for compatibility
+      return (data || []).map(profile => ({
+        id: profile.id,
+        name: profile.full_name || profile.email || 'Unknown User',
+        email: profile.email,
+        phone: profile.phone,
+        color: null,
+        is_active: true,
+      })) as TeamMember[];
     },
   });
 }
