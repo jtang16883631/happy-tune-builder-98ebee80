@@ -5,3 +5,9 @@ verify_jwt = false
 
 [functions.export-schedule-to-docs]
 verify_jwt = false
+
+[functions.onedrive-auth]
+verify_jwt = false
+
+[functions.onedrive-api]
+verify_jwt = false
