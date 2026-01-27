@@ -25,6 +25,7 @@ import Issues from "./pages/Issues";
 import LiveTracker from "./pages/LiveTracker";
 import Tickets from "./pages/Tickets";
 import Chat from "./pages/Chat";
+import OneDrive from "./pages/OneDrive";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -265,6 +266,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <Tickets />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/onedrive"
+          element={
+            <ProtectedRoute>
+              <OneDrive />
             </ProtectedRoute>
           }
         />

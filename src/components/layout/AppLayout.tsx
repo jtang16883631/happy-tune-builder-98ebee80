@@ -58,7 +58,7 @@ const navSections: NavSection[] = [
   {
     title: 'DATA CENTER',
     items: [
-      { href: '#', label: 'OneDrive Files', icon: HardDrive, roles: allRoles, disabled: true },
+      { href: '/onedrive', label: 'OneDrive Files', icon: HardDrive, roles: allRoles },
       { href: '#', label: 'Reports', icon: FileText, roles: allRoles, disabled: true },
       { href: '/fda', label: 'Master Data', icon: Database, roles: allRoles },
       { href: '/compile', label: 'Compile', icon: FileStack, roles: allRoles },
