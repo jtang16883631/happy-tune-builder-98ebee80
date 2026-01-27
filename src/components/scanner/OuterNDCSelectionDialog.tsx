@@ -92,9 +92,9 @@ export function OuterNDCSelectionDialog({
         onKeyDown={handleKeyDown}
       >
         <DialogHeader className="px-4 pt-4 pb-2 border-b bg-muted/30">
-          <DialogTitle className="text-lg font-semibold">选择 Outer Pack</DialogTitle>
+          <DialogTitle className="text-lg font-semibold">Select Outer Pack</DialogTitle>
           <div className="flex items-center gap-2 text-sm mt-2">
-            <span className="text-muted-foreground">扫描的内包装 NDC:</span>
+            <span className="text-muted-foreground">Scanned Inner Pack NDC:</span>
             <Badge variant="outline" className="font-mono bg-accent text-accent-foreground border-primary/30">
               {formatNDC(scannedNDC)}
             </Badge>
