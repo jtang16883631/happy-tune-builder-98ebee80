@@ -6,8 +6,9 @@ const corsHeaders = {
 };
 
 const AZURE_CLIENT_ID = Deno.env.get('AZURE_CLIENT_ID')!;
-const AZURE_TENANT_ID = Deno.env.get('AZURE_TENANT_ID')!;
 const AZURE_CLIENT_SECRET = Deno.env.get('AZURE_CLIENT_SECRET')!;
+// Use 'consumers' for personal Microsoft accounts (outlook.com, hotmail.com, live.com)
+const AZURE_TENANT = 'consumers';
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -22,7 +23,7 @@ serve(async (req) => {
     if (action === 'get-auth-url') {
       // Generate the OAuth authorization URL
       const scope = encodeURIComponent('Files.Read Files.ReadWrite User.Read offline_access');
-      const authUrl = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/authorize?` +
+      const authUrl = `https://login.microsoftonline.com/${AZURE_TENANT}/oauth2/v2.0/authorize?` +
         `client_id=${AZURE_CLIENT_ID}` +
         `&response_type=code` +
         `&redirect_uri=${encodeURIComponent(redirectUri)}` +
@@ -40,7 +41,7 @@ serve(async (req) => {
       // Exchange authorization code for tokens
       console.log('Exchanging code for tokens...');
       
-      const tokenUrl = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token`;
+      const tokenUrl = `https://login.microsoftonline.com/${AZURE_TENANT}/oauth2/v2.0/token`;
       const body = new URLSearchParams({
         client_id: AZURE_CLIENT_ID,
         client_secret: AZURE_CLIENT_SECRET,
@@ -78,7 +79,7 @@ serve(async (req) => {
       // Refresh the access token
       console.log('Refreshing access token...');
       
-      const tokenUrl = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token`;
+      const tokenUrl = `https://login.microsoftonline.com/${AZURE_TENANT}/oauth2/v2.0/token`;
       const body = new URLSearchParams({
         client_id: AZURE_CLIENT_ID,
         client_secret: AZURE_CLIENT_SECRET,
