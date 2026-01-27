@@ -347,7 +347,7 @@ export function useOfflineIssues() {
     try {
       let synced = 0;
 
-      // Push dirty issues to cloud
+      // Step 1: Push dirty issues to cloud
       const dirtyResults = db.exec(`SELECT * FROM issues WHERE is_dirty = 1`);
       
       if (dirtyResults.length > 0) {
@@ -363,8 +363,8 @@ export function useOfflineIssues() {
           };
 
           if (issue.cloud_id) {
-            // Update existing
-            await supabase
+            // Update existing cloud record
+            const { error } = await supabase
               .from('template_issues')
               .update({
                 notes: issue.notes,
@@ -372,8 +372,13 @@ export function useOfflineIssues() {
                 updated_at: new Date().toISOString(),
               })
               .eq('id', issue.cloud_id);
+            
+            if (!error) {
+              db.run(`UPDATE issues SET is_dirty = 0 WHERE id = ?`, [issue.id]);
+              synced++;
+            }
           } else {
-            // Insert new
+            // Insert new record to cloud
             const { data, error } = await supabase
               .from('template_issues')
               .insert({
@@ -391,13 +396,11 @@ export function useOfflineIssues() {
               synced++;
             }
           }
-
-          db.run(`UPDATE issues SET is_dirty = 0 WHERE id = ?`, [issue.id]);
         }
       }
 
-      // Pull from cloud
-      const { data: cloudIssues } = await supabase
+      // Step 2: Pull ALL issues from cloud and merge
+      const { data: cloudIssues, error: fetchError } = await supabase
         .from('template_issues')
         .select(`
           *,
@@ -405,26 +408,73 @@ export function useOfflineIssues() {
         `)
         .order('created_at', { ascending: false });
 
-      for (const ci of cloudIssues || []) {
-        const existing = db.exec(`SELECT id FROM issues WHERE cloud_id = ?`, [ci.id]);
+      if (fetchError) {
+        console.error('Failed to fetch cloud issues:', fetchError);
+      } else if (cloudIssues) {
+        for (const ci of cloudIssues) {
+          const existing = db.exec(`SELECT id, is_dirty, updated_at FROM issues WHERE cloud_id = ?`, [ci.id]);
+          
+          if (existing.length === 0 || existing[0].values.length === 0) {
+            // New issue from cloud - insert locally
+            const localId = generateId();
+            db.run(`
+              INSERT INTO issues (id, cloud_id, template_id, template_name, issue_type, notes, is_resolved, created_by, created_at, updated_at, is_dirty)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            `, [
+              localId, ci.id, ci.template_id, ci.data_templates?.name || null, ci.issue_type, 
+              ci.notes, ci.is_resolved ? 1 : 0, ci.created_by, ci.created_at, ci.updated_at
+            ]);
+            synced++;
+          } else {
+            // Existing local issue - update if not dirty (cloud wins for non-dirty items)
+            const localRow = existing[0].values[0];
+            const localId = localRow[0] as string;
+            const isDirty = Boolean(localRow[1]);
+            const localUpdatedAt = localRow[2] as string;
+            
+            if (!isDirty) {
+              // Local is not dirty - update with cloud data
+              const cloudUpdatedAt = new Date(ci.updated_at).getTime();
+              const localUpdatedTime = new Date(localUpdatedAt).getTime();
+              
+              // Only update if cloud is newer
+              if (cloudUpdatedAt > localUpdatedTime) {
+                db.run(`
+                  UPDATE issues SET 
+                    notes = ?, 
+                    is_resolved = ?, 
+                    template_name = ?,
+                    updated_at = ?
+                  WHERE id = ?
+                `, [ci.notes, ci.is_resolved ? 1 : 0, ci.data_templates?.name || null, ci.updated_at, localId]);
+                synced++;
+              }
+            }
+            // If local is dirty, keep local changes (they will be pushed on next sync)
+          }
+        }
+
+        // Step 3: Delete local issues that no longer exist in cloud
+        const cloudIds = cloudIssues.map(ci => ci.id);
+        const localWithCloudId = db.exec(`SELECT id, cloud_id FROM issues WHERE cloud_id IS NOT NULL`);
         
-        if (existing.length === 0 || existing[0].values.length === 0) {
-          const localId = generateId();
-          db.run(`
-            INSERT INTO issues (id, cloud_id, template_id, template_name, issue_type, notes, is_resolved, created_by, created_at, updated_at, is_dirty)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-          `, [
-            localId, ci.id, ci.template_id, ci.data_templates?.name || null, ci.issue_type, 
-            ci.notes, ci.is_resolved ? 1 : 0, ci.created_by, ci.created_at, ci.updated_at
-          ]);
-          synced++;
+        if (localWithCloudId.length > 0) {
+          for (const row of localWithCloudId[0].values) {
+            const localId = row[0] as string;
+            const cloudId = row[1] as string;
+            
+            if (!cloudIds.includes(cloudId)) {
+              // Cloud issue was deleted - delete local copy
+              db.run(`DELETE FROM issues WHERE id = ?`, [localId]);
+            }
+          }
         }
       }
 
       await saveDatabase();
       await updateSyncMeta({ 
         lastSyncedAt: new Date().toISOString(), 
-        pendingChanges: 0 
+        pendingChanges: getPendingChangesCount()
       });
 
       return { success: true, synced };
@@ -434,7 +484,7 @@ export function useOfflineIssues() {
     } finally {
       setIsSyncing(false);
     }
-  }, [db, user, isOnline, isSyncing, saveDatabase, updateSyncMeta]);
+  }, [db, user, isOnline, isSyncing, saveDatabase, updateSyncMeta, getPendingChangesCount]);
 
   return {
     isLoading,
