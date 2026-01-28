@@ -204,6 +204,7 @@ export type Database = {
           id: string
           is_admin: boolean | null
           joined_at: string
+          last_read_at: string | null
           room_id: string
           user_id: string
         }
@@ -211,6 +212,7 @@ export type Database = {
           id?: string
           is_admin?: boolean | null
           joined_at?: string
+          last_read_at?: string | null
           room_id: string
           user_id: string
         }
@@ -218,6 +220,7 @@ export type Database = {
           id?: string
           is_admin?: boolean | null
           joined_at?: string
+          last_read_at?: string | null
           room_id?: string
           user_id?: string
         }
