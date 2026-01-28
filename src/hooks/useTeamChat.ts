@@ -13,6 +13,13 @@ export interface ChatRoom {
   meta?: Json;
 }
 
+export interface ChatAttachment {
+  name: string;
+  url: string;
+  type: string;
+  size: number;
+}
+
 export interface ChatMessage {
   id: string;
   room_id: string;
@@ -22,6 +29,7 @@ export interface ChatMessage {
   updated_at: string;
   user_name?: string;
   user_avatar?: string;
+  attachments?: ChatAttachment[];
 }
 
 export interface RoomMember {
@@ -139,6 +147,7 @@ export function useTeamChat() {
         updated_at: msg.updated_at as string,
         user_name: (msg.profiles as Record<string, unknown>)?.full_name as string || 'Guest',
         user_avatar: (msg.profiles as Record<string, unknown>)?.avatar_url as string | undefined,
+        attachments: (msg.attachments as ChatAttachment[]) || [],
       }));
 
       setMessages(formattedMessages);
@@ -187,18 +196,21 @@ export function useTeamChat() {
   }, [fetchMessages, fetchMembers]);
 
   // Send a message
-  const sendMessage = useCallback(async (content: string) => {
-    if (!userId || !currentRoom || !content.trim()) return;
+  const sendMessage = useCallback(async (content: string, attachments?: ChatAttachment[]) => {
+    if (!userId || !currentRoom || (!content.trim() && (!attachments || attachments.length === 0))) return;
 
     setIsSending(true);
     try {
+      const messageData = {
+        room_id: currentRoom.id,
+        user_id: userId,
+        content: content.trim(),
+        attachments: (attachments || []) as unknown as Json,
+      };
+      
       const { error } = await supabase
         .from('chat_messages')
-        .insert({
-          room_id: currentRoom.id,
-          user_id: userId,
-          content: content.trim(),
-        });
+        .insert(messageData);
 
       if (error) throw error;
     } catch (error: unknown) {
@@ -360,6 +372,7 @@ export function useTeamChat() {
               updated_at: data.updated_at,
               user_name: profiles?.full_name || 'Guest',
               user_avatar: profiles?.avatar_url,
+              attachments: (data.attachments as unknown as ChatAttachment[]) || [],
             };
 
             setMessages(prev => {
