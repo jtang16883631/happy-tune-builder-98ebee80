@@ -116,10 +116,12 @@ function ProtectedRoute({
   children, 
   allowOffline = false,
   requiredRoles = [],
+  redirectAuditors = false,
 }: { 
   children: React.ReactNode; 
   allowOffline?: boolean;
   requiredRoles?: string[];
+  redirectAuditors?: boolean;
 }) {
   const { user, isLoading, roles, rolesLoaded, isOwner } = useAuth();
   const isOnline = useOnlineStatus();
@@ -149,11 +151,26 @@ function ProtectedRoute({
     return <Navigate to="/auth" replace />;
   }
 
+  // Check if user is auditor-only (has auditor role but no privileged roles)
+  const isAuditorOnly = roles.includes('auditor') && 
+    !roles.includes('owner') && 
+    !roles.includes('developer') && 
+    !roles.includes('coordinator') && 
+    !roles.includes('office_admin');
+
+  // Redirect auditor-only users away from pages they shouldn't access
+  if (redirectAuditors && isAuditorOnly) {
+    return <Navigate to="/timesheet" replace />;
+  }
+
   // Check role requirements if specified
   if (requiredRoles.length > 0) {
     const hasRequiredRole = requiredRoles.some(role => roles.includes(role as any));
     if (!hasRequiredRole) {
-      // Redirect to dashboard if user doesn't have required role
+      // Redirect auditors to timesheet, others to dashboard
+      if (isAuditorOnly) {
+        return <Navigate to="/timesheet" replace />;
+      }
       return <Navigate to="/" replace />;
     }
   }
@@ -178,7 +195,7 @@ function AppRoutes() {
         <Route
           path="/"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute redirectAuditors>
               <Dashboard />
             </ProtectedRoute>
           }
@@ -186,7 +203,7 @@ function AppRoutes() {
         <Route
           path="/data-template"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute redirectAuditors>
               <Index />
             </ProtectedRoute>
           }
@@ -194,7 +211,7 @@ function AppRoutes() {
         <Route
           path="/users"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute redirectAuditors>
               <Users />
             </ProtectedRoute>
           }
@@ -202,7 +219,7 @@ function AppRoutes() {
         <Route
           path="/scan"
           element={
-            <ProtectedRoute allowOffline>
+            <ProtectedRoute allowOffline redirectAuditors>
               <Scan />
             </ProtectedRoute>
           }
@@ -210,7 +227,7 @@ function AppRoutes() {
         <Route
           path="/automation"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute redirectAuditors>
               <Automation />
             </ProtectedRoute>
           }
@@ -218,7 +235,7 @@ function AppRoutes() {
         <Route
           path="/fda"
           element={
-            <ProtectedRoute allowOffline>
+            <ProtectedRoute allowOffline redirectAuditors>
               <FDA />
             </ProtectedRoute>
           }
@@ -226,7 +243,7 @@ function AppRoutes() {
         <Route
           path="/compile"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute redirectAuditors>
               <Compile />
             </ProtectedRoute>
           }
@@ -234,7 +251,7 @@ function AppRoutes() {
         <Route
           path="/update-log"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute redirectAuditors>
               <UpdateLog />
             </ProtectedRoute>
           }
@@ -242,7 +259,7 @@ function AppRoutes() {
         <Route
           path="/suggestion"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute redirectAuditors>
               <Suggestion />
             </ProtectedRoute>
           }
@@ -250,7 +267,7 @@ function AppRoutes() {
         <Route
           path="/schedule"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute redirectAuditors>
               <ScheduleHub />
             </ProtectedRoute>
           }
@@ -274,7 +291,7 @@ function AppRoutes() {
         <Route
           path="/issues"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute redirectAuditors>
               <Issues />
             </ProtectedRoute>
           }
@@ -282,7 +299,7 @@ function AppRoutes() {
         <Route
           path="/live-tracker"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute redirectAuditors>
               <LiveTracker />
             </ProtectedRoute>
           }
@@ -290,7 +307,7 @@ function AppRoutes() {
         <Route
           path="/tickets"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute redirectAuditors>
               <Tickets />
             </ProtectedRoute>
           }
@@ -298,7 +315,7 @@ function AppRoutes() {
         <Route
           path="/onedrive"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute redirectAuditors>
               <OneDrive />
             </ProtectedRoute>
           }
@@ -306,7 +323,7 @@ function AppRoutes() {
         <Route
           path="/chat"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute redirectAuditors>
               <Chat />
             </ProtectedRoute>
           }
