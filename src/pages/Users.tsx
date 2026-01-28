@@ -26,7 +26,6 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, UserCog, Crown, Code, ClipboardCheck, Search, Trash2, Briefcase } from 'lucide-react';
-import { useOnlinePresence } from '@/hooks/useOnlinePresence';
 
 type AppRole = 'auditor' | 'developer' | 'coordinator' | 'owner' | 'office_admin';
 
@@ -56,14 +55,13 @@ const roleConfig: Record<AppRole, { label: string; icon: React.ElementType; colo
 };
 
 const Users = () => {
-  const { isPrivileged, isDeveloper, isLoading: authLoading, user } = useAuth();
+  const { isPrivileged, isDeveloper, isLoading: authLoading, user, isOnline } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [users, setUsers] = useState<UserWithRoles[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<UserWithRoles | null>(null);
-  const { isOnline } = useOnlinePresence();
 
   useEffect(() => {
     if (!authLoading && !isDeveloper) {
