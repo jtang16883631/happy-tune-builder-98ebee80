@@ -42,6 +42,7 @@ export const WORK_TYPES = [
 interface TimesheetRowProps {
   dayEntry: DayEntry;
   dayName: string;
+  isLocked: boolean;
   onToggleSelect: (dateString: string) => void;
   onUpdateSegment: (dateString: string, segmentId: string, updates: Partial<TimesheetSegment>) => void;
   onAddSegment: (dateString: string, workType?: string) => void;
@@ -83,6 +84,7 @@ function parseTimeInput(input: string): string {
 export function TimesheetRow({
   dayEntry,
   dayName,
+  isLocked,
   onToggleSelect,
   onUpdateSegment,
   onAddSegment,
@@ -182,17 +184,19 @@ export function TimesheetRow({
             <div className="flex items-center gap-1">
               <Input
                 type="text"
-                placeholder="0900"
+                placeholder=""
                 value={segment.startTime}
                 onChange={(e) => onUpdateSegment(dayEntry.dateString, segment.id, { startTime: e.target.value })}
                 onBlur={(e) => handleTimeBlur(segment.id, "startTime", e.target.value)}
                 className="w-20 h-9 text-sm"
+                disabled={isLocked}
               />
               <Button
                 variant="outline"
                 size="sm"
                 className="h-9 w-12 text-xs font-medium"
                 onClick={() => togglePeriod(segment.id, "startPeriod", segment.startPeriod)}
+                disabled={isLocked}
               >
                 {segment.startPeriod}
               </Button>
@@ -202,17 +206,19 @@ export function TimesheetRow({
             <div className="flex items-center gap-1">
               <Input
                 type="text"
-                placeholder="0500"
+                placeholder=""
                 value={segment.endTime}
                 onChange={(e) => onUpdateSegment(dayEntry.dateString, segment.id, { endTime: e.target.value })}
                 onBlur={(e) => handleTimeBlur(segment.id, "endTime", e.target.value)}
                 className="w-20 h-9 text-sm"
+                disabled={isLocked}
               />
               <Button
                 variant="outline"
                 size="sm"
                 className="h-9 w-12 text-xs font-medium"
                 onClick={() => togglePeriod(segment.id, "endPeriod", segment.endPeriod)}
+                disabled={isLocked}
               >
                 {segment.endPeriod}
               </Button>
@@ -223,6 +229,7 @@ export function TimesheetRow({
               <Select
                 value={segment.workType || "none"}
                 onValueChange={(value) => handleWorkTypeChange(segment.id, value === "none" ? "" : value)}
+                disabled={isLocked}
               >
                 <SelectTrigger className="h-9 text-sm">
                   <SelectValue placeholder="Select type..." />
@@ -269,7 +276,7 @@ export function TimesheetRow({
             </Button>
 
             {/* Delete segment (only if multiple) */}
-            {dayEntry.segments.length > 1 && (
+            {dayEntry.segments.length > 1 && !isLocked && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -281,7 +288,7 @@ export function TimesheetRow({
             )}
 
             {/* Actions on first segment row */}
-            {index === 0 && (
+            {index === 0 && !isLocked && (
               <>
                 {/* Add segment button */}
                 <Button
@@ -318,6 +325,7 @@ export function TimesheetRow({
                 onChange={(e) => onUpdateSegment(dayEntry.dateString, segment.id, { notes: e.target.value })}
                 placeholder="Add notes for this entry..."
                 className="h-16 text-sm resize-none"
+                disabled={isLocked}
               />
             </div>
           )}

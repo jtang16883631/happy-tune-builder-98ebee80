@@ -24,7 +24,20 @@ import {
   Copy,
   Send,
   Loader2,
+  Save,
+  RotateCcw,
 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { QuickTemplateBar, QuickTemplate, QUICK_TEMPLATES } from "@/components/timesheet/QuickTemplateBar";
 import { TimesheetRow, DayEntry, TimesheetSegment, WORK_TYPES } from "@/components/timesheet/TimesheetRow";
 import { BulkApplyPanel } from "@/components/timesheet/BulkApplyPanel";
@@ -79,6 +92,8 @@ export default function Timesheet() {
   const [localEntries, setLocalEntries] = useState<Record<string, DayEntry>>({});
   const [selectedDays, setSelectedDays] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
+  const [timesheetStatus, setTimesheetStatus] = useState<"draft" | "submitted">("draft");
+  const [showResubmitDialog, setShowResubmitDialog] = useState(false);
 
   // Calculate week range
   const weekStart = startOfWeek(weekEndingDate, { weekStartsOn: 0 });
@@ -476,9 +491,9 @@ export default function Timesheet() {
     return `${h.toString().padStart(2, "0")}:${(minutes || 0).toString().padStart(2, "0")}`;
   };
 
-  // Save mutation
+  // Save mutation (for both draft and submit)
   const saveMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (status: "draft" | "submitted") => {
       if (!user) throw new Error("Not authenticated");
 
       // Delete existing entries for this week
@@ -509,7 +524,7 @@ export default function Timesheet() {
               break_minutes: seg.autoLunch ? seg.lunchMinutes : 0,
               client_name: seg.workType || null,
               notes: seg.notes || null,
-              status: "pending",
+              status: status === "submitted" ? "submitted" : "draft",
             });
           }
         });
@@ -521,12 +536,17 @@ export default function Timesheet() {
           .insert(entries);
         if (insertError) throw insertError;
       }
+
+      return status;
     },
-    onSuccess: () => {
+    onSuccess: (status) => {
+      setTimesheetStatus(status);
       queryClient.invalidateQueries({ queryKey: ["timesheet-entries"] });
       toast({
-        title: "Submitted",
-        description: "Your timesheet has been submitted successfully",
+        title: status === "submitted" ? "Submitted" : "Saved",
+        description: status === "submitted" 
+          ? "Your timesheet has been submitted successfully" 
+          : "Your timesheet has been saved as draft",
       });
     },
     onError: (error) => {
@@ -538,8 +558,21 @@ export default function Timesheet() {
     },
   });
 
+  const handleSaveDraft = () => {
+    saveMutation.mutate("draft");
+  };
+
   const handleSubmit = () => {
-    saveMutation.mutate();
+    saveMutation.mutate("submitted");
+  };
+
+  const handleResubmit = () => {
+    setTimesheetStatus("draft");
+    setShowResubmitDialog(false);
+    toast({
+      title: "Unlocked",
+      description: "You can now edit your timesheet and resubmit",
+    });
   };
 
   const navigateWeek = (direction: "prev" | "next") => {
@@ -547,7 +580,20 @@ export default function Timesheet() {
       direction === "prev" ? subWeeks(prev, 1) : addWeeks(prev, 1)
     );
     setSelectedDays(new Set());
+    setTimesheetStatus("draft"); // Reset status when changing weeks
   };
+
+  // Check if any entry is submitted to determine initial lock state
+  useMemo(() => {
+    const hasSubmittedEntry = dbEntries.some(entry => entry.status === "submitted");
+    if (hasSubmittedEntry) {
+      setTimesheetStatus("submitted");
+    } else {
+      setTimesheetStatus("draft");
+    }
+  }, [dbEntries]);
+
+  const isLocked = timesheetStatus === "submitted";
 
   if (isLoading) {
     return (
@@ -572,22 +618,60 @@ export default function Timesheet() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={handleCopyLastWeek} className="gap-2">
+            <Button variant="outline" size="sm" onClick={handleCopyLastWeek} className="gap-2" disabled={isLocked}>
               <Copy className="h-4 w-4" />
               Copy Last Week
             </Button>
             <Button 
-              onClick={handleSubmit} 
-              disabled={saveMutation.isPending}
+              variant="outline"
+              onClick={handleSaveDraft} 
+              disabled={saveMutation.isPending || isLocked}
               className="gap-2"
             >
               {saveMutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Send className="h-4 w-4" />
+                <Save className="h-4 w-4" />
               )}
-              Submit Timesheet
+              Save as Draft
             </Button>
+            {!isLocked ? (
+              <Button 
+                onClick={handleSubmit} 
+                disabled={saveMutation.isPending}
+                className="gap-2"
+              >
+                {saveMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                Submit Timesheet
+              </Button>
+            ) : (
+              <AlertDialog open={showResubmitDialog} onOpenChange={setShowResubmitDialog}>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" className="gap-2">
+                    <RotateCcw className="h-4 w-4" />
+                    Resubmit
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Resubmit Timesheet?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will unlock your timesheet for editing. You'll need to submit again after making changes.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleResubmit}>
+                      Yes, Unlock & Edit
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
           </div>
         </div>
 
@@ -649,10 +733,11 @@ export default function Timesheet() {
               if (!dayEntry) return null;
 
               return (
-                <TimesheetRow
+              <TimesheetRow
                   key={dateString}
                   dayEntry={dayEntry}
                   dayName={DAY_NAMES[dayOfWeek]}
+                  isLocked={isLocked}
                   onToggleSelect={handleToggleSelect}
                   onUpdateSegment={handleUpdateSegment}
                   onAddSegment={handleAddSegment}
