@@ -36,49 +36,55 @@ interface NavSection {
 }
 
 const allRoles: AppRole[] = ['auditor', 'developer', 'coordinator', 'owner', 'office_admin'];
+// Roles that have full access (owner inherits developer permissions)
+const privilegedRoles: AppRole[] = ['developer', 'owner'];
+// Roles that can access most features except restricted ones
+const standardRoles: AppRole[] = ['developer', 'coordinator', 'owner', 'office_admin'];
 
 const navSections: NavSection[] = [
   {
     title: 'OPERATIONS',
     items: [
-      { href: '/', label: 'Dashboard', icon: LayoutDashboard, roles: allRoles },
-      { href: '/live-tracker', label: 'Live Tracker', icon: Radio, roles: allRoles },
-      { href: '/tickets', label: 'Ticket Database', icon: Ticket, roles: allRoles },
+      { href: '/', label: 'Dashboard', icon: LayoutDashboard, roles: standardRoles },
+      { href: '/live-tracker', label: 'Live Tracker', icon: Radio, roles: standardRoles },
+      { href: '/tickets', label: 'Ticket Database', icon: Ticket, roles: standardRoles },
     ],
   },
   {
     title: 'MANAGEMENT',
     items: [
-      { href: '/scan', label: 'Audit Projects', icon: ClipboardList, roles: allRoles },
-      { href: '/automation', label: 'Automation', icon: Zap, roles: allRoles },
-      { href: '/data-template', label: 'Data Templates', icon: FolderOpen, roles: allRoles },
-      { href: '/issues', label: 'Issues', icon: AlertTriangle, roles: allRoles },
+      { href: '/scan', label: 'Audit Projects', icon: ClipboardList, roles: standardRoles },
+      { href: '/automation', label: 'Automation', icon: Zap, roles: standardRoles },
+      { href: '/data-template', label: 'Data Templates', icon: FolderOpen, roles: standardRoles },
+      { href: '/issues', label: 'Issues', icon: AlertTriangle, roles: standardRoles },
     ],
   },
   {
     title: 'DATA CENTER',
     items: [
-      { href: '/onedrive', label: 'OneDrive Files', icon: HardDrive, roles: allRoles },
-      { href: '#', label: 'Reports', icon: FileText, roles: allRoles, disabled: true },
-      { href: '/fda', label: 'Master Data', icon: Database, roles: allRoles },
-      { href: '/compile', label: 'Compile', icon: FileStack, roles: allRoles },
-      { href: '/update-log', label: 'Update Log', icon: History, roles: allRoles },
-      { href: '/suggestion', label: 'Suggestion', icon: Lightbulb, roles: allRoles },
+      { href: '/onedrive', label: 'OneDrive Files', icon: HardDrive, roles: standardRoles },
+      { href: '#', label: 'Reports', icon: FileText, roles: standardRoles, disabled: true },
+      { href: '/fda', label: 'Master Data', icon: Database, roles: standardRoles },
+      { href: '/compile', label: 'Compile', icon: FileStack, roles: standardRoles },
+      { href: '/update-log', label: 'Update Log', icon: History, roles: standardRoles },
+      { href: '/suggestion', label: 'Suggestion', icon: Lightbulb, roles: standardRoles },
     ],
   },
   {
     title: 'HR',
     items: [
+      // Timesheet is available to all roles including auditor
       { href: '/timesheet', label: 'Timesheet', icon: Clock, roles: allRoles },
-      { href: '/timesheet-summary', label: 'Timesheet Summary', icon: Users, roles: allRoles },
-      { href: '/users', label: 'Users', icon: Users, roles: ['developer'] },
+      // Timesheet Summary is ONLY for owner
+      { href: '/timesheet-summary', label: 'Timesheet Summary', icon: Users, roles: ['owner'] },
+      { href: '/users', label: 'Users', icon: Users, roles: privilegedRoles },
     ],
   },
   {
     title: 'COMMUNICATION',
     items: [
-      { href: '/chat', label: 'Team Chat', icon: MessageSquare, roles: allRoles },
-      { href: '/schedule', label: 'Schedule Hub', icon: CalendarDays, roles: allRoles },
+      { href: '/chat', label: 'Team Chat', icon: MessageSquare, roles: standardRoles },
+      { href: '/schedule', label: 'Schedule Hub', icon: CalendarDays, roles: standardRoles },
     ],
   },
 ];

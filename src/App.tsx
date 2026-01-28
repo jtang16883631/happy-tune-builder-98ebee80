@@ -112,8 +112,16 @@ function useOAuthHandler() {
 // Routes that work offline without auth - Master Data (FDA) and Audit Projects (Scan)
 const OFFLINE_ALLOWED_ROUTES = ['/scan', '/fda', '/auth'];
 
-function ProtectedRoute({ children, allowOffline = false }: { children: React.ReactNode; allowOffline?: boolean }) {
-  const { user, isLoading } = useAuth();
+function ProtectedRoute({ 
+  children, 
+  allowOffline = false,
+  requiredRoles = [],
+}: { 
+  children: React.ReactNode; 
+  allowOffline?: boolean;
+  requiredRoles?: string[];
+}) {
+  const { user, isLoading, roles, rolesLoaded, isOwner } = useAuth();
   const isOnline = useOnlineStatus();
 
   // If offline and this route allows offline access, skip auth check
@@ -121,7 +129,7 @@ function ProtectedRoute({ children, allowOffline = false }: { children: React.Re
     return <>{children}</>;
   }
 
-  if (isLoading) {
+  if (isLoading || !rolesLoaded) {
     // If offline while loading, just render the page (don't block)
     if (!isOnline && allowOffline) {
       return <>{children}</>;
@@ -139,6 +147,15 @@ function ProtectedRoute({ children, allowOffline = false }: { children: React.Re
       return <Navigate to="/scan" replace />;
     }
     return <Navigate to="/auth" replace />;
+  }
+
+  // Check role requirements if specified
+  if (requiredRoles.length > 0) {
+    const hasRequiredRole = requiredRoles.some(role => roles.includes(role as any));
+    if (!hasRequiredRole) {
+      // Redirect to dashboard if user doesn't have required role
+      return <Navigate to="/" replace />;
+    }
   }
 
   return <>{children}</>;
@@ -249,7 +266,7 @@ function AppRoutes() {
         <Route
           path="/timesheet-summary"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requiredRoles={['owner']}>
               <TimesheetSummary />
             </ProtectedRoute>
           }
