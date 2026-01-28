@@ -40,9 +40,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { TimesheetRow, DayEntry, TimesheetSegment, WORK_TYPES } from "@/components/timesheet/TimesheetRow";
+import { MobileTimesheetRow } from "@/components/timesheet/MobileTimesheetRow";
 import { BulkApplyPanel } from "@/components/timesheet/BulkApplyPanel";
 import { WeeklyTotalBar } from "@/components/timesheet/WeeklyTotalBar";
 import { useToast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface TimesheetEntry {
   id: string;
@@ -77,6 +79,7 @@ export default function Timesheet() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const isMobile = useIsMobile();
 
   // Week ending date (Sunday) - week runs Monday-Sunday
   const [weekEndingDate, setWeekEndingDate] = useState<Date>(() => {
@@ -606,34 +609,39 @@ export default function Timesheet() {
 
   return (
     <AppLayout>
-      <div className="container mx-auto py-6 space-y-4 pb-24">
+      <div className="container mx-auto py-4 sm:py-6 space-y-4 pb-24 px-2 sm:px-4">
         {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div>
-              <h1 className="text-2xl font-bold">My Timesheet</h1>
-              <p className="text-sm text-muted-foreground">
-                Week Ending: {format(weekEnd, "MMMM do, yyyy")}
-              </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold">My Timesheet</h1>
+                <p className="text-xs sm:text-sm text-muted-foreground">
+                  Week Ending: {format(weekEnd, isMobile ? "MMM do" : "MMMM do, yyyy")}
+                </p>
+              </div>
+              <Badge 
+                variant={timesheetStatus === "submitted" ? "default" : "secondary"}
+                className="capitalize text-xs"
+              >
+                {timesheetStatus}
+              </Badge>
             </div>
-            <Badge 
-              variant={timesheetStatus === "submitted" ? "default" : "secondary"}
-              className="capitalize"
-            >
-              {timesheetStatus}
-            </Badge>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={handleCopyLastWeek} className="gap-2" disabled={isLocked}>
-              <Copy className="h-4 w-4" />
-              Copy Last Week
+          {/* Action buttons - stacked on mobile */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleCopyLastWeek} className="gap-1 sm:gap-2 text-xs sm:text-sm" disabled={isLocked}>
+              <Copy className="h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="hidden xs:inline">Copy Last Week</span>
+              <span className="xs:hidden">Copy</span>
             </Button>
             <AlertDialog open={showClearAllDialog} onOpenChange={setShowClearAllDialog}>
               <AlertDialogTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" disabled={isLocked}>
-                  <Trash2 className="h-4 w-4" />
-                  Clear All
+                <Button variant="outline" size="sm" className="gap-1 sm:gap-2 text-xs sm:text-sm text-destructive hover:text-destructive" disabled={isLocked}>
+                  <Trash2 className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <span className="hidden xs:inline">Clear All</span>
+                  <span className="xs:hidden">Clear</span>
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
@@ -653,35 +661,38 @@ export default function Timesheet() {
             </AlertDialog>
             <Button 
               variant="outline"
+              size="sm"
               onClick={handleSaveDraft} 
               disabled={saveMutation.isPending || isLocked}
-              className="gap-2"
+              className="gap-1 sm:gap-2 text-xs sm:text-sm"
             >
               {saveMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
               ) : (
-                <Save className="h-4 w-4" />
+                <Save className="h-3 w-3 sm:h-4 sm:w-4" />
               )}
-              Save as Draft
+              <span className="hidden sm:inline">Save as Draft</span>
+              <span className="sm:hidden">Save</span>
             </Button>
             {!isLocked ? (
               <Button 
+                size="sm"
                 onClick={handleSubmit} 
                 disabled={saveMutation.isPending}
-                className="gap-2"
+                className="gap-1 sm:gap-2 text-xs sm:text-sm"
               >
                 {saveMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
                 ) : (
-                  <Send className="h-4 w-4" />
+                  <Send className="h-3 w-3 sm:h-4 sm:w-4" />
                 )}
-                Submit Timesheet
+                Submit
               </Button>
             ) : (
               <AlertDialog open={showResubmitDialog} onOpenChange={setShowResubmitDialog}>
                 <AlertDialogTrigger asChild>
-                  <Button variant="outline" className="gap-2">
-                    <RotateCcw className="h-4 w-4" />
+                  <Button variant="outline" size="sm" className="gap-1 sm:gap-2 text-xs sm:text-sm">
+                    <RotateCcw className="h-3 w-3 sm:h-4 sm:w-4" />
                     Resubmit
                   </Button>
                 </AlertDialogTrigger>
@@ -737,85 +748,118 @@ export default function Timesheet() {
             </Badge>
           </div>
 
-          {/* Live Mini Calendar - Independent, for reference only */}
-          <div className="lg:ml-auto">
-            <Card className="p-2">
-              <Calendar
-                mode="single"
-                selected={new Date()}
-                month={miniCalendarMonth}
-                onMonthChange={setMiniCalendarMonth}
-                modifiers={{
-                  currentWeek: daysInWeek,
-                }}
-                modifiersStyles={{
-                  currentWeek: {
-                    backgroundColor: "hsl(var(--primary) / 0.1)",
-                    borderRadius: "0",
-                  },
-                }}
-                className="pointer-events-auto text-xs"
-                classNames={{
-                  months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
-                  month: "space-y-2",
-                  caption: "flex justify-center pt-1 relative items-center text-xs",
-                  caption_label: "text-xs font-medium",
-                  nav: "space-x-1 flex items-center",
-                  nav_button: "h-6 w-6 bg-transparent p-0 opacity-50 hover:opacity-100",
-                  table: "w-full border-collapse space-y-1",
-                  head_row: "flex",
-                  head_cell: "text-muted-foreground rounded-md w-7 font-normal text-[0.65rem]",
-                  row: "flex w-full mt-1",
-                  cell: "h-7 w-7 text-center text-xs p-0 relative focus-within:relative focus-within:z-20",
-                  day: "h-7 w-7 p-0 font-normal text-xs hover:bg-accent hover:text-accent-foreground rounded-md",
-                  day_selected: "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground",
-                  day_today: "bg-accent text-accent-foreground font-bold",
-                  day_outside: "text-muted-foreground opacity-50",
-                  day_disabled: "text-muted-foreground opacity-50",
-                }}
-              />
-            </Card>
-          </div>
+          {/* Live Mini Calendar - Hidden on mobile */}
+          {!isMobile && (
+            <div className="lg:ml-auto">
+              <Card className="p-2">
+                <Calendar
+                  mode="single"
+                  selected={new Date()}
+                  month={miniCalendarMonth}
+                  onMonthChange={setMiniCalendarMonth}
+                  modifiers={{
+                    currentWeek: daysInWeek,
+                  }}
+                  modifiersStyles={{
+                    currentWeek: {
+                      backgroundColor: "hsl(var(--primary) / 0.1)",
+                      borderRadius: "0",
+                    },
+                  }}
+                  className="pointer-events-auto text-xs"
+                  classNames={{
+                    months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
+                    month: "space-y-2",
+                    caption: "flex justify-center pt-1 relative items-center text-xs",
+                    caption_label: "text-xs font-medium",
+                    nav: "space-x-1 flex items-center",
+                    nav_button: "h-6 w-6 bg-transparent p-0 opacity-50 hover:opacity-100",
+                    table: "w-full border-collapse space-y-1",
+                    head_row: "flex",
+                    head_cell: "text-muted-foreground rounded-md w-7 font-normal text-[0.65rem]",
+                    row: "flex w-full mt-1",
+                    cell: "h-7 w-7 text-center text-xs p-0 relative focus-within:relative focus-within:z-20",
+                    day: "h-7 w-7 p-0 font-normal text-xs hover:bg-accent hover:text-accent-foreground rounded-md",
+                    day_selected: "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground",
+                    day_today: "bg-accent text-accent-foreground font-bold",
+                    day_outside: "text-muted-foreground opacity-50",
+                    day_disabled: "text-muted-foreground opacity-50",
+                  }}
+                />
+              </Card>
+            </div>
+          )}
         </div>
 
 
-        {/* Timesheet Table */}
-        <Card>
-          <CardHeader className="border-b py-3 px-4">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
-              <div className="w-5" />
-              <div className="w-24">Day</div>
-              <div className="w-32">Start</div>
-              <div className="w-32">End</div>
-              <div className="flex-1">Work Type</div>
-              <div className="w-14 text-right">Hours</div>
-              <div className="w-28" />
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            {daysInWeek.map((day) => {
-              const dateString = format(day, "yyyy-MM-dd");
-              const dayEntry = localEntries[dateString];
-              const dayOfWeek = getDay(day);
-              
-              if (!dayEntry) return null;
+        {/* Timesheet Table - Desktop */}
+        {!isMobile && (
+          <Card>
+            <CardHeader className="border-b py-3 px-4">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground font-medium">
+                <div className="w-5" />
+                <div className="w-24">Day</div>
+                <div className="w-32">Start</div>
+                <div className="w-32">End</div>
+                <div className="flex-1">Work Type</div>
+                <div className="w-14 text-right">Hours</div>
+                <div className="w-28" />
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {daysInWeek.map((day) => {
+                const dateString = format(day, "yyyy-MM-dd");
+                const dayEntry = localEntries[dateString];
+                const dayOfWeek = getDay(day);
+                
+                if (!dayEntry) return null;
 
-              return (
-              <TimesheetRow
-                  key={dateString}
-                  dayEntry={dayEntry}
-                  dayName={DAY_NAMES[dayOfWeek]}
-                  isLocked={isLocked}
-                  onToggleSelect={handleToggleSelect}
-                  onUpdateSegment={handleUpdateSegment}
-                  onAddSegment={handleAddSegment}
-                  onDeleteSegment={handleDeleteSegment}
-                  onClearDay={handleClearDay}
-                />
-              );
-            })}
-          </CardContent>
-        </Card>
+                return (
+                  <TimesheetRow
+                    key={dateString}
+                    dayEntry={dayEntry}
+                    dayName={DAY_NAMES[dayOfWeek]}
+                    isLocked={isLocked}
+                    onToggleSelect={handleToggleSelect}
+                    onUpdateSegment={handleUpdateSegment}
+                    onAddSegment={handleAddSegment}
+                    onDeleteSegment={handleDeleteSegment}
+                    onClearDay={handleClearDay}
+                  />
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Timesheet - Mobile Optimized */}
+        {isMobile && (
+          <Card>
+            <CardContent className="p-0">
+              {daysInWeek.map((day) => {
+                const dateString = format(day, "yyyy-MM-dd");
+                const dayEntry = localEntries[dateString];
+                const dayOfWeek = getDay(day);
+                
+                if (!dayEntry) return null;
+
+                return (
+                  <MobileTimesheetRow
+                    key={dateString}
+                    dayEntry={dayEntry}
+                    dayName={DAY_NAMES[dayOfWeek]}
+                    isLocked={isLocked}
+                    onToggleSelect={handleToggleSelect}
+                    onUpdateSegment={handleUpdateSegment}
+                    onAddSegment={handleAddSegment}
+                    onDeleteSegment={handleDeleteSegment}
+                    onClearDay={handleClearDay}
+                  />
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Weekly Total */}
         <WeeklyTotalBar totalHours={weeklyTotalHours} targetHours={40} />
