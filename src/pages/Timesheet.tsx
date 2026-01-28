@@ -26,6 +26,7 @@ import {
   Loader2,
   Save,
   RotateCcw,
+  Trash2,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -94,6 +95,7 @@ export default function Timesheet() {
   const [isSaving, setIsSaving] = useState(false);
   const [timesheetStatus, setTimesheetStatus] = useState<"draft" | "submitted">("draft");
   const [showResubmitDialog, setShowResubmitDialog] = useState(false);
+  const [showClearAllDialog, setShowClearAllDialog] = useState(false);
 
   // Calculate week range (Monday-Sunday)
   const weekStart = startOfWeek(weekEndingDate, { weekStartsOn: 1 });
@@ -459,7 +461,28 @@ export default function Timesheet() {
     });
   }, [lastWeekEntries, daysInWeek, toast]);
 
-  // Convert 12h to 24h for database storage
+  // Clear all entries for the week
+  const handleClearAll = useCallback(() => {
+    setLocalEntries((prev) => {
+      const cleared: Record<string, DayEntry> = {};
+      daysInWeek.forEach((day) => {
+        const dateString = format(day, "yyyy-MM-dd");
+        cleared[dateString] = {
+          date: day,
+          dateString,
+          segments: [createEmptySegment()],
+          isSelected: false,
+        };
+      });
+      return cleared;
+    });
+    setSelectedDays(new Set());
+    setShowClearAllDialog(false);
+    toast({
+      title: "Cleared",
+      description: "All timesheet entries have been cleared",
+    });
+  }, [daysInWeek, toast]);
   const convertTo24Hour = (time: string, period: "AM" | "PM"): string => {
     if (!time) return "";
     const [hours, minutes] = time.split(":").map(Number);
@@ -604,6 +627,28 @@ export default function Timesheet() {
               <Copy className="h-4 w-4" />
               Copy Last Week
             </Button>
+            <AlertDialog open={showClearAllDialog} onOpenChange={setShowClearAllDialog}>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" disabled={isLocked}>
+                  <Trash2 className="h-4 w-4" />
+                  Clear All
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Clear All Entries?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will remove all timesheet entries for the current week. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleClearAll} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    Yes, Clear All
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             <Button 
               variant="outline"
               onClick={handleSaveDraft} 
