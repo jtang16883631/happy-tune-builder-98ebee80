@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, UserCog, Crown, Code, ClipboardCheck, Search, Trash2, Briefcase } from 'lucide-react';
+import { useOnlinePresence } from '@/hooks/useOnlinePresence';
 
 type AppRole = 'auditor' | 'developer' | 'coordinator' | 'owner' | 'office_admin';
 
@@ -62,6 +63,7 @@ const Users = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [userToDelete, setUserToDelete] = useState<UserWithRoles | null>(null);
+  const { isOnline } = useOnlinePresence();
 
   useEffect(() => {
     if (!authLoading && !isDeveloper) {
@@ -250,18 +252,32 @@ const Users = () => {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                      <Avatar className="h-12 w-12 ring-2 ring-offset-2 ring-offset-background ring-primary/20">
-                        <AvatarImage src={u.avatar_url || undefined} />
-                        <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
-                          {getInitials(u.full_name, u.email)}
-                        </AvatarFallback>
-                      </Avatar>
+                      <div className="relative">
+                        <Avatar className="h-12 w-12 ring-2 ring-offset-2 ring-offset-background ring-primary/20">
+                          <AvatarImage src={u.avatar_url || undefined} />
+                          <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
+                            {getInitials(u.full_name, u.email)}
+                          </AvatarFallback>
+                        </Avatar>
+                        {/* Online indicator */}
+                        <span
+                          className={`absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-background ${
+                            isOnline(u.id) ? 'bg-emerald-500' : 'bg-muted'
+                          }`}
+                          title={isOnline(u.id) ? 'Online' : 'Offline'}
+                        />
+                      </div>
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="font-medium">{u.full_name || 'Unnamed User'}</p>
                           {isCurrentUser && (
                             <Badge variant="outline" className="text-xs">
                               You
+                            </Badge>
+                          )}
+                          {isOnline(u.id) && (
+                            <Badge variant="secondary" className="text-xs">
+                              Online
                             </Badge>
                           )}
                         </div>
