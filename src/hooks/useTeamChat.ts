@@ -277,6 +277,44 @@ export function useTeamChat() {
     }
   }, [currentRoom, fetchMembers]);
 
+  // Delete a room (owner only)
+  const deleteRoom = useCallback(async (roomId: string) => {
+    try {
+      // First delete all members
+      await supabase
+        .from('chat_room_members')
+        .delete()
+        .eq('room_id', roomId);
+
+      // Then delete all messages
+      await supabase
+        .from('chat_messages')
+        .delete()
+        .eq('room_id', roomId);
+
+      // Finally delete the room
+      const { error } = await supabase
+        .from('chat_rooms')
+        .delete()
+        .eq('id', roomId);
+
+      if (error) throw error;
+
+      // Clear current room if it was deleted
+      if (currentRoom?.id === roomId) {
+        setCurrentRoom(null);
+        setMessages([]);
+        setMembers([]);
+      }
+
+      await fetchRooms();
+      toast.success('Room deleted!');
+    } catch (error: unknown) {
+      console.error('Error deleting room:', error);
+      toast.error('Failed to delete room');
+    }
+  }, [currentRoom, fetchRooms]);
+
   // Reload rooms when userId becomes available
   useEffect(() => {
     if (userId) {
@@ -350,6 +388,7 @@ export function useTeamChat() {
     sendMessage,
     createRoom,
     addMember,
+    deleteRoom,
     fetchRooms,
     setCurrentRoom,
   };
