@@ -38,7 +38,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { QuickTemplateBar, QuickTemplate, QUICK_TEMPLATES } from "@/components/timesheet/QuickTemplateBar";
 import { TimesheetRow, DayEntry, TimesheetSegment, WORK_TYPES } from "@/components/timesheet/TimesheetRow";
 import { BulkApplyPanel } from "@/components/timesheet/BulkApplyPanel";
 import { WeeklyTotalBar } from "@/components/timesheet/WeeklyTotalBar";
@@ -205,11 +204,28 @@ export default function Timesheet() {
     return `${h.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
   }
 
-  // Calculate hours - only count office and hospital
+  // Calculate hours - only count office and hospital, subtract lunch
   const calculateSegmentHours = (segment: TimesheetSegment) => {
     if (!segment.startTime || !segment.endTime) return 0;
     
     const workTypeConfig = WORK_TYPES.find(t => t.id === segment.workType);
+    
+    // Lunch segments subtract hours (negative)
+    if (segment.workType === "lunch") {
+      let startHour = parseInt(segment.startTime.split(":")[0]);
+      const startMin = parseInt(segment.startTime.split(":")[1]) || 0;
+      let endHour = parseInt(segment.endTime.split(":")[0]);
+      const endMin = parseInt(segment.endTime.split(":")[1]) || 0;
+      
+      if (segment.startPeriod === "PM" && startHour !== 12) startHour += 12;
+      if (segment.startPeriod === "AM" && startHour === 12) startHour = 0;
+      if (segment.endPeriod === "PM" && endHour !== 12) endHour += 12;
+      if (segment.endPeriod === "AM" && endHour === 12) endHour = 0;
+      
+      const lunchMinutes = (endHour * 60 + endMin) - (startHour * 60 + startMin);
+      return -Math.max(0, lunchMinutes / 60); // Negative for subtraction
+    }
+    
     if (!workTypeConfig?.countsHours) return 0;
     
     // Parse time with AM/PM
@@ -309,52 +325,6 @@ export default function Timesheet() {
       },
     }));
   }, []);
-
-  const handleApplyTemplate = useCallback((template: QuickTemplate) => {
-    setLocalEntries((prev) => {
-      const updated = { ...prev };
-      selectedDays.forEach((dateString) => {
-        if (updated[dateString]) {
-          const segments: TimesheetSegment[] = [{
-            id: crypto.randomUUID(),
-            startTime: template.startTime,
-            endTime: template.endTime,
-            startPeriod: template.startPeriod,
-            endPeriod: template.endPeriod,
-            workType: template.workType,
-            autoLunch: false,
-            lunchMinutes: 0,
-            notes: "",
-          }];
-          
-          // Add lunch segment for office
-          if (template.addLunchSegment) {
-            segments.push({
-              id: crypto.randomUUID(),
-              startTime: "",
-              endTime: "",
-              startPeriod: "PM",
-              endPeriod: "PM",
-              workType: "lunch",
-              autoLunch: false,
-              lunchMinutes: 0,
-              notes: "",
-            });
-          }
-          
-          updated[dateString] = {
-            ...updated[dateString],
-            segments,
-          };
-        }
-      });
-      return updated;
-    });
-    toast({
-      title: "Template Applied",
-      description: `${template.label} applied to ${selectedDays.size} day(s)`,
-    });
-  }, [selectedDays, toast]);
 
   const handleBulkApply = useCallback((settings: {
     workType: string;
@@ -610,11 +580,19 @@ export default function Timesheet() {
       <div className="container mx-auto py-6 space-y-4 pb-24">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold">My Timesheet</h1>
-            <p className="text-sm text-muted-foreground">
-              Week Ending: {format(weekEnd, "MMMM do, yyyy")}
-            </p>
+          <div className="flex items-center gap-3">
+            <div>
+              <h1 className="text-2xl font-bold">My Timesheet</h1>
+              <p className="text-sm text-muted-foreground">
+                Week Ending: {format(weekEnd, "MMMM do, yyyy")}
+              </p>
+            </div>
+            <Badge 
+              variant={timesheetStatus === "submitted" ? "default" : "secondary"}
+              className="capitalize"
+            >
+              {timesheetStatus}
+            </Badge>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
@@ -705,11 +683,6 @@ export default function Timesheet() {
           </Badge>
         </div>
 
-        {/* Quick Templates */}
-        <QuickTemplateBar
-          selectedDaysCount={selectedDays.size}
-          onApplyTemplate={handleApplyTemplate}
-        />
 
         {/* Timesheet Table */}
         <Card>
