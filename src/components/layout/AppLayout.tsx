@@ -12,6 +12,8 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { MobileBottomNav } from './MobileNav';
 import { MobileHeader } from './MobileHeader';
 import { useOnlineStatus } from '@/components/OfflineRedirect';
+import { useUnreadMessages } from '@/hooks/useUnreadMessages';
+import { Badge } from '@/components/ui/badge';
 
 
 interface AppLayoutProps {
@@ -96,6 +98,8 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
   const { needsCompletion, isChecking, markCompleted } = useProfileCompletion();
   const isMobile = useIsMobile();
   const isOnline = useOnlineStatus();
+  const { unreadCount } = useUnreadMessages();
+
 
   // Only treat as "no role" if auth is done AND roles have been loaded AND still empty AND we're online
   // This prevents showing "Access Restricted" while roles are still being fetched
@@ -254,10 +258,19 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
                         )}
                       >
                         <Icon className="h-5 w-5" />
-                        <span className="font-medium">{item.label}</span>
+                        <span className="font-medium flex-1">{item.label}</span>
+                        {item.href === '/chat' && unreadCount > 0 && (
+                          <Badge 
+                            variant="destructive" 
+                            className="h-5 min-w-5 px-1.5 text-xs font-bold flex items-center justify-center"
+                          >
+                            {unreadCount > 99 ? '99+' : unreadCount}
+                          </Badge>
+                        )}
                       </div>
                     </Link>
                   );
+
                 })}
               </div>
             </div>

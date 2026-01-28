@@ -15,7 +15,9 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { useState } from 'react';
+import { useUnreadMessages } from '@/hooks/useUnreadMessages';
 
 type AppRole = 'auditor' | 'developer' | 'coordinator' | 'owner' | 'office_admin';
 
@@ -50,6 +52,7 @@ interface MobileNavProps {
 export function MobileBottomNav({ roles, allNavSections }: MobileNavProps) {
   const location = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
+  const { unreadCount } = useUnreadMessages();
 
   const visibleItems = primaryNavItems.filter(item =>
     item.roles.some(role => roles.includes(role))
@@ -63,6 +66,9 @@ export function MobileBottomNav({ roles, allNavSections }: MobileNavProps) {
       item.roles.some(role => roles.includes(role)) &&
       !item.disabled
     );
+
+  // Check if any "More" item has unread messages (Team Chat)
+  const hasUnreadInMore = moreItems.some(item => item.href === '/chat') && unreadCount > 0;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-background border-t border-border safe-area-bottom">
@@ -93,12 +99,15 @@ export function MobileBottomNav({ roles, allNavSections }: MobileNavProps) {
           <SheetTrigger asChild>
             <button
               className={cn(
-                'flex flex-col items-center justify-center flex-1 h-full py-2 px-1 transition-colors',
+                'flex flex-col items-center justify-center flex-1 h-full py-2 px-1 transition-colors relative',
                 moreOpen ? 'text-primary' : 'text-muted-foreground'
               )}
             >
               <MoreHorizontal className="h-5 w-5 mb-1" />
               <span className="text-[10px] font-medium">More</span>
+              {hasUnreadInMore && (
+                <span className="absolute top-2 right-2 h-2 w-2 bg-destructive rounded-full" />
+              )}
             </button>
           </SheetTrigger>
           <SheetContent side="bottom" className="h-[70vh] rounded-t-xl">
@@ -109,6 +118,7 @@ export function MobileBottomNav({ roles, allNavSections }: MobileNavProps) {
               {moreItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = location.pathname === item.href;
+                const showBadge = item.href === '/chat' && unreadCount > 0;
                 
                 return (
                   <Link
@@ -116,7 +126,7 @@ export function MobileBottomNav({ roles, allNavSections }: MobileNavProps) {
                     to={item.href}
                     onClick={() => setMoreOpen(false)}
                     className={cn(
-                      'flex flex-col items-center justify-center p-4 rounded-xl transition-colors',
+                      'flex flex-col items-center justify-center p-4 rounded-xl transition-colors relative',
                       isActive
                         ? 'bg-primary/10 text-primary'
                         : 'bg-muted/50 text-foreground hover:bg-muted'
@@ -124,6 +134,14 @@ export function MobileBottomNav({ roles, allNavSections }: MobileNavProps) {
                   >
                     <Icon className="h-6 w-6 mb-2" />
                     <span className="text-xs font-medium text-center">{item.label}</span>
+                    {showBadge && (
+                      <Badge 
+                        variant="destructive" 
+                        className="absolute top-2 right-2 h-5 min-w-5 px-1.5 text-xs font-bold"
+                      >
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </Badge>
+                    )}
                   </Link>
                 );
               })}

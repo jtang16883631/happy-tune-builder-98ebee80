@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { Json } from '@/integrations/supabase/types';
+import { useUnreadMessages } from './useUnreadMessages';
+
 
 export interface ChatRoom {
   id: string;
@@ -58,6 +60,7 @@ export function useTeamChat() {
   const [members, setMembers] = useState<RoomMember[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const { markRoomAsRead } = useUnreadMessages();
 
   const initDone = useRef(false);
 
@@ -193,7 +196,9 @@ export function useTeamChat() {
   const selectRoom = useCallback(async (room: ChatRoom) => {
     setCurrentRoom(room);
     await Promise.all([fetchMessages(room.id), fetchMembers(room.id)]);
-  }, [fetchMessages, fetchMembers]);
+    // Mark messages as read when selecting a room
+    await markRoomAsRead(room.id);
+  }, [fetchMessages, fetchMembers, markRoomAsRead]);
 
   // Send a message
   const sendMessage = useCallback(async (content: string, attachments?: ChatAttachment[]) => {
