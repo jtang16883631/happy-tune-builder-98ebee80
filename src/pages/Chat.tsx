@@ -8,6 +8,7 @@ import { ChatMessageList } from '@/components/chat/ChatMessageList';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { CreateRoomDialog } from '@/components/chat/CreateRoomDialog';
 import { AddMemberDialog } from '@/components/chat/AddMemberDialog';
+import { MeetingsPanel } from '@/components/chat/MeetingsPanel';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Hash, Loader2, MessageSquare, UserPlus, Users, Trash2 } from 'lucide-react';
@@ -138,6 +139,13 @@ const Chat = () => {
                       )}
                     </div>
                   </TooltipProvider>
+
+                  {/* Meetings Panel */}
+                  <MeetingsPanel
+                    roomId={currentRoom?.id || null}
+                    userId={userId}
+                    userName={members.find((m) => m.user_id === userId)?.user_name || 'User'}
+                  />
 
                   <Button
                     variant="ghost"
