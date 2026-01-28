@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
-import { User, Session } from '@supabase/supabase-js';
+import { User, Session, RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
 type AppRole = 'auditor' | 'developer' | 'coordinator' | 'owner' | 'office_admin';
@@ -22,6 +22,8 @@ interface AuthContextType extends UserWithRole {
   signOut: () => Promise<void>;
   refreshRoles: () => Promise<void>;
   rolesLoaded: boolean;
+  onlineUsers: Set<string>;
+  isOnline: (userId: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -32,6 +34,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [rolesLoaded, setRolesLoaded] = useState(false);
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+  const [presenceChannel, setPresenceChannel] = useState<RealtimeChannel | null>(null);
 
   const readCachedRoles = useCallback((userId: string): AppRole[] => {
     try {
@@ -84,6 +88,80 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     }
   }, []);
+
+  // Global presence tracking
+  useEffect(() => {
+    if (!user) {
+      // Clean up channel when user logs out
+      if (presenceChannel) {
+        presenceChannel.unsubscribe();
+        setPresenceChannel(null);
+      }
+      setOnlineUsers(new Set());
+      return;
+    }
+
+    const channel = supabase.channel('online-users', {
+      config: {
+        presence: {
+          key: user.id,
+        },
+      },
+    });
+
+    channel
+      .on('presence', { event: 'sync' }, () => {
+        const state = channel.presenceState();
+        const online = new Set<string>();
+        
+        Object.keys(state).forEach((key) => {
+          const presences = state[key] as Array<{ user_id?: string }>;
+          presences.forEach((presence) => {
+            if (presence.user_id) {
+              online.add(presence.user_id);
+            }
+          });
+        });
+        
+        setOnlineUsers(online);
+      })
+      .on('presence', { event: 'join' }, ({ newPresences }) => {
+        setOnlineUsers((prev) => {
+          const updated = new Set(prev);
+          (newPresences as Array<{ user_id?: string }>).forEach((presence) => {
+            if (presence.user_id) {
+              updated.add(presence.user_id);
+            }
+          });
+          return updated;
+        });
+      })
+      .on('presence', { event: 'leave' }, ({ leftPresences }) => {
+        setOnlineUsers((prev) => {
+          const updated = new Set(prev);
+          (leftPresences as Array<{ user_id?: string }>).forEach((presence) => {
+            if (presence.user_id) {
+              updated.delete(presence.user_id);
+            }
+          });
+          return updated;
+        });
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.track({
+            user_id: user.id,
+            online_at: new Date().toISOString(),
+          });
+        }
+      });
+
+    setPresenceChannel(channel);
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     let isMounted = true;
@@ -233,6 +311,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isAuditor = roles.includes('auditor');
   const isPrivileged = isOwner || isDeveloper;
 
+  const isOnline = useCallback((userId: string) => onlineUsers.has(userId), [onlineUsers]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -249,6 +329,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signInWithGoogle,
         signOut,
         refreshRoles,
+        onlineUsers,
+        isOnline,
       }}
     >
       {children}
