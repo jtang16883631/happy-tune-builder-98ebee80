@@ -155,7 +155,7 @@ export default function OneDrive() {
           {canManage && (
             <Button variant="ghost" size="sm" onClick={disconnect} className="text-muted-foreground">
               <CloudOff className="mr-2 h-4 w-4" />
-              断开连接
+              Disconnect
             </Button>
           )}
         </div>
