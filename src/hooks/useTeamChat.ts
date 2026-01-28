@@ -56,16 +56,30 @@ export function useTeamChat() {
 
   const initDone = useRef(false);
 
-  // Initialise session (once)
+  // Initialise session + keep it in sync (prevents stale userId causing 403/RLS failures)
   useEffect(() => {
     if (initDone.current) return;
     initDone.current = true;
 
+    let active = true;
+
+    // Keep userId in sync with the real auth session.
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      setUserId(session?.user?.id ?? null);
+    });
+
     (async () => {
       const uid = await getSessionUserId();
+      if (!active) return;
       setUserId(uid);
       setIsLoading(false);
     })();
+
+    return () => {
+      active = false;
+      data.subscription.unsubscribe();
+    };
   }, []);
 
   // Fetch all rooms the user is a member of
@@ -202,12 +216,9 @@ export function useTeamChat() {
 
   // Create a new room
   const createRoom = useCallback(async (name: string, description?: string) => {
-    // Require a logged-in session
-    let uid = userId;
-    if (!uid) {
-      uid = await getSessionUserId();
-      if (uid) setUserId(uid);
-    }
+    // Always re-check the current session (userId state can be stale if auth changed).
+    const uid = await getSessionUserId();
+    setUserId(uid);
     if (!uid) {
       toast.error('Please log in to create a chat room.');
       return null;
@@ -251,7 +262,7 @@ export function useTeamChat() {
       toast.error(details);
       return null;
     }
-  }, [userId, fetchRooms]);
+  }, [fetchRooms]);
 
   // Add member to room
   const addMember = useCallback(async (roomId: string, targetUserId: string) => {
