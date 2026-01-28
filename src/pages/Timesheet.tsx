@@ -95,6 +95,8 @@ export default function Timesheet() {
   const [isSaving, setIsSaving] = useState(false);
   const [timesheetStatus, setTimesheetStatus] = useState<"draft" | "submitted">("draft");
   const [showResubmitDialog, setShowResubmitDialog] = useState(false);
+  // Independent month state for mini calendar (doesn't affect week selection)
+  const [miniCalendarMonth, setMiniCalendarMonth] = useState<Date>(new Date());
   const [showClearAllDialog, setShowClearAllDialog] = useState(false);
 
   // Calculate week range (Monday-Sunday)
@@ -735,21 +737,14 @@ export default function Timesheet() {
             </Badge>
           </div>
 
-          {/* Live Mini Calendar */}
+          {/* Live Mini Calendar - Independent, for reference only */}
           <div className="lg:ml-auto">
             <Card className="p-2">
               <Calendar
                 mode="single"
                 selected={new Date()}
-                month={weekEndingDate}
-                onMonthChange={(month) => {
-                  // Navigate to the week containing the first of the new month
-                  const dayOfWeek = getDay(month);
-                  const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
-                  const sunday = new Date(month);
-                  sunday.setDate(month.getDate() + daysUntilSunday);
-                  setWeekEndingDate(sunday);
-                }}
+                month={miniCalendarMonth}
+                onMonthChange={setMiniCalendarMonth}
                 modifiers={{
                   currentWeek: daysInWeek,
                 }}
