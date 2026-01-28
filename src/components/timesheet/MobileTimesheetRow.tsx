@@ -1,24 +1,20 @@
 import { useState } from "react";
-import { Plus, MessageSquare, Trash2, X, ChevronDown, Clock } from "lucide-react";
+import { Plus, MessageSquare, Trash2, X, ChevronDown, Clock, Briefcase, Building2, Utensils, Car, Home, MapPin, Palmtree, PartyPopper } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { DayEntry, TimesheetSegment, WORK_TYPES } from "./TimesheetRow";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
 import {
   Drawer,
   DrawerContent,
   DrawerHeader,
   DrawerTitle,
   DrawerTrigger,
+  DrawerFooter,
+  DrawerClose,
 } from "@/components/ui/drawer";
 
 interface MobileTimesheetRowProps {
@@ -32,34 +28,33 @@ interface MobileTimesheetRowProps {
   onClearDay: (dateString: string) => void;
 }
 
-// Time picker options for quick selection
-const TIME_OPTIONS = [
-  "06:00", "06:30", "07:00", "07:30", "08:00", "08:30",
-  "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
-  "12:00", "12:30", "01:00", "01:30", "02:00", "02:30",
-  "03:00", "03:30", "04:00", "04:30", "05:00", "05:30",
-  "06:00", "06:30", "07:00", "07:30", "08:00", "08:30",
-  "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
-];
+// Work type icons mapping
+const WORK_TYPE_ICONS: Record<string, React.ReactNode> = {
+  office: <Building2 className="h-5 w-5" />,
+  hospital: <Briefcase className="h-5 w-5" />,
+  travel: <Car className="h-5 w-5" />,
+  lunch: <Utensils className="h-5 w-5" />,
+  off_own: <Home className="h-5 w-5" />,
+  off_road: <MapPin className="h-5 w-5" />,
+  vacation: <Palmtree className="h-5 w-5" />,
+  holiday: <PartyPopper className="h-5 w-5" />,
+};
 
-// Common time presets
-const TIME_PRESETS = [
-  { label: "6:00 AM", time: "06:00", period: "AM" as const },
-  { label: "7:00 AM", time: "07:00", period: "AM" as const },
-  { label: "8:00 AM", time: "08:00", period: "AM" as const },
-  { label: "9:00 AM", time: "09:00", period: "AM" as const },
-  { label: "10:00 AM", time: "10:00", period: "AM" as const },
-  { label: "11:00 AM", time: "11:00", period: "AM" as const },
-  { label: "12:00 PM", time: "12:00", period: "PM" as const },
-  { label: "1:00 PM", time: "01:00", period: "PM" as const },
-  { label: "2:00 PM", time: "02:00", period: "PM" as const },
-  { label: "3:00 PM", time: "03:00", period: "PM" as const },
-  { label: "4:00 PM", time: "04:00", period: "PM" as const },
-  { label: "5:00 PM", time: "05:00", period: "PM" as const },
-  { label: "6:00 PM", time: "06:00", period: "PM" as const },
-  { label: "7:00 PM", time: "07:00", period: "PM" as const },
-  { label: "8:00 PM", time: "08:00", period: "PM" as const },
-];
+// Work type descriptions
+const WORK_TYPE_DESCRIPTIONS: Record<string, string> = {
+  office: "Regular office work hours",
+  hospital: "On-site hospital audit work",
+  travel: "Travel day (no work hours)",
+  lunch: "Lunch break (deducted)",
+  off_own: "Day off on your own time",
+  off_road: "Day off while traveling",
+  vacation: "Paid vacation day",
+  holiday: "Company holiday",
+};
+
+// Hour options for picker
+const HOURS = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"];
+const MINUTES = ["00", "15", "30", "45"];
 
 export function MobileTimesheetRow({
   dayEntry,
@@ -77,6 +72,11 @@ export function MobileTimesheetRow({
     field: "start" | "end";
   } | null>(null);
   const [activeWorkTypePicker, setActiveWorkTypePicker] = useState<string | null>(null);
+  
+  // Temp state for time picker
+  const [tempHour, setTempHour] = useState("09");
+  const [tempMinute, setTempMinute] = useState("00");
+  const [tempPeriod, setTempPeriod] = useState<"AM" | "PM">("AM");
 
   // Calculate daily hours
   const calculateSegmentHours = (segment: TimesheetSegment) => {
@@ -102,19 +102,37 @@ export function MobileTimesheetRow({
   const dailyHours = dayEntry.segments.reduce((sum, seg) => sum + calculateSegmentHours(seg), 0);
   const hasAnyEntry = dayEntry.segments.some(s => s.startTime || s.endTime || s.workType);
 
-  const handleTimeSelect = (time: string, period: "AM" | "PM") => {
+  const openTimePicker = (segmentId: string, field: "start" | "end", segment: TimesheetSegment) => {
+    const time = field === "start" ? segment.startTime : segment.endTime;
+    const period = field === "start" ? segment.startPeriod : segment.endPeriod;
+    
+    if (time) {
+      const [h, m] = time.split(":");
+      setTempHour(h);
+      setTempMinute(m);
+    } else {
+      setTempHour(field === "start" ? "09" : "05");
+      setTempMinute("00");
+    }
+    setTempPeriod(period);
+    setActiveTimePicker({ segmentId, field });
+  };
+
+  const handleTimeConfirm = () => {
     if (!activeTimePicker) return;
     
     const { segmentId, field } = activeTimePicker;
+    const timeString = `${tempHour}:${tempMinute}`;
+    
     if (field === "start") {
       onUpdateSegment(dayEntry.dateString, segmentId, { 
-        startTime: time, 
-        startPeriod: period 
+        startTime: timeString, 
+        startPeriod: tempPeriod 
       });
     } else {
       onUpdateSegment(dayEntry.dateString, segmentId, { 
-        endTime: time, 
-        endPeriod: period 
+        endTime: timeString, 
+        endPeriod: tempPeriod 
       });
     }
     setActiveTimePicker(null);
@@ -132,7 +150,7 @@ export function MobileTimesheetRow({
 
   const getWorkTypeLabel = (workTypeId: string) => {
     const type = WORK_TYPES.find(t => t.id === workTypeId);
-    return type?.label || "Select Type";
+    return type?.label || "Select Work Type";
   };
 
   const getWorkTypeColor = (workTypeId: string) => {
@@ -141,8 +159,9 @@ export function MobileTimesheetRow({
   };
 
   const formatDisplayTime = (time: string, period: "AM" | "PM") => {
-    if (!time) return "-- : --";
-    return `${time} ${period}`;
+    if (!time) return "Tap to set";
+    const [h, m] = time.split(":");
+    return `${parseInt(h)}:${m} ${period}`;
   };
 
   return (
@@ -151,7 +170,7 @@ export function MobileTimesheetRow({
       dayEntry.isSelected && "bg-primary/5"
     )}>
       {dayEntry.segments.map((segment, index) => (
-        <div key={segment.id} className="p-3 space-y-3">
+        <div key={segment.id} className="p-4 space-y-4">
           {/* Day Header - only on first segment */}
           {index === 0 && (
             <div className="flex items-center justify-between">
@@ -159,170 +178,319 @@ export function MobileTimesheetRow({
                 <Checkbox
                   checked={dayEntry.isSelected}
                   onCheckedChange={() => onToggleSelect(dayEntry.dateString)}
-                  className="h-5 w-5"
+                  className="h-6 w-6"
                 />
                 <div>
-                  <div className="font-semibold text-base">{dayName}</div>
-                  <div className="text-sm text-muted-foreground">{format(dayEntry.date, "MMMM d")}</div>
+                  <div className="font-bold text-lg">{dayName}</div>
+                  <div className="text-sm text-muted-foreground">{format(dayEntry.date, "MMMM d, yyyy")}</div>
                 </div>
               </div>
               <div className="text-right">
                 <div className={cn(
-                  "text-xl font-bold",
+                  "text-2xl font-bold",
                   dailyHours >= 8 ? "text-green-600" : dailyHours > 0 ? "text-foreground" : "text-muted-foreground"
                 )}>
                   {dailyHours > 0 ? `${dailyHours.toFixed(1)}h` : "-"}
                 </div>
+                <div className="text-xs text-muted-foreground">hours</div>
               </div>
             </div>
           )}
 
           {/* Segment indicator for additional segments */}
           {index > 0 && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground pl-8">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <div className="h-px flex-1 bg-border" />
-              <span>Entry {index + 1}</span>
+              <span className="font-medium">Entry {index + 1}</span>
               <div className="h-px flex-1 bg-border" />
             </div>
           )}
 
-          {/* Time Selection Row */}
-          <div className="flex gap-2 pl-8">
-            {/* Start Time Button */}
-            <Drawer open={activeTimePicker?.segmentId === segment.id && activeTimePicker?.field === "start"} 
-                    onOpenChange={(open) => !open && setActiveTimePicker(null)}>
+          {/* Time Selection - Two Column Layout */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Start Time */}
+            <Drawer 
+              open={activeTimePicker?.segmentId === segment.id && activeTimePicker?.field === "start"} 
+              onOpenChange={(open) => !open && setActiveTimePicker(null)}
+            >
               <DrawerTrigger asChild>
-                <Button
-                  variant="outline"
+                <button
                   className={cn(
-                    "flex-1 h-14 justify-between px-4",
-                    !segment.startTime && "text-muted-foreground"
+                    "flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all",
+                    segment.startTime 
+                      ? "border-primary/30 bg-primary/5" 
+                      : "border-dashed border-muted-foreground/30",
+                    isLocked && "opacity-50"
                   )}
-                  onClick={() => setActiveTimePicker({ segmentId: segment.id, field: "start" })}
+                  onClick={() => openTimePicker(segment.id, "start", segment)}
                   disabled={isLocked}
                 >
-                  <div className="text-left">
-                    <div className="text-xs text-muted-foreground">Start</div>
-                    <div className="text-lg font-medium">
-                      {formatDisplayTime(segment.startTime, segment.startPeriod)}
+                  <Clock className="h-5 w-5 text-muted-foreground mb-1" />
+                  <span className="text-xs text-muted-foreground font-medium">START</span>
+                  <span className={cn(
+                    "text-xl font-bold mt-1",
+                    !segment.startTime && "text-muted-foreground"
+                  )}>
+                    {formatDisplayTime(segment.startTime, segment.startPeriod)}
+                  </span>
+                </button>
+              </DrawerTrigger>
+              <DrawerContent className="bg-background">
+                <DrawerHeader className="border-b">
+                  <DrawerTitle className="text-center text-xl">Set Start Time</DrawerTitle>
+                </DrawerHeader>
+                <div className="p-6 space-y-6">
+                  {/* Time Display */}
+                  <div className="text-center text-4xl font-bold text-primary">
+                    {tempHour}:{tempMinute} {tempPeriod}
+                  </div>
+                  
+                  {/* Hour Selection */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">Hour</label>
+                    <div className="grid grid-cols-6 gap-2">
+                      {HOURS.map((h) => (
+                        <Button
+                          key={h}
+                          variant={tempHour === h ? "default" : "outline"}
+                          className="h-12 text-lg font-semibold"
+                          onClick={() => setTempHour(h)}
+                        >
+                          {parseInt(h)}
+                        </Button>
+                      ))}
                     </div>
                   </div>
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                </Button>
-              </DrawerTrigger>
-              <DrawerContent className="max-h-[70vh]">
-                <DrawerHeader>
-                  <DrawerTitle>Select Start Time</DrawerTitle>
-                </DrawerHeader>
-                <div className="p-4 grid grid-cols-3 gap-2 overflow-y-auto">
-                  {TIME_PRESETS.map((preset) => (
-                    <Button
-                      key={`${preset.time}-${preset.period}`}
-                      variant={segment.startTime === preset.time && segment.startPeriod === preset.period ? "default" : "outline"}
-                      className="h-12 text-base"
-                      onClick={() => handleTimeSelect(preset.time, preset.period)}
-                    >
-                      {preset.label}
-                    </Button>
-                  ))}
+                  
+                  {/* Minute Selection */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">Minute</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {MINUTES.map((m) => (
+                        <Button
+                          key={m}
+                          variant={tempMinute === m ? "default" : "outline"}
+                          className="h-12 text-lg font-semibold"
+                          onClick={() => setTempMinute(m)}
+                        >
+                          :{m}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* AM/PM Toggle */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">Period</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Button
+                        variant={tempPeriod === "AM" ? "default" : "outline"}
+                        className="h-14 text-xl font-bold"
+                        onClick={() => setTempPeriod("AM")}
+                      >
+                        AM
+                      </Button>
+                      <Button
+                        variant={tempPeriod === "PM" ? "default" : "outline"}
+                        className="h-14 text-xl font-bold"
+                        onClick={() => setTempPeriod("PM")}
+                      >
+                        PM
+                      </Button>
+                    </div>
+                  </div>
                 </div>
+                <DrawerFooter className="border-t pt-4">
+                  <Button className="h-14 text-lg font-semibold" onClick={handleTimeConfirm}>
+                    Confirm Time
+                  </Button>
+                  <DrawerClose asChild>
+                    <Button variant="outline" className="h-12">Cancel</Button>
+                  </DrawerClose>
+                </DrawerFooter>
               </DrawerContent>
             </Drawer>
 
-            {/* End Time Button */}
-            <Drawer open={activeTimePicker?.segmentId === segment.id && activeTimePicker?.field === "end"} 
-                    onOpenChange={(open) => !open && setActiveTimePicker(null)}>
+            {/* End Time */}
+            <Drawer 
+              open={activeTimePicker?.segmentId === segment.id && activeTimePicker?.field === "end"} 
+              onOpenChange={(open) => !open && setActiveTimePicker(null)}
+            >
               <DrawerTrigger asChild>
-                <Button
-                  variant="outline"
+                <button
                   className={cn(
-                    "flex-1 h-14 justify-between px-4",
-                    !segment.endTime && "text-muted-foreground"
+                    "flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all",
+                    segment.endTime 
+                      ? "border-primary/30 bg-primary/5" 
+                      : "border-dashed border-muted-foreground/30",
+                    isLocked && "opacity-50"
                   )}
-                  onClick={() => setActiveTimePicker({ segmentId: segment.id, field: "end" })}
+                  onClick={() => openTimePicker(segment.id, "end", segment)}
                   disabled={isLocked}
                 >
-                  <div className="text-left">
-                    <div className="text-xs text-muted-foreground">End</div>
-                    <div className="text-lg font-medium">
-                      {formatDisplayTime(segment.endTime, segment.endPeriod)}
+                  <Clock className="h-5 w-5 text-muted-foreground mb-1" />
+                  <span className="text-xs text-muted-foreground font-medium">END</span>
+                  <span className={cn(
+                    "text-xl font-bold mt-1",
+                    !segment.endTime && "text-muted-foreground"
+                  )}>
+                    {formatDisplayTime(segment.endTime, segment.endPeriod)}
+                  </span>
+                </button>
+              </DrawerTrigger>
+              <DrawerContent className="bg-background">
+                <DrawerHeader className="border-b">
+                  <DrawerTitle className="text-center text-xl">Set End Time</DrawerTitle>
+                </DrawerHeader>
+                <div className="p-6 space-y-6">
+                  {/* Time Display */}
+                  <div className="text-center text-4xl font-bold text-primary">
+                    {tempHour}:{tempMinute} {tempPeriod}
+                  </div>
+                  
+                  {/* Hour Selection */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">Hour</label>
+                    <div className="grid grid-cols-6 gap-2">
+                      {HOURS.map((h) => (
+                        <Button
+                          key={h}
+                          variant={tempHour === h ? "default" : "outline"}
+                          className="h-12 text-lg font-semibold"
+                          onClick={() => setTempHour(h)}
+                        >
+                          {parseInt(h)}
+                        </Button>
+                      ))}
                     </div>
                   </div>
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                </Button>
-              </DrawerTrigger>
-              <DrawerContent className="max-h-[70vh]">
-                <DrawerHeader>
-                  <DrawerTitle>Select End Time</DrawerTitle>
-                </DrawerHeader>
-                <div className="p-4 grid grid-cols-3 gap-2 overflow-y-auto">
-                  {TIME_PRESETS.map((preset) => (
-                    <Button
-                      key={`${preset.time}-${preset.period}`}
-                      variant={segment.endTime === preset.time && segment.endPeriod === preset.period ? "default" : "outline"}
-                      className="h-12 text-base"
-                      onClick={() => handleTimeSelect(preset.time, preset.period)}
-                    >
-                      {preset.label}
-                    </Button>
-                  ))}
+                  
+                  {/* Minute Selection */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">Minute</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {MINUTES.map((m) => (
+                        <Button
+                          key={m}
+                          variant={tempMinute === m ? "default" : "outline"}
+                          className="h-12 text-lg font-semibold"
+                          onClick={() => setTempMinute(m)}
+                        >
+                          :{m}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* AM/PM Toggle */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">Period</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Button
+                        variant={tempPeriod === "AM" ? "default" : "outline"}
+                        className="h-14 text-xl font-bold"
+                        onClick={() => setTempPeriod("AM")}
+                      >
+                        AM
+                      </Button>
+                      <Button
+                        variant={tempPeriod === "PM" ? "default" : "outline"}
+                        className="h-14 text-xl font-bold"
+                        onClick={() => setTempPeriod("PM")}
+                      >
+                        PM
+                      </Button>
+                    </div>
+                  </div>
                 </div>
+                <DrawerFooter className="border-t pt-4">
+                  <Button className="h-14 text-lg font-semibold" onClick={handleTimeConfirm}>
+                    Confirm Time
+                  </Button>
+                  <DrawerClose asChild>
+                    <Button variant="outline" className="h-12">Cancel</Button>
+                  </DrawerClose>
+                </DrawerFooter>
               </DrawerContent>
             </Drawer>
           </div>
 
           {/* Work Type Selection */}
-          <div className="pl-8">
-            <Drawer open={activeWorkTypePicker === segment.id} 
-                    onOpenChange={(open) => !open && setActiveWorkTypePicker(null)}>
-              <DrawerTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "w-full h-14 justify-between px-4",
-                    !segment.workType && "text-muted-foreground"
-                  )}
-                  onClick={() => setActiveWorkTypePicker(segment.id)}
-                  disabled={isLocked}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={cn("w-4 h-4 rounded-full", getWorkTypeColor(segment.workType))} />
-                    <div className="text-left">
-                      <div className="text-xs text-muted-foreground">Work Type</div>
-                      <div className="text-base font-medium">
-                        {getWorkTypeLabel(segment.workType)}
-                      </div>
-                    </div>
-                  </div>
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                </Button>
-              </DrawerTrigger>
-              <DrawerContent className="max-h-[70vh]">
-                <DrawerHeader>
-                  <DrawerTitle>Select Work Type</DrawerTitle>
-                </DrawerHeader>
-                <div className="p-4 space-y-2 overflow-y-auto">
-                  {WORK_TYPES.map((type) => (
-                    <Button
-                      key={type.id}
-                      variant={segment.workType === type.id ? "default" : "outline"}
-                      className="w-full h-14 justify-start gap-3 text-base"
-                      onClick={() => handleWorkTypeSelect(segment.id, type.id)}
-                    >
-                      <div className={cn("w-4 h-4 rounded-full", type.color)} />
-                      <span>{type.label}</span>
-                      {type.countsHours && (
-                        <span className="ml-auto text-xs text-muted-foreground">(counts hours)</span>
-                      )}
-                    </Button>
-                  ))}
+          <Drawer 
+            open={activeWorkTypePicker === segment.id} 
+            onOpenChange={(open) => !open && setActiveWorkTypePicker(null)}
+          >
+            <DrawerTrigger asChild>
+              <button
+                className={cn(
+                  "w-full flex items-center gap-4 p-4 rounded-xl border-2 transition-all",
+                  segment.workType 
+                    ? "border-primary/30 bg-primary/5" 
+                    : "border-dashed border-muted-foreground/30",
+                  isLocked && "opacity-50"
+                )}
+                onClick={() => setActiveWorkTypePicker(segment.id)}
+                disabled={isLocked}
+              >
+                <div className={cn(
+                  "w-12 h-12 rounded-xl flex items-center justify-center",
+                  segment.workType ? getWorkTypeColor(segment.workType) : "bg-muted"
+                )}>
+                  {segment.workType ? WORK_TYPE_ICONS[segment.workType] : <Briefcase className="h-5 w-5 text-muted-foreground" />}
                 </div>
-              </DrawerContent>
-            </Drawer>
-          </div>
+                <div className="flex-1 text-left">
+                  <div className="text-xs text-muted-foreground font-medium">WORK TYPE</div>
+                  <div className={cn(
+                    "text-lg font-semibold",
+                    !segment.workType && "text-muted-foreground"
+                  )}>
+                    {getWorkTypeLabel(segment.workType)}
+                  </div>
+                </div>
+                <ChevronDown className="h-5 w-5 text-muted-foreground" />
+              </button>
+            </DrawerTrigger>
+            <DrawerContent className="bg-background max-h-[85vh]">
+              <DrawerHeader className="border-b">
+                <DrawerTitle className="text-center text-xl">Select Work Type</DrawerTitle>
+              </DrawerHeader>
+              <div className="p-4 space-y-2 overflow-y-auto">
+                {WORK_TYPES.map((type) => (
+                  <button
+                    key={type.id}
+                    className={cn(
+                      "w-full flex items-center gap-4 p-4 rounded-xl border-2 transition-all text-left",
+                      segment.workType === type.id 
+                        ? "border-primary bg-primary/10" 
+                        : "border-border hover:border-primary/50"
+                    )}
+                    onClick={() => handleWorkTypeSelect(segment.id, type.id)}
+                  >
+                    <div className={cn(
+                      "w-14 h-14 rounded-xl flex items-center justify-center text-white",
+                      type.color
+                    )}>
+                      {WORK_TYPE_ICONS[type.id]}
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-lg font-semibold">{type.label}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {WORK_TYPE_DESCRIPTIONS[type.id]}
+                      </div>
+                      {type.countsHours && (
+                        <div className="text-xs text-green-600 font-medium mt-1">
+                          ✓ Counts toward work hours
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </DrawerContent>
+          </Drawer>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-2 pl-8">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="ghost"
               size="sm"
@@ -330,20 +498,8 @@ export function MobileTimesheetRow({
               onClick={() => setShowNotes(prev => ({ ...prev, [segment.id]: !prev[segment.id] }))}
             >
               <MessageSquare className={cn("h-4 w-4 mr-2", segment.notes ? "text-primary" : "text-muted-foreground")} />
-              {segment.notes ? "Edit Notes" : "Add Notes"}
+              {segment.notes ? "Edit Notes" : "Notes"}
             </Button>
-
-            {dayEntry.segments.length > 1 && !isLocked && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-10 px-3 text-sm text-destructive"
-                onClick={() => onDeleteSegment(dayEntry.dateString, segment.id)}
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Remove
-              </Button>
-            )}
 
             {index === 0 && !isLocked && (
               <Button
@@ -357,6 +513,18 @@ export function MobileTimesheetRow({
               </Button>
             )}
 
+            {dayEntry.segments.length > 1 && !isLocked && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-10 px-3 text-sm text-destructive"
+                onClick={() => onDeleteSegment(dayEntry.dateString, segment.id)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Remove
+              </Button>
+            )}
+
             {index === 0 && hasAnyEntry && !isLocked && (
               <Button
                 variant="ghost"
@@ -365,22 +533,20 @@ export function MobileTimesheetRow({
                 onClick={() => onClearDay(dayEntry.dateString)}
               >
                 <X className="h-4 w-4 mr-2" />
-                Clear
+                Clear Day
               </Button>
             )}
           </div>
 
           {/* Notes Input */}
           {showNotes[segment.id] && (
-            <div className="pl-8">
-              <Textarea
-                value={segment.notes}
-                onChange={(e) => onUpdateSegment(dayEntry.dateString, segment.id, { notes: e.target.value })}
-                placeholder="Add notes for this entry..."
-                className="min-h-[80px] text-base resize-none"
-                disabled={isLocked}
-              />
-            </div>
+            <Textarea
+              value={segment.notes}
+              onChange={(e) => onUpdateSegment(dayEntry.dateString, segment.id, { notes: e.target.value })}
+              placeholder="Add notes for this entry..."
+              className="min-h-[100px] text-base resize-none"
+              disabled={isLocked}
+            />
           )}
         </div>
       ))}
