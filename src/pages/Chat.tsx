@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { useTeamChat } from '@/hooks/useTeamChat';
+import { useNavigate } from 'react-router-dom';
 
 import { ChatRoomList } from '@/components/chat/ChatRoomList';
 import { ChatMessageList } from '@/components/chat/ChatMessageList';
@@ -18,6 +19,7 @@ import {
 } from '@/components/ui/tooltip';
 
 const Chat = () => {
+  const navigate = useNavigate();
   const {
     userId,
     rooms,
@@ -40,6 +42,28 @@ const Chat = () => {
       <AppLayout>
         <div className="flex items-center justify-center h-[calc(100vh-4rem)]">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // Chat requires authentication (RLS enforces it); avoid firing 403s by gating the UI.
+  if (!userId) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center h-[calc(100vh-4rem)] p-6">
+          <div className="w-full max-w-md rounded-lg border bg-background p-6 text-center">
+            <h1 className="text-lg font-semibold text-foreground">Team Chat</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              You need to be signed in to create rooms and send messages.
+            </p>
+            <div className="mt-5 flex items-center justify-center gap-2">
+              <Button onClick={() => navigate('/auth')} className="gap-2">
+                <Users className="h-4 w-4" />
+                Go to Login
+              </Button>
+            </div>
+          </div>
         </div>
       </AppLayout>
     );
