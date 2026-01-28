@@ -702,34 +702,85 @@ export default function Timesheet() {
           </div>
         </div>
 
-        {/* Week Selector */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => navigateWeek("prev")}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className="gap-2">
-                  <CalendarIcon className="h-4 w-4" />
-                  {format(weekEndingDate, "MMM dd, yyyy")}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar
-                  mode="single"
-                  selected={weekEndingDate}
-                  onSelect={(date) => date && setWeekEndingDate(date)}
-                />
-              </PopoverContent>
-            </Popover>
-            <Button variant="ghost" size="icon" onClick={() => navigateWeek("next")}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
+        {/* Week Selector + Live Calendar */}
+        <div className="flex flex-col lg:flex-row gap-4">
+          {/* Week Navigation */}
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="icon" onClick={() => navigateWeek("prev")}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="gap-2">
+                    <CalendarIcon className="h-4 w-4" />
+                    {format(weekEndingDate, "MMM dd, yyyy")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={weekEndingDate}
+                    onSelect={(date) => date && setWeekEndingDate(date)}
+                    className="pointer-events-auto"
+                  />
+                </PopoverContent>
+              </Popover>
+              <Button variant="ghost" size="icon" onClick={() => navigateWeek("next")}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+            <Badge variant="outline">
+              {format(weekStart, "MMM dd")} - {format(weekEnd, "MMM dd, yyyy")}
+            </Badge>
           </div>
-          <Badge variant="outline">
-            {format(weekStart, "MMM dd")} - {format(weekEnd, "MMM dd, yyyy")}
-          </Badge>
+
+          {/* Live Mini Calendar */}
+          <div className="lg:ml-auto">
+            <Card className="p-2">
+              <Calendar
+                mode="single"
+                selected={new Date()}
+                month={weekEndingDate}
+                onMonthChange={(month) => {
+                  // Navigate to the week containing the first of the new month
+                  const dayOfWeek = getDay(month);
+                  const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+                  const sunday = new Date(month);
+                  sunday.setDate(month.getDate() + daysUntilSunday);
+                  setWeekEndingDate(sunday);
+                }}
+                modifiers={{
+                  currentWeek: daysInWeek,
+                }}
+                modifiersStyles={{
+                  currentWeek: {
+                    backgroundColor: "hsl(var(--primary) / 0.1)",
+                    borderRadius: "0",
+                  },
+                }}
+                className="pointer-events-auto text-xs"
+                classNames={{
+                  months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
+                  month: "space-y-2",
+                  caption: "flex justify-center pt-1 relative items-center text-xs",
+                  caption_label: "text-xs font-medium",
+                  nav: "space-x-1 flex items-center",
+                  nav_button: "h-6 w-6 bg-transparent p-0 opacity-50 hover:opacity-100",
+                  table: "w-full border-collapse space-y-1",
+                  head_row: "flex",
+                  head_cell: "text-muted-foreground rounded-md w-7 font-normal text-[0.65rem]",
+                  row: "flex w-full mt-1",
+                  cell: "h-7 w-7 text-center text-xs p-0 relative focus-within:relative focus-within:z-20",
+                  day: "h-7 w-7 p-0 font-normal text-xs hover:bg-accent hover:text-accent-foreground rounded-md",
+                  day_selected: "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground",
+                  day_today: "bg-accent text-accent-foreground font-bold",
+                  day_outside: "text-muted-foreground opacity-50",
+                  day_disabled: "text-muted-foreground opacity-50",
+                }}
+              />
+            </Card>
+          </div>
         </div>
 
 
