@@ -17,6 +17,7 @@ export default function OneDrive() {
     isConnected, 
     isLoading: isConnecting, 
     user: oneDriveUser, 
+    canManage,
     connect, 
     disconnect,
     listFiles,
@@ -130,7 +131,7 @@ export default function OneDrive() {
   if (!isConnected) {
     return (
       <AppLayout>
-        <OneDriveConnectScreen isConnecting={isConnecting} onConnect={connect} />
+        <OneDriveConnectScreen isConnecting={isConnecting} canManage={canManage} onConnect={connect} />
       </AppLayout>
     );
   }
@@ -151,10 +152,12 @@ export default function OneDrive() {
               )}
             </div>
           </div>
-          <Button variant="ghost" size="sm" onClick={disconnect} className="text-muted-foreground">
-            <CloudOff className="mr-2 h-4 w-4" />
-            Disconnect
-          </Button>
+          {canManage && (
+            <Button variant="ghost" size="sm" onClick={disconnect} className="text-muted-foreground">
+              <CloudOff className="mr-2 h-4 w-4" />
+              断开连接
+            </Button>
+          )}
         </div>
 
         {/* Toolbar */}

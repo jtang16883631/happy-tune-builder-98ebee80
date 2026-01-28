@@ -514,6 +514,42 @@ export type Database = {
           },
         ]
       }
+      onedrive_company_tokens: {
+        Row: {
+          access_token: string
+          connected_by: string | null
+          created_at: string
+          display_name: string | null
+          email: string | null
+          expires_at: string
+          id: string
+          refresh_token: string
+          updated_at: string
+        }
+        Insert: {
+          access_token: string
+          connected_by?: string | null
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          expires_at: string
+          id?: string
+          refresh_token: string
+          updated_at?: string
+        }
+        Update: {
+          access_token?: string
+          connected_by?: string | null
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          expires_at?: string
+          id?: string
+          refresh_token?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
