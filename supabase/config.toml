@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.onedrive-api]
 verify_jwt = false
+
+[functions.create-room]
+verify_jwt = false

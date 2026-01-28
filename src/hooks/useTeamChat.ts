@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import type { Json } from '@/integrations/supabase/types';
 
 export interface ChatRoom {
   id: string;
@@ -8,6 +9,8 @@ export interface ChatRoom {
   description: string | null;
   created_at: string;
   created_by: string | null;
+  owner_id?: string;
+  meta?: Json;
 }
 
 export interface ChatMessage {
@@ -17,7 +20,6 @@ export interface ChatMessage {
   content: string;
   created_at: string;
   updated_at: string;
-  // Joined from profiles
   user_name?: string;
   user_avatar?: string;
 }
@@ -28,21 +30,16 @@ export interface RoomMember {
   user_id: string;
   is_admin: boolean;
   joined_at: string;
-  // Joined from profiles
   user_name?: string;
   user_avatar?: string;
 }
 
 /**
  * Gets the current session user id.
- * Returns the user id if logged in, or null if not authenticated.
  */
 async function getSessionUserId(): Promise<string | null> {
   const { data: sessionData } = await supabase.auth.getSession();
-  if (sessionData?.session?.user) {
-    return sessionData.session.user.id;
-  }
-  return null;
+  return sessionData?.session?.user?.id ?? null;
 }
 
 export function useTeamChat() {
@@ -56,14 +53,13 @@ export function useTeamChat() {
 
   const initDone = useRef(false);
 
-  // Initialise session + keep it in sync (prevents stale userId causing 403/RLS failures)
+  // Keep userId in sync with auth session
   useEffect(() => {
     if (initDone.current) return;
     initDone.current = true;
 
     let active = true;
 
-    // Keep userId in sync with the real auth session.
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
       setUserId(session?.user?.id ?? null);
@@ -82,12 +78,11 @@ export function useTeamChat() {
     };
   }, []);
 
-  // Fetch all rooms the user is a member of
+  // Fetch rooms the user is a member of
   const fetchRooms = useCallback(async () => {
     if (!userId) return;
 
     try {
-      // Get rooms where user is a member
       const { data: membershipData, error: memberError } = await supabase
         .from('chat_room_members')
         .select('room_id')
@@ -111,7 +106,7 @@ export function useTeamChat() {
       if (roomsError) throw roomsError;
 
       setRooms(roomsData || []);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching rooms:', error);
       toast.error('Failed to load chat rooms');
     }
@@ -135,19 +130,19 @@ export function useTeamChat() {
 
       if (error) throw error;
 
-      const formattedMessages: ChatMessage[] = (data || []).map((msg: any) => ({
-        id: msg.id,
-        room_id: msg.room_id,
-        user_id: msg.user_id,
-        content: msg.content,
-        created_at: msg.created_at,
-        updated_at: msg.updated_at,
-        user_name: msg.profiles?.full_name || 'Guest',
-        user_avatar: msg.profiles?.avatar_url,
+      const formattedMessages: ChatMessage[] = (data || []).map((msg: Record<string, unknown>) => ({
+        id: msg.id as string,
+        room_id: msg.room_id as string,
+        user_id: msg.user_id as string,
+        content: msg.content as string,
+        created_at: msg.created_at as string,
+        updated_at: msg.updated_at as string,
+        user_name: (msg.profiles as Record<string, unknown>)?.full_name as string || 'Guest',
+        user_avatar: (msg.profiles as Record<string, unknown>)?.avatar_url as string | undefined,
       }));
 
       setMessages(formattedMessages);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching messages:', error);
       toast.error('Failed to load messages');
     }
@@ -169,18 +164,18 @@ export function useTeamChat() {
 
       if (error) throw error;
 
-      const formattedMembers: RoomMember[] = (data || []).map((m: any) => ({
-        id: m.id,
-        room_id: m.room_id,
-        user_id: m.user_id,
-        is_admin: m.is_admin || false,
-        joined_at: m.joined_at,
-        user_name: m.profiles?.full_name || 'Guest',
-        user_avatar: m.profiles?.avatar_url,
+      const formattedMembers: RoomMember[] = (data || []).map((m: Record<string, unknown>) => ({
+        id: m.id as string,
+        room_id: m.room_id as string,
+        user_id: m.user_id as string,
+        is_admin: (m.is_admin as boolean) || false,
+        joined_at: m.joined_at as string,
+        user_name: (m.profiles as Record<string, unknown>)?.full_name as string || 'Guest',
+        user_avatar: (m.profiles as Record<string, unknown>)?.avatar_url as string | undefined,
       }));
 
       setMembers(formattedMembers);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching members:', error);
     }
   }, []);
@@ -206,7 +201,7 @@ export function useTeamChat() {
         });
 
       if (error) throw error;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error sending message:', error);
       toast.error('Failed to send message');
     } finally {
@@ -214,52 +209,47 @@ export function useTeamChat() {
     }
   }, [userId, currentRoom]);
 
-  // Create a new room
+  // Create a new room via Edge Function (no direct insert)
   const createRoom = useCallback(async (name: string, description?: string) => {
-    // Always re-check the current session (userId state can be stale if auth changed).
     const uid = await getSessionUserId();
     setUserId(uid);
+
     if (!uid) {
       toast.error('Please log in to create a chat room.');
       return null;
     }
 
     try {
-      const { data: room, error: roomError } = await supabase
-        .from('chat_rooms')
-        .insert({
-          name,
-          description,
-          created_by: uid,
-        })
-        .select()
-        .single();
+      console.log('Calling create-room edge function...');
+      
+      const { data, error } = await supabase.functions.invoke('create-room', {
+        body: { 
+          name, 
+          meta: description ? { description } : {} 
+        },
+      });
 
-      if (roomError) throw roomError;
+      if (error) {
+        console.error('Edge function error:', error);
+        toast.error(error.message || 'Failed to create room');
+        return null;
+      }
 
-      // Add creator as admin member
-      const { error: memberError } = await supabase
-        .from('chat_room_members')
-        .insert({
-          room_id: room.id,
-          user_id: uid,
-          is_admin: true,
-        });
+      if (!data?.room) {
+        console.error('No room in response:', data);
+        toast.error('Failed to create room - no data returned');
+        return null;
+      }
 
-      if (memberError) throw memberError;
-
+      console.log('Room created via edge function:', data.room);
+      
       await fetchRooms();
       toast.success('Chat room created!');
-      return room;
-    } catch (error: any) {
+      return data.room as ChatRoom;
+    } catch (error: unknown) {
       console.error('Error creating room:', error);
-      const details =
-        error?.message ||
-        error?.error_description ||
-        error?.hint ||
-        error?.details ||
-        'Failed to create room';
-      toast.error(details);
+      const errMsg = error instanceof Error ? error.message : 'Failed to create room';
+      toast.error(errMsg);
       return null;
     }
   }, [fetchRooms]);
@@ -281,7 +271,7 @@ export function useTeamChat() {
         await fetchMembers(roomId);
       }
       toast.success('Member added!');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error adding member:', error);
       toast.error('Failed to add member');
     }
@@ -309,7 +299,6 @@ export function useTeamChat() {
           filter: `room_id=eq.${currentRoom.id}`,
         },
         async (payload) => {
-          // Fetch the new message with profile data
           const { data } = await supabase
             .from('chat_messages')
             .select(`
@@ -323,6 +312,7 @@ export function useTeamChat() {
             .maybeSingle();
 
           if (data) {
+            const profiles = (data as { profiles?: { full_name?: string; avatar_url?: string } }).profiles;
             const newMessage: ChatMessage = {
               id: data.id,
               room_id: data.room_id,
@@ -330,12 +320,11 @@ export function useTeamChat() {
               content: data.content,
               created_at: data.created_at,
               updated_at: data.updated_at,
-              user_name: (data as any).profiles?.full_name || 'Guest',
-              user_avatar: (data as any).profiles?.avatar_url,
+              user_name: profiles?.full_name || 'Guest',
+              user_avatar: profiles?.avatar_url,
             };
 
             setMessages(prev => {
-              // Avoid duplicates
               if (prev.some(m => m.id === newMessage.id)) return prev;
               return [...prev, newMessage];
             });
