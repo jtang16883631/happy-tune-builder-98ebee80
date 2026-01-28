@@ -14,7 +14,7 @@ const WORK_TYPES = [
 
 // Quick templates for one-click application
 const QUICK_TEMPLATES = [
-  { id: "office", label: "Office", icon: Building2, startTime: "09:00", endTime: "17:00", workType: "office", addLunch: true, bgColor: "bg-green-100 text-green-600 hover:bg-green-200" },
+  { id: "office", label: "Office", icon: Building2, startTime: "09:00", startPeriod: "AM", endTime: "05:00", endPeriod: "PM", workType: "office", addLunch: true, bgColor: "bg-green-100 text-green-600 hover:bg-green-200" },
   { id: "hospital", label: "Hospital", icon: Hospital, startTime: "07:30", endTime: "16:00", workType: "hospital", addLunch: false, bgColor: "bg-blue-100 text-blue-600 hover:bg-blue-200" },
   { id: "travel_only", label: "Travel", icon: Plane, startTime: "", endTime: "", workType: "travel_only", addLunch: false, bgColor: "bg-purple-100 text-purple-600 hover:bg-purple-200" },
   { id: "vacation", label: "Vacation", icon: Palmtree, startTime: "", endTime: "", workType: "vacation", addLunch: false, bgColor: "bg-pink-100 text-pink-600 hover:bg-pink-200" },
