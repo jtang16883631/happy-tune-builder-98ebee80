@@ -13,11 +13,11 @@ export function OneDriveConnectScreen({ isConnecting, canManage, onConnect }: On
       <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#0078d4] to-[#005a9e] flex items-center justify-center mb-6">
         <Cloud className="h-12 w-12 text-white" />
       </div>
-      <h1 className="text-3xl font-bold mb-2">公司 OneDrive</h1>
+      <h1 className="text-3xl font-bold mb-2">Company OneDrive</h1>
       <p className="text-muted-foreground mb-8 max-w-md">
         {canManage 
-          ? "连接公司的Microsoft OneDrive账号，所有员工都可以浏览、预览和下载文件。"
-          : "公司OneDrive尚未连接，请联系管理员进行连接。"
+          ? "Connect your company's Microsoft OneDrive account. All employees will be able to browse, preview, and download files."
+          : "Company OneDrive is not connected yet. Please contact an administrator to set it up."
         }
       </p>
       {canManage ? (
@@ -30,19 +30,19 @@ export function OneDriveConnectScreen({ isConnecting, canManage, onConnect }: On
           {isConnecting ? (
             <>
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              正在连接...
+              Connecting...
             </>
           ) : (
             <>
               <Cloud className="mr-2 h-5 w-5" />
-              使用Microsoft账号登录
+              Sign in with Microsoft
             </>
           )}
         </Button>
       ) : (
         <div className="flex items-center gap-2 text-muted-foreground">
           <Lock className="h-5 w-5" />
-          <span>需要管理员权限才能连接OneDrive</span>
+          <span>Administrator permission required to connect OneDrive</span>
         </div>
       )}
     </div>
