@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -102,11 +102,18 @@ export default function Timesheet() {
 
   // Fetch entries from database
   const { data: dbEntries = [], isLoading } = useQuery({
-    queryKey: ["timesheet-entries", format(weekStart, "yyyy-MM-dd"), format(weekEnd, "yyyy-MM-dd")],
+    queryKey: [
+      "timesheet-entries",
+      user?.id,
+      format(weekStart, "yyyy-MM-dd"),
+      format(weekEnd, "yyyy-MM-dd"),
+    ],
     queryFn: async () => {
+      if (!user) return [];
       const { data, error } = await supabase
         .from("timesheet_entries")
         .select("*")
+        .eq("user_id", user.id)
         .gte("work_date", format(weekStart, "yyyy-MM-dd"))
         .lte("work_date", format(weekEnd, "yyyy-MM-dd"))
         .order("work_date")
@@ -114,6 +121,7 @@ export default function Timesheet() {
       if (error) throw error;
       return data as TimesheetEntry[];
     },
+    enabled: !!user,
   });
 
   // Fetch last week's entries for copy feature
@@ -121,11 +129,18 @@ export default function Timesheet() {
   const lastWeekEnd = subWeeks(weekEnd, 1);
   
   const { data: lastWeekEntries = [] } = useQuery({
-    queryKey: ["timesheet-entries-last-week", format(lastWeekStart, "yyyy-MM-dd"), format(lastWeekEnd, "yyyy-MM-dd")],
+    queryKey: [
+      "timesheet-entries-last-week",
+      user?.id,
+      format(lastWeekStart, "yyyy-MM-dd"),
+      format(lastWeekEnd, "yyyy-MM-dd"),
+    ],
     queryFn: async () => {
+      if (!user) return [];
       const { data, error } = await supabase
         .from("timesheet_entries")
         .select("*")
+        .eq("user_id", user.id)
         .gte("work_date", format(lastWeekStart, "yyyy-MM-dd"))
         .lte("work_date", format(lastWeekEnd, "yyyy-MM-dd"))
         .order("work_date")
@@ -133,16 +148,17 @@ export default function Timesheet() {
       if (error) throw error;
       return data as TimesheetEntry[];
     },
+    enabled: !!user,
   });
 
   // Key for tracking week changes
   const weekKey = daysInWeek.map(d => format(d, "yyyy-MM-dd")).join(",");
 
-  // Initialize local entries from database
-  useMemo(() => {
+  // Initialize local entries from database (MUST be useEffect; setting state during render can blank the page)
+  useEffect(() => {
     // Convert database entries to local format
     const converted: Record<string, DayEntry> = {};
-    
+
     // Initialize all days first
     daysInWeek.forEach((day) => {
       const dateString = format(day, "yyyy-MM-dd");
@@ -150,7 +166,8 @@ export default function Timesheet() {
         date: day,
         dateString,
         segments: [],
-        isSelected: selectedDays.has(dateString),
+        // Selection is managed separately via handlers; default to false on init
+        isSelected: false,
       };
     });
 
@@ -161,7 +178,7 @@ export default function Timesheet() {
         // Parse start time to determine AM/PM
         const startHour = entry.start_time ? parseInt(entry.start_time.split(":")[0]) : 9;
         const endHour = entry.end_time ? parseInt(entry.end_time.split(":")[0]) : 17;
-        
+
         converted[dateString].segments.push({
           id: entry.id,
           startTime: entry.start_time ? formatTo12Hour(entry.start_time) : "",
@@ -184,7 +201,9 @@ export default function Timesheet() {
     });
 
     setLocalEntries(converted);
-  }, [dbEntries, weekKey, isLoading]);
+    // Reset selection on week change/load
+    setSelectedDays(new Set());
+  }, [dbEntries, weekKey]);
 
   // Helper to convert 24h to 12h format
   function formatTo12Hour(time: string): string {
@@ -543,13 +562,9 @@ export default function Timesheet() {
   };
 
   // Check if any entry is submitted to determine initial lock state
-  useMemo(() => {
-    const hasSubmittedEntry = dbEntries.some(entry => entry.status === "submitted");
-    if (hasSubmittedEntry) {
-      setTimesheetStatus("submitted");
-    } else {
-      setTimesheetStatus("draft");
-    }
+  useEffect(() => {
+    const hasSubmittedEntry = dbEntries.some((entry) => entry.status === "submitted");
+    setTimesheetStatus(hasSubmittedEntry ? "submitted" : "draft");
   }, [dbEntries]);
 
   const isLocked = timesheetStatus === "submitted";
