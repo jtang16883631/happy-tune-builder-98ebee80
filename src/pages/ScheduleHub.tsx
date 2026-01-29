@@ -132,10 +132,25 @@ export default function ScheduleHub() {
         setLastSyncTime(new Date());
       } else if (response.data?.content) {
         await navigator.clipboard.writeText(response.data.content);
-        toast({ 
-          title: 'Schedule copied to clipboard', 
-          description: 'Add GOOGLE_SERVICE_ACCOUNT_KEY to enable direct Google Docs export.' 
+
+        const serverMessage = typeof response.data?.message === 'string' ? response.data.message.trim() : '';
+        const serverError = typeof response.data?.error === 'string' ? response.data.error.trim() : '';
+
+        // If Google Docs export failed for reasons other than missing credentials,
+        // surface the server-provided message instead of always blaming the key.
+        const description =
+          serverMessage ||
+          (serverError ? 'Google Docs export failed (details in logs). Content copied to clipboard.' : undefined);
+
+        toast({
+          title: 'Schedule copied to clipboard',
+          description: description,
         });
+
+        if (serverError) {
+          // Keep details out of the UI but available for debugging.
+          console.error('Google Docs export error:', serverError);
+        }
       }
     } catch (error) {
       console.error('Export error:', error);
