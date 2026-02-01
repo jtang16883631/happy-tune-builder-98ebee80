@@ -247,6 +247,30 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
                     );
                   }
                   
+                  // OneDrive opens in a new tab
+                  if (item.href === '/onedrive') {
+                    return (
+                      <a 
+                        key={item.href} 
+                        href={`${window.location.origin}${window.location.pathname}#/onedrive`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <div
+                          className={cn(
+                            'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors',
+                            isActive
+                              ? 'bg-white/20 text-white'
+                              : 'text-white/70 hover:bg-white/10 hover:text-white'
+                          )}
+                        >
+                          <Icon className="h-5 w-5" />
+                          <span className="font-medium flex-1">{item.label}</span>
+                        </div>
+                      </a>
+                    );
+                  }
+                  
                   return (
                     <Link key={item.href} to={item.href}>
                       <div
