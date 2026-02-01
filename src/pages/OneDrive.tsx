@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useToast } from "@/hooks/use-toast";
 import { useOneDrive } from "@/hooks/useOneDrive";
@@ -11,8 +12,11 @@ import { OneDriveEmptyState } from "@/components/onedrive/OneDriveEmptyState";
 import { OneDriveConnectScreen } from "@/components/onedrive/OneDriveConnectScreen";
 import { OneDriveItem, BreadcrumbItem } from "@/components/onedrive/types";
 
+const BREADCRUMBS_STORAGE_KEY = "onedrive_breadcrumbs";
+
 export default function OneDrive() {
   const { toast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { 
     isConnected, 
     isLoading: isConnecting, 
@@ -24,10 +28,27 @@ export default function OneDrive() {
     downloadFile
   } = useOneDrive();
 
+  // Initialize state from URL params and sessionStorage
+  const initialFolderId = searchParams.get("folder");
   const [files, setFiles] = useState<OneDriveItem[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
-  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([{ id: null, name: "My files" }]);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(initialFolderId);
+  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>(() => {
+    // Try to restore breadcrumbs from sessionStorage
+    const saved = sessionStorage.getItem(BREADCRUMBS_STORAGE_KEY);
+    if (saved && initialFolderId) {
+      try {
+        const parsed = JSON.parse(saved) as BreadcrumbItem[];
+        // Verify the saved breadcrumbs match the current folder
+        if (parsed.length > 0 && parsed[parsed.length - 1].id === initialFolderId) {
+          return parsed;
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+    return [{ id: null, name: "My files" }];
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [selectedFile, setSelectedFile] = useState<OneDriveItem | null>(null);
@@ -91,17 +112,33 @@ export default function OneDrive() {
     loadPreview();
   }, [selectedFile]);
 
+  // Update URL and sessionStorage when folder changes
+  const updateFolderState = useCallback((folderId: string | null, newBreadcrumbs: BreadcrumbItem[]) => {
+    // Update URL params
+    if (folderId) {
+      setSearchParams({ folder: folderId });
+    } else {
+      setSearchParams({});
+    }
+    // Persist breadcrumbs to sessionStorage
+    sessionStorage.setItem(BREADCRUMBS_STORAGE_KEY, JSON.stringify(newBreadcrumbs));
+  }, [setSearchParams]);
+
   const handleFolderClick = (folder: OneDriveItem) => {
+    const newBreadcrumbs = [...breadcrumbs, { id: folder.id, name: folder.name }];
     setCurrentFolderId(folder.id);
-    setBreadcrumbs(prev => [...prev, { id: folder.id, name: folder.name }]);
+    setBreadcrumbs(newBreadcrumbs);
     setSelectedFile(null);
+    updateFolderState(folder.id, newBreadcrumbs);
   };
 
   const handleBreadcrumbClick = (index: number) => {
     const item = breadcrumbs[index];
+    const newBreadcrumbs = breadcrumbs.slice(0, index + 1);
     setCurrentFolderId(item.id);
-    setBreadcrumbs(breadcrumbs.slice(0, index + 1));
+    setBreadcrumbs(newBreadcrumbs);
     setSelectedFile(null);
+    updateFolderState(item.id, newBreadcrumbs);
   };
 
   const handleFileSelect = (file: OneDriveItem) => {
