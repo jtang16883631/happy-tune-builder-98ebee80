@@ -1913,6 +1913,8 @@ const Scan = () => {
   const [qtyExpressions, setQtyExpressions] = useState<Record<string, string>>({});
   // Keep a synchronous reference to the latest typed value (barcode scanners can type faster than state updates)
   const qtyExpressionRef = useRef<Record<string, string>>({});
+  // Persistent storage for QTY formulas (shown on focus, like Excel formula bar)
+  const [qtyFormulas, setQtyFormulas] = useState<Record<string, string>>({});
   
   // Handle QTY input change - store raw expression
   const handleQtyInputChange = (value: string, rowIndex: number) => {
@@ -1930,6 +1932,18 @@ const Scan = () => {
       const result = evaluateQtyExpression(expression);
       if (result !== null) {
         handleFieldChange('qty', result, rowIndex);
+        // Store formula if it contains operators (not just a plain number)
+        const sanitized = expression.trim();
+        if (/[+\-*/]/.test(sanitized.replace(/^-/, '')) && sanitized !== result.toString()) {
+          setQtyFormulas(prev => ({ ...prev, [rowId]: sanitized }));
+        } else {
+          // Plain number, remove any stored formula
+          setQtyFormulas(prev => {
+            const next = { ...prev };
+            delete next[rowId];
+            return next;
+          });
+        }
       }
 
       delete qtyExpressionRef.current[rowId];
@@ -1962,6 +1976,12 @@ const Scan = () => {
       }
 
       delete qtyExpressionRef.current[rowId];
+
+      // Store formula if it contains operators
+      const sanitized2 = rawExpression.trim();
+      if (/[+\-*/]/.test(sanitized2.replace(/^-/, '')) && evaluatedQty !== null && sanitized2 !== evaluatedQty.toString()) {
+        setQtyFormulas(prev => ({ ...prev, [rowId]: sanitized2 }));
+      }
 
       // Clear expression after evaluation (so next focus shows computed value)
       setQtyExpressions(prev => {
@@ -3126,7 +3146,7 @@ const Scan = () => {
                                   onMouseDown={(e) => handleCellMouseDown(e, realIndex, col.key)}
                                   onMouseEnter={() => handleCellMouseEnter(realIndex, col.key)}
                                 >
-                                  <div className="relative">
+                                  <div className="relative group">
                                     <Input
                                       ref={getRef}
                                       value={getQtyDisplayValue(row, realIndex)}
@@ -3139,9 +3159,14 @@ const Scan = () => {
                                       onFocus={() => {
                                         setActiveRowIndex(realIndex);
                                         setActiveColKey(col.key);
-                                        // Initialize expression with current value
-                                        if (qtyExpressions[row.id] === undefined && row.qty !== null) {
-                                          setQtyExpressions(prev => ({ ...prev, [row.id]: row.qty!.toString() }));
+                                        // On focus, show stored formula if exists, otherwise show current value
+                                        if (qtyExpressions[row.id] === undefined) {
+                                          const storedFormula = qtyFormulas[row.id];
+                                          if (storedFormula) {
+                                            setQtyExpressions(prev => ({ ...prev, [row.id]: storedFormula }));
+                                          } else if (row.qty !== null) {
+                                            setQtyExpressions(prev => ({ ...prev, [row.id]: row.qty!.toString() }));
+                                          }
                                         }
                                       }}
                                       placeholder="e.g. 5+3"
@@ -3149,6 +3174,11 @@ const Scan = () => {
                                       className={`font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0 disabled:opacity-50 disabled:cursor-not-allowed rounded-none pr-6 ${qtyBgStyle} ${qtyIsSelected}`}
                                     />
                                     <Calculator className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+                                    {qtyFormulas[row.id] && !qtyExpressions[row.id] && (
+                                      <div className="absolute left-0 -top-6 z-50 bg-popover text-popover-foreground border rounded px-1.5 py-0.5 text-[10px] font-mono shadow-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                                        ={qtyFormulas[row.id]} → {row.qty}
+                                      </div>
+                                    )}
                                   </div>
                                 </TableCell>
                               );
