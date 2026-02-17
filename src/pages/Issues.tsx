@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useOfflineIssues, IssueType, TemplateIssue } from '@/hooks/useOfflineIssues';
 import { useCloudTemplates } from '@/hooks/useCloudTemplates';
+import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -59,6 +60,20 @@ export default function Issues() {
   const [notes, setNotes] = useState('');
   const [editingIssue, setEditingIssue] = useState<TemplateIssue | null>(null);
   const [showResolved, setShowResolved] = useState(false);
+  const [profileNames, setProfileNames] = useState<Record<string, string>>({});
+
+  // Fetch profile names for created_by
+  useEffect(() => {
+    const fetchProfiles = async () => {
+      const { data } = await supabase.from('profiles').select('id, full_name');
+      if (data) {
+        const map: Record<string, string> = {};
+        data.forEach(p => { if (p.full_name) map[p.id] = p.full_name; });
+        setProfileNames(map);
+      }
+    };
+    fetchProfiles();
+  }, []);
 
   // Auto-sync on mount when online
   useEffect(() => {
@@ -254,6 +269,7 @@ export default function Issues() {
               onDelete={handleDelete}
               formatDate={formatDate}
               type="office"
+              profileNames={profileNames}
             />
           </TabsContent>
 
@@ -265,6 +281,7 @@ export default function Issues() {
               onDelete={handleDelete}
               formatDate={formatDate}
               type="field"
+              profileNames={profileNames}
             />
           </TabsContent>
         </Tabs>
@@ -395,9 +412,10 @@ interface IssuesListProps {
   onDelete: (issue: TemplateIssue) => void;
   formatDate: (date: string) => string;
   type: IssueType;
+  profileNames: Record<string, string>;
 }
 
-function IssuesList({ issues, onResolve, onEdit, onDelete, formatDate, type }: IssuesListProps) {
+function IssuesList({ issues, onResolve, onEdit, onDelete, formatDate, type, profileNames }: IssuesListProps) {
   if (issues.length === 0) {
     return (
       <Card className="border-dashed">
@@ -433,6 +451,9 @@ function IssuesList({ issues, onResolve, onEdit, onDelete, formatDate, type }: I
                   {issue.template_name || 'Unknown Template'}
                 </CardTitle>
                 <p className="text-xs text-muted-foreground mt-1">
+                  {issue.created_by && profileNames[issue.created_by] && (
+                    <span className="font-medium">{profileNames[issue.created_by]} · </span>
+                  )}
                   {formatDate(issue.created_at)}
                   {issue.is_dirty && (
                     <span className="ml-2 text-amber-600">• Pending sync</span>

@@ -28,6 +28,8 @@ interface Announcement {
   title: string;
   content: string;
   created_at: string;
+  created_by: string | null;
+  creator_name?: string | null;
   is_read?: boolean;
 }
 
@@ -48,7 +50,7 @@ export function AnnouncementBell() {
       // Fetch active announcements
       const { data: announcementsData, error: annError } = await supabase
         .from('announcements')
-        .select('*')
+        .select('*, profiles:created_by(full_name)')
         .eq('is_active', true)
         .order('created_at', { ascending: false })
         .limit(20);
@@ -65,8 +67,9 @@ export function AnnouncementBell() {
 
       const readIds = new Set((readsData || []).map((r) => r.announcement_id));
 
-      const announcementsWithReadStatus = (announcementsData || []).map((a) => ({
+      const announcementsWithReadStatus = (announcementsData || []).map((a: any) => ({
         ...a,
+        creator_name: a.profiles?.full_name || null,
         is_read: readIds.has(a.id),
       }));
 
@@ -252,6 +255,9 @@ export function AnnouncementBell() {
                           {announcement.content}
                         </p>
                         <p className="text-[10px] text-muted-foreground mt-1">
+                          {announcement.creator_name && (
+                            <span className="font-medium">{announcement.creator_name} · </span>
+                          )}
                           {formatDistanceToNow(new Date(announcement.created_at), {
                             addSuffix: true,
                           })}
