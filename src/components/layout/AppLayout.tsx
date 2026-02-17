@@ -20,6 +20,7 @@ interface AppLayoutProps {
   children: ReactNode;
   fullWidth?: boolean;
   defaultCollapsed?: boolean;
+  hideNavigation?: boolean;
 }
 
 type AppRole = 'auditor' | 'developer' | 'coordinator' | 'owner' | 'office_admin';
@@ -91,10 +92,10 @@ const navSections: NavSection[] = [
   },
 ];
 
-export function AppLayout({ children, fullWidth = false, defaultCollapsed = false }: AppLayoutProps) {
+export function AppLayout({ children, fullWidth = false, defaultCollapsed = false, hideNavigation = false }: AppLayoutProps) {
   const { user, roles, isPrivileged, signOut, isLoading: authLoading, rolesLoaded } = useAuth();
   const location = useLocation();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultCollapsed);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultCollapsed || hideNavigation);
   const { needsCompletion, isChecking, markCompleted } = useProfileCompletion();
   const isMobile = useIsMobile();
   const isOnline = useOnlineStatus();
@@ -207,7 +208,7 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
       <aside 
         className={cn(
           "bg-[hsl(215,50%,23%)] text-white flex flex-col fixed h-screen transition-all duration-300",
-          sidebarCollapsed ? "w-0 overflow-hidden" : "w-56"
+          hideNavigation ? "w-0 overflow-hidden" : sidebarCollapsed ? "w-0 overflow-hidden" : "w-56"
         )}
       >
         {/* Logo */}
@@ -335,33 +336,37 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
       {/* Main Content */}
       <div className={cn(
         "flex-1 transition-all duration-300",
-        sidebarCollapsed ? "ml-0" : "ml-56"
+        hideNavigation ? "ml-0" : sidebarCollapsed ? "ml-0" : "ml-56"
       )}>
         {/* Top Right Controls */}
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
-          <AnnouncementBell />
-        </div>
+        {!hideNavigation && (
+          <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
+            <AnnouncementBell />
+          </div>
+        )}
         
         {/* Toggle Button */}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          className={cn(
-            "fixed top-4 z-50 h-9 w-9 transition-all duration-300",
-            sidebarCollapsed 
-              ? "left-4 bg-[hsl(215,50%,23%)] text-white hover:bg-[hsl(215,50%,30%)]" 
-              : "left-[14.5rem] text-muted-foreground hover:text-foreground hover:bg-muted"
-          )}
-        >
-          {sidebarCollapsed ? (
-            <PanelLeft className="h-5 w-5" />
-          ) : (
-            <PanelLeftClose className="h-5 w-5" />
-          )}
-        </Button>
+        {!hideNavigation && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            className={cn(
+              "fixed top-4 z-50 h-9 w-9 transition-all duration-300",
+              sidebarCollapsed 
+                ? "left-4 bg-[hsl(215,50%,23%)] text-white hover:bg-[hsl(215,50%,30%)]" 
+                : "left-[14.5rem] text-muted-foreground hover:text-foreground hover:bg-muted"
+            )}
+          >
+            {sidebarCollapsed ? (
+              <PanelLeft className="h-5 w-5" />
+            ) : (
+              <PanelLeftClose className="h-5 w-5" />
+            )}
+          </Button>
+        )}
         
-        <main className={cn("p-6 pt-16", fullWidth ? "" : "max-w-7xl mx-auto")}>{children}</main>
+        <main className={cn("p-6", hideNavigation ? "pt-4" : "pt-16", fullWidth ? "" : "max-w-7xl mx-auto")}>{children}</main>
       </div>
     </div>
     </>

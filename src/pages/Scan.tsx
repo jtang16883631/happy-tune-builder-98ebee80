@@ -2809,7 +2809,7 @@ const Scan = () => {
 
   // Scan View (Excel-like with horizontal scroll)
   return (
-    <AppLayout fullWidth defaultCollapsed>
+    <AppLayout fullWidth hideNavigation>
       <div className="space-y-4 w-full" style={{ fontFamily: 'Arial, sans-serif' }}>
         {/* Header with back button */}
         <div className="flex items-center gap-4">
