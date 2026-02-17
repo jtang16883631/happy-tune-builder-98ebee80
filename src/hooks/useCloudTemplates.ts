@@ -521,9 +521,16 @@ export function useCloudTemplates() {
   // Delete related rows in batches to avoid statement timeout
   const deleteBatched = useCallback(
     async (table: 'scan_records' | 'template_cost_items' | 'template_sections', templateId: string) => {
-      // Delete in a loop fetching IDs first to avoid long-running statements
+      const maxIterations = 200; // Safety guard against infinite loops
+      let iterations = 0;
       let hasMore = true;
       while (hasMore) {
+        iterations++;
+        if (iterations > maxIterations) {
+          console.warn(`deleteBatched: hit max iterations for ${table}, stopping`);
+          break;
+        }
+
         const { data: rows, error: fetchErr } = await supabase
           .from(table)
           .select('id')
@@ -543,6 +550,19 @@ export function useCloudTemplates() {
           .in('id', ids);
 
         if (delErr) throw delErr;
+
+        // Re-check if those rows still exist (RLS may silently block deletes)
+        const { data: checkRows } = await supabase
+          .from(table)
+          .select('id')
+          .in('id', ids.slice(0, 5));
+
+        if (checkRows && checkRows.length > 0) {
+          // RLS blocked the delete – stop trying this table
+          console.warn(`deleteBatched: RLS blocked delete on ${table}, skipping`);
+          break;
+        }
+
         if (rows.length < 500) hasMore = false;
       }
     },
