@@ -45,6 +45,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 
 interface TimesheetEntry {
   id: string;
@@ -80,6 +82,11 @@ export default function TimesheetSummary() {
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeSummary | null>(null);
   const [detailTab, setDetailTab] = useState<"current" | "history">("current");
   const [rejectingUserId, setRejectingUserId] = useState<string | null>(null);
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectTargetUserId, setRejectTargetUserId] = useState<string | null>(null);
+  const [rejectionNote, setRejectionNote] = useState("");
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteValue, setEditingNoteValue] = useState("");
   const queryClient = useQueryClient();
   const { isOwner } = useAuth();
 
@@ -221,13 +228,20 @@ export default function TimesheetSummary() {
   const handleNextWeek = () => setSelectedWeekOffset((o) => o + 1);
   const handleCurrentWeek = () => setSelectedWeekOffset(0);
 
-  const handleRejectTimesheet = async (userId: string) => {
-    setRejectingUserId(userId);
+  const openRejectDialog = (userId: string) => {
+    setRejectTargetUserId(userId);
+    setRejectionNote("");
+    setShowRejectDialog(true);
+  };
+
+  const handleRejectTimesheet = async () => {
+    if (!rejectTargetUserId) return;
+    setRejectingUserId(rejectTargetUserId);
     try {
       const { error } = await supabase
         .from("timesheet_entries")
-        .update({ status: "pending" })
-        .eq("user_id", userId)
+        .update({ status: "pending", rejection_note: rejectionNote || null })
+        .eq("user_id", rejectTargetUserId)
         .gte("work_date", weekStartStr)
         .lte("work_date", weekEndStr)
         .eq("status", "submitted");
@@ -236,9 +250,9 @@ export default function TimesheetSummary() {
 
       toast.success("Timesheet returned for revision");
       queryClient.invalidateQueries({ queryKey: ["timesheet-summary"] });
+      setShowRejectDialog(false);
       
-      // Update the selected employee status if viewing
-      if (selectedEmployee?.userId === userId) {
+      if (selectedEmployee?.userId === rejectTargetUserId) {
         setSelectedEmployee((prev) =>
           prev ? { ...prev, status: "unsubmitted" } : null
         );
@@ -248,6 +262,21 @@ export default function TimesheetSummary() {
       toast.error("Failed to reject timesheet");
     } finally {
       setRejectingUserId(null);
+    }
+  };
+
+  const handleSaveNote = async (entryId: string, newNote: string) => {
+    try {
+      const { error } = await supabase
+        .from("timesheet_entries")
+        .update({ notes: newNote || null })
+        .eq("id", entryId);
+      if (error) throw error;
+      toast.success("Note updated");
+      queryClient.invalidateQueries({ queryKey: ["timesheet-summary"] });
+      setEditingNoteId(null);
+    } catch {
+      toast.error("Failed to update note");
     }
   };
 
@@ -393,7 +422,7 @@ export default function TimesheetSummary() {
                             variant="outline"
                             size="sm"
                             className="text-destructive hover:text-destructive"
-                            onClick={() => handleRejectTimesheet(emp.userId)}
+                            onClick={() => openRejectDialog(emp.userId)}
                             disabled={rejectingUserId === emp.userId}
                           >
                             <RotateCcw className="h-3 w-3 mr-1" />
@@ -487,7 +516,34 @@ export default function TimesheetSummary() {
                         </TableCell>
                         <TableCell>{entry.client_name || "-"}</TableCell>
                         <TableCell>
-                          {entry.notes ? (
+                          {isOwner ? (
+                            editingNoteId === entry.id ? (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  value={editingNoteValue}
+                                  onChange={(e) => setEditingNoteValue(e.target.value)}
+                                  className="h-7 text-xs w-32"
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") handleSaveNote(entry.id, editingNoteValue);
+                                    if (e.key === "Escape") setEditingNoteId(null);
+                                  }}
+                                  autoFocus
+                                />
+                                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => handleSaveNote(entry.id, editingNoteValue)}>
+                                  Save
+                                </Button>
+                              </div>
+                            ) : (
+                              <span
+                                className="flex items-center gap-1 text-muted-foreground cursor-pointer hover:text-foreground max-w-[150px] truncate"
+                                onClick={() => { setEditingNoteId(entry.id); setEditingNoteValue(entry.notes || ""); }}
+                                title="Click to edit"
+                              >
+                                <MessageSquare className="h-3 w-3 shrink-0" />
+                                {entry.notes || <span className="italic text-xs">Add note</span>}
+                              </span>
+                            )
+                          ) : entry.notes ? (
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -570,6 +626,37 @@ export default function TimesheetSummary() {
               </div>
             </TabsContent>
           </Tabs>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Dialog */}
+      <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reject Timesheet</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Add a note explaining why this timesheet is being rejected. The employee will see this note.
+            </p>
+            <Textarea
+              placeholder="e.g. Missing hours for Wednesday, please update and resubmit"
+              value={rejectionNote}
+              onChange={(e) => setRejectionNote(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button variant="outline" onClick={() => setShowRejectDialog(false)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={handleRejectTimesheet}
+              disabled={rejectingUserId === rejectTargetUserId}
+            >
+              <RotateCcw className="h-4 w-4 mr-1" />
+              {rejectingUserId === rejectTargetUserId ? "Rejecting..." : "Reject & Send Back"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </AppLayout>

@@ -27,6 +27,7 @@ import {
   Save,
   RotateCcw,
   Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import {
   AlertDialog,
@@ -59,6 +60,7 @@ interface TimesheetEntry {
   job_id: string | null;
   notes: string | null;
   status: string | null;
+  rejection_note: string | null;
 }
 
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -597,6 +599,12 @@ export default function Timesheet() {
 
   const isLocked = timesheetStatus === "submitted";
 
+  // Get rejection note if any entry has one (from owner rejection)
+  const rejectionNote = useMemo(() => {
+    const entryWithNote = dbEntries.find((e) => e.rejection_note && e.status === "pending");
+    return entryWithNote?.rejection_note || null;
+  }, [dbEntries]);
+
   if (isLoading) {
     return (
       <AppLayout>
@@ -714,6 +722,19 @@ export default function Timesheet() {
             )}
           </div>
         </div>
+
+        {/* Rejection Note Banner */}
+        {rejectionNote && !isLocked && (
+          <Card className="border-destructive bg-destructive/5">
+            <CardContent className="py-3 px-4 flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-destructive">Timesheet Rejected</p>
+                <p className="text-sm text-muted-foreground mt-1">{rejectionNote}</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Week Selector + Live Calendar */}
         <div className="flex flex-col lg:flex-row gap-4">

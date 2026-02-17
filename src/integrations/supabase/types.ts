@@ -1156,6 +1156,7 @@ export type Database = {
           id: string
           job_id: string | null
           notes: string | null
+          rejection_note: string | null
           start_time: string | null
           status: string | null
           team_member_id: string | null
@@ -1172,6 +1173,7 @@ export type Database = {
           id?: string
           job_id?: string | null
           notes?: string | null
+          rejection_note?: string | null
           start_time?: string | null
           status?: string | null
           team_member_id?: string | null
@@ -1188,6 +1190,7 @@ export type Database = {
           id?: string
           job_id?: string | null
           notes?: string | null
+          rejection_note?: string | null
           start_time?: string | null
           status?: string | null
           team_member_id?: string | null
