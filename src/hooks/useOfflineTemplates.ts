@@ -521,9 +521,9 @@ export function useOfflineTemplates() {
         setSyncProgress(prev => ({ ...prev, status: 'fetching_cost_items', costItemsFetched: 0 }));
 
         // Fetch and insert cost items with pagination (handle >1000 items)
-        // Using larger batch size (5000) for fewer network round trips on large datasets
+        // Using 1000 batch size to stay within Supabase default max_rows limit
         let costItemsOffset = 0;
-        const costItemsLimit = 5000;
+        const costItemsLimit = 1000;
         let hasMoreCostItems = true;
         let totalCostItemsFetched = 0;
         
@@ -629,15 +629,15 @@ export function useOfflineTemplates() {
 
           for (const s of sections || []) {
             db.run(`
-              INSERT INTO sections (id, template_id, sect, description, full_section)
-              VALUES (?, ?, ?, ?, ?)
-            `, [generateId(), localId, s.sect, s.description, s.full_section]);
+              INSERT INTO sections (id, template_id, sect, description, full_section, cost_sheet)
+              VALUES (?, ?, ?, ?, ?, ?)
+            `, [generateId(), localId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]);
           }
 
           // Fetch and insert cost items with pagination (handle >1000 items)
-          // Using larger batch size (5000) for fewer network round trips on large datasets
+          // Using 1000 batch size to stay within Supabase default max_rows limit
           let costItemsOffset = 0;
-          const costItemsLimit = 5000;
+          const costItemsLimit = 1000;
           let hasMoreCostItems = true;
           
           while (hasMoreCostItems) {
@@ -654,9 +654,9 @@ export function useOfflineTemplates() {
 
             for (const c of costItems || []) {
               db.run(`
-                INSERT INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-              `, [generateId(), localId, c.ndc, c.material_description, c.unit_price, c.source, c.material]);
+                INSERT INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              `, [generateId(), localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null]);
             }
 
             hasMoreCostItems = (costItems?.length || 0) === costItemsLimit;
@@ -1043,6 +1043,64 @@ export function useOfflineTemplates() {
     }
   }, [db, user, saveDatabase]);
 
+  // Offline section management: Add a new section locally
+  const addSection = useCallback(async (
+    templateId: string,
+    sect: string,
+    description: string | null,
+    fullSection: string | null,
+    costSheet: string | null
+  ): Promise<{ success: boolean; error?: string; id?: string }> => {
+    if (!db) return { success: false, error: 'Database not initialized' };
+    try {
+      const id = generateId();
+      db.run(`
+        INSERT INTO sections (id, template_id, sect, description, full_section, cost_sheet)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [id, templateId, sect, description, fullSection, costSheet]);
+      await saveDatabase();
+      return { success: true, id };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }, [db, saveDatabase]);
+
+  // Offline section management: Update an existing section
+  const updateSection = useCallback(async (
+    sectionId: string,
+    updates: { description?: string; full_section?: string; cost_sheet?: string | null }
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!db) return { success: false, error: 'Database not initialized' };
+    try {
+      const setClauses: string[] = [];
+      const params: any[] = [];
+      if (updates.description !== undefined) { setClauses.push('description = ?'); params.push(updates.description); }
+      if (updates.full_section !== undefined) { setClauses.push('full_section = ?'); params.push(updates.full_section); }
+      if (updates.cost_sheet !== undefined) { setClauses.push('cost_sheet = ?'); params.push(updates.cost_sheet); }
+      if (setClauses.length === 0) return { success: true };
+      params.push(sectionId);
+      db.run(`UPDATE sections SET ${setClauses.join(', ')} WHERE id = ?`, params);
+      await saveDatabase();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }, [db, saveDatabase]);
+
+  // Offline section management: Delete a section
+  const deleteSection = useCallback(async (
+    sectionId: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!db) return { success: false, error: 'Database not initialized' };
+    try {
+      db.run(`DELETE FROM sections WHERE id = ?`, [sectionId]);
+      await saveDatabase();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }, [db, saveDatabase]);
+
   return {
     templates: db ? getTemplates() : [],
     isLoading,
@@ -1061,6 +1119,11 @@ export function useOfflineTemplates() {
     getSections,
     getCostItemByNDC,
     getAllCostItems,
+    
+    // Offline section management
+    addSection,
+    updateSection,
+    deleteSection,
     
     // Sync operations
     syncWithCloud,

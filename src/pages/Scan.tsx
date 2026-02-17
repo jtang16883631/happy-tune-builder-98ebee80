@@ -195,6 +195,9 @@ const Scan = () => {
     getCostItemByNDC: offlineGetCostItemByNDC,
     getSections: offlineGetSections,
     updateTemplateStatus: offlineUpdateTemplateStatus,
+    addSection: offlineAddSection,
+    updateSection: offlineUpdateSection,
+    deleteSection: offlineDeleteSection,
   } = useOfflineTemplates();
   
   const { lookupNDC: fdaLookup, checkIsInnerPack, findOuterCandidates, getDrugByOuterNDC } = useLocalFDA();
@@ -544,38 +547,41 @@ const Scan = () => {
   // Fallback to template_sections for any additional sheets assigned there.
   const loadAvailableCostSheets = useCallback(async (templateId: string) => {
     try {
-      // Get unique sheet names from cost items - use RPC or manual approach
-      // Since Supabase doesn't support DISTINCT directly, we'll fetch a limited set and dedupe
-      // Query up to 2000 rows (should capture all unique sheet names)
-      const { data: costData, error: costError } = await supabase
-        .from('template_cost_items')
-        .select('sheet_name')
-        .eq('template_id', templateId)
-        .not('sheet_name', 'is', null)
-        .limit(2000);
+      if (isOnline) {
+        // Online: query Supabase
+        const { data: costData, error: costError } = await supabase
+          .from('template_cost_items')
+          .select('sheet_name')
+          .eq('template_id', templateId)
+          .not('sheet_name', 'is', null)
+          .limit(2000);
 
-      if (costError) throw costError;
+        if (costError) throw costError;
 
-      // Also get any assigned sheets from sections (in case they differ)
-      const { data: sectionData, error: sectionError } = await supabase
-        .from('template_sections')
-        .select('cost_sheet')
-        .eq('template_id', templateId)
-        .not('cost_sheet', 'is', null);
+        const { data: sectionData, error: sectionError } = await supabase
+          .from('template_sections')
+          .select('cost_sheet')
+          .eq('template_id', templateId)
+          .not('cost_sheet', 'is', null);
 
-      if (sectionError) console.error('Error loading section sheets:', sectionError);
+        if (sectionError) console.error('Error loading section sheets:', sectionError);
 
-      // Combine and dedupe
-      const costSheets = (costData || []).map((d: any) => d.sheet_name).filter(Boolean);
-      const sectionSheets = (sectionData || []).map((d: any) => d.cost_sheet).filter(Boolean);
-      const uniqueSheets = [...new Set([...costSheets, ...sectionSheets])] as string[];
-      
-      setAvailableCostSheets(uniqueSheets);
+        const costSheets = (costData || []).map((d: any) => d.sheet_name).filter(Boolean);
+        const sectionSheets = (sectionData || []).map((d: any) => d.cost_sheet).filter(Boolean);
+        const uniqueSheets = [...new Set([...costSheets, ...sectionSheets])] as string[];
+        setAvailableCostSheets(uniqueSheets);
+      } else {
+        // Offline: get unique sheet names from local sections
+        const sectionData = await offlineGetSections(templateId);
+        const sectionSheets = sectionData.map(s => s.cost_sheet).filter(Boolean) as string[];
+        const uniqueSheets = [...new Set(sectionSheets)];
+        setAvailableCostSheets(uniqueSheets);
+      }
     } catch (err) {
       console.error('Error loading cost sheets:', err);
       setAvailableCostSheets([]);
     }
-  }, []);
+  }, [isOnline, offlineGetSections]);
 
   // Handle resume last scan
   const handleResumeLastScan = useCallback(async () => {
@@ -651,17 +657,27 @@ const Scan = () => {
       const paddedCode = newSectionCode.replace(/\D/g, '').padStart(4, '0') || newSectionCode;
       const fullSection = `${paddedCode}-${newSectionDesc.trim()}`;
       
-      const { error } = await supabase
-        .from('template_sections')
-        .insert({
-          template_id: selectedTemplate.id,
-          sect: paddedCode,
-          description: newSectionDesc.trim(),
-          full_section: fullSection,
-          cost_sheet: newSectionCostSheet,
-        });
-
-      if (error) throw error;
+      if (isOnline) {
+        const { error } = await supabase
+          .from('template_sections')
+          .insert({
+            template_id: selectedTemplate.id,
+            sect: paddedCode,
+            description: newSectionDesc.trim(),
+            full_section: fullSection,
+            cost_sheet: newSectionCostSheet,
+          });
+        if (error) throw error;
+      } else {
+        const result = await offlineAddSection(
+          selectedTemplate.id,
+          paddedCode,
+          newSectionDesc.trim(),
+          fullSection,
+          newSectionCostSheet
+        );
+        if (!result.success) throw new Error(result.error);
+      }
 
       toast.success('Section added successfully');
       setAddSectionDialogOpen(false);
@@ -688,16 +704,24 @@ const Scan = () => {
       const oldFullSection = section.full_section;
       const newFullSection = `${section.sect}-${editingSectionDesc.trim()}`;
       
-      const { error } = await supabase
-        .from('template_sections')
-        .update({
+      if (isOnline) {
+        const { error } = await supabase
+          .from('template_sections')
+          .update({
+            description: editingSectionDesc.trim(),
+            full_section: newFullSection,
+            cost_sheet: editingSectionCostSheet,
+          })
+          .eq('id', editingSectionId);
+        if (error) throw error;
+      } else {
+        const result = await offlineUpdateSection(editingSectionId, {
           description: editingSectionDesc.trim(),
           full_section: newFullSection,
           cost_sheet: editingSectionCostSheet,
-        })
-        .eq('id', editingSectionId);
-
-      if (error) throw error;
+        });
+        if (!result.success) throw new Error(result.error);
+      }
 
       // Update LOC in current scan records if they match the old section name
       setScanRows(prev => prev.map(row => {
@@ -767,18 +791,26 @@ const Scan = () => {
   const handleDeleteSection = async () => {
     if (!deletingSectionId || !selectedTemplate) return;
     try {
-      // Delete scan records for this section first
-      await supabase
-        .from('scan_records')
-        .delete()
-        .eq('section_id', deletingSectionId);
+      if (isOnline) {
+        // Delete scan records for this section first
+        await supabase
+          .from('scan_records')
+          .delete()
+          .eq('section_id', deletingSectionId);
 
-      const { error } = await supabase
-        .from('template_sections')
-        .delete()
-        .eq('id', deletingSectionId);
+        const { error } = await supabase
+          .from('template_sections')
+          .delete()
+          .eq('id', deletingSectionId);
 
-      if (error) throw error;
+        if (error) throw error;
+      } else {
+        const result = await offlineDeleteSection(deletingSectionId);
+        if (!result.success) throw new Error(result.error);
+      }
+
+      // Also clear localStorage scan records for this section
+      localStorage.removeItem(`scan_records_${selectedTemplate.id}_${deletingSectionId}`);
 
       toast.success('Section deleted successfully');
       setDeleteSectionDialogOpen(false);
