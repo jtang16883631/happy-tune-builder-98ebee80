@@ -518,6 +518,37 @@ export function useCloudTemplates() {
     [user, fetchTemplates]
   );
 
+  // Delete related rows in batches to avoid statement timeout
+  const deleteBatched = useCallback(
+    async (table: 'scan_records' | 'template_cost_items' | 'template_sections', templateId: string) => {
+      // Delete in a loop fetching IDs first to avoid long-running statements
+      let hasMore = true;
+      while (hasMore) {
+        const { data: rows, error: fetchErr } = await supabase
+          .from(table)
+          .select('id')
+          .eq('template_id', templateId)
+          .limit(500);
+
+        if (fetchErr) throw fetchErr;
+        if (!rows || rows.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        const ids = rows.map((r) => r.id);
+        const { error: delErr } = await supabase
+          .from(table)
+          .delete()
+          .in('id', ids);
+
+        if (delErr) throw delErr;
+        if (rows.length < 500) hasMore = false;
+      }
+    },
+    []
+  );
+
   // Delete a template
   const deleteTemplate = useCallback(
     async (templateId: string): Promise<{ success: boolean; error?: string }> => {
@@ -532,6 +563,11 @@ export function useCloudTemplates() {
         if (!existing) {
           return { success: false, error: 'Template not found' };
         }
+
+        // Delete related data in batches to avoid statement timeout
+        await deleteBatched('scan_records', templateId);
+        await deleteBatched('template_cost_items', templateId);
+        await deleteBatched('template_sections', templateId);
 
         const { error: deleteError } = await supabase
           .from('data_templates')
@@ -557,7 +593,7 @@ export function useCloudTemplates() {
         return { success: false, error: err.message };
       }
     },
-    [fetchTemplates]
+    [fetchTemplates, deleteBatched]
   );
 
   // Get sections for a template
