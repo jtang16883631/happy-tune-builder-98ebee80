@@ -50,7 +50,7 @@ export function AnnouncementBell() {
       // Fetch active announcements
       const { data: announcementsData, error: annError } = await supabase
         .from('announcements')
-        .select('*, profiles:created_by(full_name)')
+        .select('*')
         .eq('is_active', true)
         .order('created_at', { ascending: false })
         .limit(20);
@@ -65,11 +65,24 @@ export function AnnouncementBell() {
 
       if (readsError) throw readsError;
 
+      // Fetch profile names for creators
+      const creatorIds = [...new Set((announcementsData || []).map(a => a.created_by).filter(Boolean))] as string[];
+      let profileMap: Record<string, string> = {};
+      if (creatorIds.length > 0) {
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', creatorIds);
+        if (profilesData) {
+          profilesData.forEach(p => { if (p.full_name) profileMap[p.id] = p.full_name; });
+        }
+      }
+
       const readIds = new Set((readsData || []).map((r) => r.announcement_id));
 
-      const announcementsWithReadStatus = (announcementsData || []).map((a: any) => ({
+      const announcementsWithReadStatus = (announcementsData || []).map((a) => ({
         ...a,
-        creator_name: a.profiles?.full_name || null,
+        creator_name: a.created_by ? profileMap[a.created_by] || null : null,
         is_read: readIds.has(a.id),
       }));
 
