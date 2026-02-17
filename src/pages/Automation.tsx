@@ -1073,9 +1073,9 @@ const Automation = () => {
               </DropdownMenu>
             </div>
 
-            {/* Excel-style Formula Bar */}
+             {/* Excel-style Formula Bar */}
             {selectedSection && (
-              <div className="flex items-center border rounded-md mb-2 bg-card overflow-hidden">
+              <div className="flex items-center border rounded-md mb-2 bg-card overflow-hidden sticky top-0 z-30">
                 <div className="flex items-center gap-1.5 px-3 py-1.5 bg-muted/50 border-r min-w-[100px] shrink-0">
                   <span className="text-xs font-mono font-semibold text-muted-foreground">
                     {activeColKey && activeRowIndex >= 0
