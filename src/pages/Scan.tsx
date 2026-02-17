@@ -1229,10 +1229,39 @@ const Scan = () => {
   }, []);
 
   // Handle field change - recalculate Extended when QTY or Unit Cost changes
+  // When scannedNdc is changed, clear all previous lookup data so stale info doesn't persist
   const handleFieldChange = (field: keyof ScanRow, value: string | number | null, rowIndex: number) => {
     setScanRows(prev => {
       const updated = [...prev];
-      const row = { ...updated[rowIndex], [field]: value };
+      let row = { ...updated[rowIndex], [field]: value };
+      
+      // If scannedNdc is being changed, clear all NDC-derived metadata
+      if (field === 'scannedNdc') {
+        row = {
+          ...row,
+          ndc: '',
+          misCountMethod: '',
+          itemNumber: '',
+          medDesc: '',
+          meridianDesc: '',
+          trade: '',
+          generic: '',
+          strength: '',
+          packSz: '',
+          fdaSize: '',
+          sizeTxt: '',
+          doseForm: '',
+          manufacturer: '',
+          genericCode: '',
+          deaClass: '',
+          ahfs: '',
+          source: '',
+          packCost: null,
+          unitCost: null,
+          extended: null,
+          misDivisor: null,
+        };
+      }
       
       // Recalculate Unit Cost when Pack Cost or MIS Divisor changes
       if (field === 'packCost' || field === 'misDivisor') {
