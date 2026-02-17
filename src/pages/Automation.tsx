@@ -159,6 +159,8 @@ const Automation = () => {
   
   // QTY expressions for calculator
   const [qtyExpressions, setQtyExpressions] = useState<Record<string, string>>({});
+  // Persistent storage for QTY formulas (shown on focus, like Excel formula bar)
+  const [qtyFormulas, setQtyFormulas] = useState<Record<string, string>>({});
   
   // Cell refs for navigation
   const cellInputRefs = useRef<Map<string, HTMLInputElement | null>>(new Map());
@@ -521,6 +523,17 @@ const Automation = () => {
       const result = evaluateQtyExpression(expression);
       if (result !== null) {
         handleFieldChange('qty', result, rowIndex);
+        // Store formula if it contains operators
+        const sanitized = expression.trim();
+        if (/[+\-*/]/.test(sanitized.replace(/^-/, '')) && sanitized !== result.toString()) {
+          setQtyFormulas(prev => ({ ...prev, [row.id]: sanitized }));
+        } else {
+          setQtyFormulas(prev => {
+            const next = { ...prev };
+            delete next[row.id];
+            return next;
+          });
+        }
       }
       setQtyExpressions(prev => {
         const next = { ...prev };
@@ -1131,7 +1144,7 @@ const Automation = () => {
                                   onMouseDown={(e) => handleCellMouseDown(e, realIndex, col.key)}
                                   onMouseEnter={() => handleCellMouseEnter(realIndex, col.key)}
                                 >
-                                  <div className="relative">
+                                  <div className="relative group">
                                     <Input
                                       ref={(el) => { if (el) cellInputRefs.current.set(`${realIndex}-${col.key}`, el); }}
                                       value={getQtyDisplayValue(row, realIndex)}
@@ -1144,14 +1157,24 @@ const Automation = () => {
                                       onFocus={() => {
                                         setActiveRowIndex(realIndex);
                                         setActiveColKey(col.key);
-                                        if (qtyExpressions[row.id] === undefined && row.qty !== null) {
-                                          setQtyExpressions(prev => ({ ...prev, [row.id]: row.qty!.toString() }));
+                                        if (qtyExpressions[row.id] === undefined) {
+                                          const storedFormula = qtyFormulas[row.id];
+                                          if (storedFormula) {
+                                            setQtyExpressions(prev => ({ ...prev, [row.id]: storedFormula }));
+                                          } else if (row.qty !== null) {
+                                            setQtyExpressions(prev => ({ ...prev, [row.id]: row.qty!.toString() }));
+                                          }
                                         }
                                       }}
                                       placeholder="e.g. 5+3"
                                       className={`font-mono h-8 text-xs border-0 focus-visible:ring-1 min-w-0 rounded-none pr-6 ${inputBgStyle} ${selectionStyle}`}
                                     />
                                     <Calculator className="absolute right-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
+                                    {qtyFormulas[row.id] && !qtyExpressions[row.id] && (
+                                      <div className="absolute left-0 -top-6 z-50 bg-popover text-popover-foreground border rounded px-1.5 py-0.5 text-[10px] font-mono shadow-md opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                                        ={qtyFormulas[row.id]} → {row.qty}
+                                      </div>
+                                    )}
                                   </div>
                                 </TableCell>
                               );
