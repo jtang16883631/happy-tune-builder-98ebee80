@@ -3020,6 +3020,68 @@ const Scan = () => {
               </DropdownMenu>
             </div>
 
+            {/* Excel-style Formula Bar */}
+            {selectedSection && (
+              <div className="flex items-center border rounded-md mb-2 bg-card overflow-hidden">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-muted/50 border-r min-w-[100px] shrink-0">
+                  <span className="text-xs font-mono font-semibold text-muted-foreground">
+                    {activeColKey && activeRowIndex >= 0
+                      ? `${(columns.find(c => c.key === activeColKey)?.label || activeColKey).toUpperCase()}${activeRowIndex + 1}`
+                      : '—'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 px-1 border-r">
+                  <span className="text-xs font-mono text-muted-foreground italic px-1">fx</span>
+                </div>
+                <input
+                  className="flex-1 px-3 py-1.5 text-sm font-mono bg-transparent outline-none min-w-0"
+                  value={(() => {
+                    if (activeRowIndex < 0 || !activeColKey || activeRowIndex >= scanRows.length) return '';
+                    const row = scanRows[activeRowIndex];
+                    // For qty, show formula if available
+                    if (activeColKey === 'qty') {
+                      const expr = qtyExpressions[row.id];
+                      if (expr !== undefined) return expr;
+                      const formula = qtyFormulas[row.id];
+                      if (formula) return formula;
+                      return row.qty !== null && row.qty !== undefined ? row.qty.toString() : '';
+                    }
+                    const val = (row as any)[activeColKey];
+                    return val !== null && val !== undefined ? val.toString() : '';
+                  })()}
+                  onChange={(e) => {
+                    if (activeRowIndex < 0 || !activeColKey || activeRowIndex >= scanRows.length) return;
+                    if (activeColKey === 'qty') {
+                      handleQtyInputChange(e.target.value, activeRowIndex);
+                    } else {
+                      const col = columns.find(c => c.key === activeColKey);
+                      if (col?.editable) {
+                        const val = col.type === 'number' || col.type === 'currency'
+                          ? (e.target.value === '' ? null : Number(e.target.value))
+                          : e.target.value;
+                        handleFieldChange(activeColKey as keyof ScanRow, val, activeRowIndex);
+                      }
+                    }
+                  }}
+                  onBlur={() => {
+                    if (activeColKey === 'qty' && activeRowIndex >= 0) {
+                      handleQtyBlur(activeRowIndex);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      if (activeColKey === 'qty' && activeRowIndex >= 0) {
+                        handleQtyBlur(activeRowIndex);
+                      }
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  placeholder="Select a cell to view its content"
+                  readOnly={!activeColKey || !columns.find(c => c.key === activeColKey)?.editable}
+                />
+              </div>
+            )}
+
             {/* Excel-like Table with horizontal scroll */}
             <ScrollArea className="w-full whitespace-nowrap rounded-lg border relative">
               {/* Overlay when no section selected */}
