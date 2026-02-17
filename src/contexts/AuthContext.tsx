@@ -186,6 +186,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(existingSession?.user ?? null);
 
         if (existingSession?.user) {
+          // Cache user ID for offline flash drive import
+          localStorage.setItem('cached_user_id', existingSession.user.id);
           // If offline, use cached roles and skip network calls.
           if (!navigator.onLine) {
             const cached = readCachedRoles(existingSession.user.id);

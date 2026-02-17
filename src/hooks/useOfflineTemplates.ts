@@ -138,7 +138,7 @@ export function useOfflineTemplates() {
         setIsLoading(true);
         
         const SQL = await initSqlJs({
-          locateFile: (file: string) => `https://sql.js.org/dist/${file}`,
+          locateFile: (file: string) => `${import.meta.env.BASE_URL}${file}`,
         });
         sqlRef.current = SQL;
 
@@ -942,7 +942,10 @@ export function useOfflineTemplates() {
     selectedIds: string[],
     onProgress?: (progress: number) => void
   ): Promise<{ success: boolean; error?: string; imported: number }> => {
-    if (!sqlRef.current || !db || !user) return { success: false, error: 'Database not initialized', imported: 0 };
+    if (!sqlRef.current || !db) return { success: false, error: 'Database not initialized', imported: 0 };
+    
+    // Use cached user ID for offline mode fallback
+    const userId = user?.id || localStorage.getItem('cached_user_id') || 'offline_user';
 
     try {
       const arrayBuffer = await file.arrayBuffer();
@@ -953,7 +956,7 @@ export function useOfflineTemplates() {
       const total = selectedIds.length;
       
       for (let i = 0; i < selectedIds.length; i++) {
-        const sourceId = parseInt(selectedIds[i], 10);
+        const sourceId = selectedIds[i];
         onProgress?.(Math.round(((i + 0.5) / total) * 100));
         
         // Get template from source
@@ -986,7 +989,7 @@ export function useOfflineTemplates() {
         `, [
           newLocalId, 
           cloudId, 
-          user.id, 
+          userId, 
           templateName, 
           tRow[2], 
           tRow[3], 

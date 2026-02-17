@@ -108,7 +108,7 @@ export function useLocalFDA() {
         
         // Initialize sql.js with WASM
         const SQL = await initSqlJs({
-          locateFile: (file: string) => `https://sql.js.org/dist/${file}`,
+          locateFile: (file: string) => `${import.meta.env.BASE_URL}${file}`,
         });
         sqlRef.current = SQL;
 
