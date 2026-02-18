@@ -41,8 +41,13 @@ import {
 } from '@/hooks/useScheduleEvents';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
+
 
 export default function ScheduleHub() {
+  const { roles } = useAuth();
+  const isAuditor = roles.includes('auditor') && !roles.includes('owner') && !roles.includes('developer') && !roles.includes('coordinator') && !roles.includes('office_admin');
+
   const [searchParams, setSearchParams] = useSearchParams();
   const [viewTab, setViewTab] = useState<'agenda' | 'calendar' | 'type'>('agenda');
   const [builderOpen, setBuilderOpen] = useState(false);
@@ -74,17 +79,20 @@ export default function ScheduleHub() {
   }, [searchParams, allEvents, setSearchParams]);
 
   const handleEditEvent = (event: ScheduleEvent) => {
+    if (isAuditor) return; // view-only for auditors
     setEditingEvent(event);
     setBuilderOpen(true);
   };
 
   const handleDeleteEvent = (id: string) => {
+    if (isAuditor) return; // view-only for auditors
     if (confirm('Delete this event?')) {
       deleteMutation.mutate(id);
     }
   };
 
   const handleSelectDate = (date: Date) => {
+    if (isAuditor) return; // view-only for auditors
     setEditingEvent(null);
     setBuilderOpen(true);
   };
@@ -203,31 +211,35 @@ export default function ScheduleHub() {
               <Search className="h-4 w-4" />
             </Button>
             
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-background">
-                <DropdownMenuItem onClick={() => setBulkImportOpen(true)}>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Import from Google Doc
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setTeamDialogOpen(true)}>
-                  <Users className="h-4 w-4 mr-2" />
-                  Manage Team
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExport(true)}>
-                  <Copy className="h-4 w-4 mr-2" />
-                  Copy to Clipboard
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExport(false)}>
-                  <FileText className="h-4 w-4 mr-2" />
-                  Export to Google Docs
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="bg-background">
+                  {!isAuditor && (
+                    <DropdownMenuItem onClick={() => setBulkImportOpen(true)}>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Import from Google Doc
+                    </DropdownMenuItem>
+                  )}
+                  {!isAuditor && (
+                    <DropdownMenuItem onClick={() => setTeamDialogOpen(true)}>
+                      <Users className="h-4 w-4 mr-2" />
+                      Manage Team
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onClick={() => handleExport(true)}>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy to Clipboard
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleExport(false)}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    Export to Google Docs
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
           </div>
         </div>
 
@@ -271,14 +283,18 @@ export default function ScheduleHub() {
 
           {/* New Schedule Event button and Date Navigation */}
           <div className="flex items-center justify-between py-4 border-b">
-            <Button 
-              size="sm" 
-              onClick={() => { setEditingEvent(null); setBuilderOpen(true); }}
-              className="gap-1.5 text-xs h-8"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              New Schedule Event
-            </Button>
+            {!isAuditor ? (
+              <Button 
+                size="sm" 
+                onClick={() => { setEditingEvent(null); setBuilderOpen(true); }}
+                className="gap-1.5 text-xs h-8"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                New Schedule Event
+              </Button>
+            ) : (
+              <div />
+            )}
             
             {viewTab === 'agenda' && (
               <div className="flex items-center gap-2">
@@ -332,27 +348,32 @@ export default function ScheduleHub() {
         </Tabs>
       </div>
 
-      <ScheduleBuilder
-        event={editingEvent}
-        open={builderOpen}
-        onOpenChange={(open) => {
-          setBuilderOpen(open);
-          if (!open) {
-            // Clear editing event when dialog closes to prevent stale state
-            setEditingEvent(null);
-          }
-        }}
-        teamMembers={teamMembers}
-        defaultDate={weekStart}
-      />
+      {!isAuditor && (
+        <ScheduleBuilder
+          event={editingEvent}
+          open={builderOpen}
+          onOpenChange={(open) => {
+            setBuilderOpen(open);
+            if (!open) {
+              setEditingEvent(null);
+            }
+          }}
+          teamMembers={teamMembers}
+          defaultDate={weekStart}
+        />
+      )}
 
-      <TeamMemberDialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen} />
+      {!isAuditor && (
+        <TeamMemberDialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen} />
+      )}
       
-      <BulkImportDialog 
-        open={bulkImportOpen} 
-        onOpenChange={setBulkImportOpen} 
-        teamMembers={teamMembers}
-      />
+      {!isAuditor && (
+        <BulkImportDialog 
+          open={bulkImportOpen} 
+          onOpenChange={setBulkImportOpen} 
+          teamMembers={teamMembers}
+        />
+      )}
     </AppLayout>
   );
 }
