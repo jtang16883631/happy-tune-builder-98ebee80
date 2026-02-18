@@ -67,7 +67,7 @@ const navSections: NavSection[] = [
     items: [
       { href: '/onedrive', label: 'OneDrive Files', icon: HardDrive, roles: standardRoles },
       { href: '#', label: 'Reports', icon: FileText, roles: standardRoles, disabled: true },
-      { href: '/fda', label: 'Master Data', icon: Database, roles: standardRoles },
+      { href: '/fda', label: 'Master Data', icon: Database, roles: allRoles },
       { href: '/compile', label: 'Compile', icon: FileStack, roles: standardRoles },
       { href: '/update-log', label: 'Update Log', icon: History, roles: allRoles },
       { href: '/suggestion', label: 'Suggestion', icon: Lightbulb, roles: allRoles },
