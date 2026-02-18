@@ -201,7 +201,7 @@ function AppRoutes() {
         <Route
           path="/"
           element={
-            <ProtectedRoute redirectAuditors>
+            <ProtectedRoute>
               <Dashboard />
             </ProtectedRoute>
           }
@@ -225,7 +225,7 @@ function AppRoutes() {
         <Route
           path="/scan"
           element={
-            <ProtectedRoute allowOffline redirectAuditors>
+            <ProtectedRoute allowOffline>
               <Scan />
             </ProtectedRoute>
           }
@@ -257,7 +257,7 @@ function AppRoutes() {
         <Route
           path="/update-log"
           element={
-            <ProtectedRoute redirectAuditors>
+            <ProtectedRoute>
               <UpdateLog />
             </ProtectedRoute>
           }
@@ -265,7 +265,7 @@ function AppRoutes() {
         <Route
           path="/suggestion"
           element={
-            <ProtectedRoute redirectAuditors>
+            <ProtectedRoute>
               <Suggestion />
             </ProtectedRoute>
           }
@@ -273,7 +273,7 @@ function AppRoutes() {
         <Route
           path="/schedule"
           element={
-            <ProtectedRoute redirectAuditors>
+            <ProtectedRoute>
               <ScheduleHub />
             </ProtectedRoute>
           }
@@ -329,7 +329,7 @@ function AppRoutes() {
         <Route
           path="/chat"
           element={
-            <ProtectedRoute redirectAuditors>
+            <ProtectedRoute>
               <Chat />
             </ProtectedRoute>
           }

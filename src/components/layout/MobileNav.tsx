@@ -31,7 +31,7 @@ interface NavItem {
 const primaryNavItems: NavItem[] = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard, roles: ['auditor', 'developer', 'coordinator', 'owner', 'office_admin'] },
   { href: '/scan', label: 'Projects', icon: ClipboardList, roles: ['auditor', 'developer', 'coordinator', 'owner', 'office_admin'] },
-  { href: '/live-tracker', label: 'Tracker', icon: Radio, roles: ['auditor', 'developer', 'coordinator', 'owner', 'office_admin'] },
+  { href: '/live-tracker', label: 'Tracker', icon: Radio, roles: ['developer', 'coordinator', 'owner', 'office_admin'] },
   { href: '/schedule', label: 'Schedule', icon: CalendarDays, roles: ['auditor', 'developer', 'coordinator', 'owner', 'office_admin'] },
 ];
 
