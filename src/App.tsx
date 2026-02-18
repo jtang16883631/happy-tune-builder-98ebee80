@@ -241,7 +241,7 @@ function AppRoutes() {
         <Route
           path="/fda"
           element={
-            <ProtectedRoute allowOffline redirectAuditors>
+            <ProtectedRoute allowOffline>
               <FDA />
             </ProtectedRoute>
           }
