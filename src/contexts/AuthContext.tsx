@@ -282,6 +282,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           }, 0);
         } else {
+          // If we're offline and have a cached session, do NOT clear the user.
+          // The SIGNED_OUT event can fire when token refresh fails due to network loss.
+          // We preserve the cached state so the user isn't kicked to /auth when offline.
+          if (!navigator.onLine) {
+            const cachedUserId = localStorage.getItem('cached_user_id');
+            if (cachedUserId) {
+              console.log('[Auth] Offline SIGNED_OUT ignored – restoring cached session');
+              const cached = readCachedRoles(cachedUserId);
+              setRoles(cached);
+              setRolesLoaded(true);
+              setIsLoading(false);
+              return;
+            }
+          }
           setRoles([]);
           setRolesLoaded(true);
           setIsLoading(false);
