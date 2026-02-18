@@ -13,12 +13,19 @@ export function OfflineRedirect() {
   useEffect(() => {
     // If offline and not on allowed route, redirect to /scan.
     if (!isOnline && !OFFLINE_ROUTES.includes(location.pathname)) {
-      navigate('/scan', { replace: true });
+      // Only redirect if we have a cached session (user was logged in before)
+      const hasCachedSession = !!localStorage.getItem('cached_user_id');
+      if (hasCachedSession) {
+        navigate('/scan', { replace: true });
+      } else {
+        navigate('/auth', { replace: true });
+      }
     }
   }, [isOnline, navigate, location.pathname]);
 
   return null;
 }
+
 
 // Helper hook to check online status
 export function useOnlineStatus() {

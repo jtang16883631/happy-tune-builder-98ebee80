@@ -168,6 +168,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const initSession = async () => {
       try {
+        // If we're offline, immediately restore from localStorage cache
+        // so we don't hang for 5 seconds waiting for a network call
+        if (!navigator.onLine) {
+          const cachedUserId = localStorage.getItem('cached_user_id');
+          if (cachedUserId && isMounted) {
+            const cached = readCachedRoles(cachedUserId);
+            setRoles(cached);
+            setRolesLoaded(true);
+            setIsLoading(false);
+            // Try to restore session object from Supabase local store (no network)
+            try {
+              const { data: { session: localSession } } = await supabase.auth.getSession();
+              if (localSession?.user && isMounted) {
+                setSession(localSession);
+                setUser(localSession.user);
+              }
+            } catch {
+              // ignore — we'll stay with null user but roles are set
+            }
+          } else if (isMounted) {
+            setRolesLoaded(true);
+            setIsLoading(false);
+          }
+          return;
+        }
+
         // Add timeout to prevent hanging when network is slow/unavailable
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Auth timeout')), 5000)
@@ -188,15 +214,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (existingSession?.user) {
           // Cache user ID for offline flash drive import
           localStorage.setItem('cached_user_id', existingSession.user.id);
-          // If offline, use cached roles and skip network calls.
-          if (!navigator.onLine) {
-            const cached = readCachedRoles(existingSession.user.id);
-            if (isMounted) {
-              setRoles(cached);
-              setRolesLoaded(true);
-            }
-            return;
-          }
 
           await ensureProfileExists(existingSession.user);
           const userRoles = await fetchUserRoles(existingSession.user.id);
@@ -211,7 +228,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } catch (err) {
         console.error('Error initializing session:', err);
-        // On error (including timeout), just finish loading so app is usable
+        // On timeout/error, try to restore from cache so app is usable offline
+        const cachedUserId = localStorage.getItem('cached_user_id');
+        if (cachedUserId && isMounted) {
+          const cached = readCachedRoles(cachedUserId);
+          setRoles(cached);
+          setRolesLoaded(true);
+        } else if (isMounted) {
+          setRolesLoaded(true);
+        }
       } finally {
         if (isMounted) {
           setIsLoading(false);

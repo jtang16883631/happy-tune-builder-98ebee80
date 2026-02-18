@@ -123,17 +123,20 @@ function ProtectedRoute({
   requiredRoles?: string[];
   redirectAuditors?: boolean;
 }) {
-  const { user, isLoading, roles, rolesLoaded, isOwner } = useAuth();
+  const { user, isLoading, roles, rolesLoaded } = useAuth();
   const isOnline = useOnlineStatus();
 
-  // If offline and this route allows offline access, skip auth check
+  // Check if we have a cached user ID (set during last successful login)
+  const hasCachedSession = !!localStorage.getItem('cached_user_id');
+
+  // If offline and this route allows offline access, always let through
   if (!isOnline && allowOffline) {
     return <>{children}</>;
   }
 
+  // While auth is loading: if offline with cached session, don't block (show page immediately)
   if (isLoading || !rolesLoaded) {
-    // If offline while loading, just render the page (don't block)
-    if (!isOnline && allowOffline) {
+    if (!isOnline && hasCachedSession) {
       return <>{children}</>;
     }
     return (
@@ -144,7 +147,11 @@ function ProtectedRoute({
   }
 
   if (!user) {
-    // If offline, redirect to scan instead of auth
+    // If offline and we have a cached session, redirect to scan (offline mode)
+    if (!isOnline && hasCachedSession) {
+      return <Navigate to="/scan" replace />;
+    }
+    // If online but no session, also try to redirect to /scan if cached (race condition)
     if (!isOnline) {
       return <Navigate to="/scan" replace />;
     }
@@ -167,7 +174,6 @@ function ProtectedRoute({
   if (requiredRoles.length > 0) {
     const hasRequiredRole = requiredRoles.some(role => roles.includes(role as any));
     if (!hasRequiredRole) {
-      // Redirect auditors to timesheet, others to dashboard
       if (isAuditorOnly) {
         return <Navigate to="/timesheet" replace />;
       }
