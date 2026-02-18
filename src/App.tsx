@@ -217,7 +217,7 @@ function AppRoutes() {
         <Route
           path="/users"
           element={
-            <ProtectedRoute redirectAuditors>
+            <ProtectedRoute requiredRoles={['owner', 'developer']}>
               <Users />
             </ProtectedRoute>
           }
