@@ -30,6 +30,7 @@ import {
   Calendar,
   RotateCcw,
   MessageSquare,
+  Mail,
 } from "lucide-react";
 import {
   startOfWeek,
@@ -87,6 +88,7 @@ export default function TimesheetSummary() {
   const [rejectionNote, setRejectionNote] = useState("");
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteValue, setEditingNoteValue] = useState("");
+  const [isSendingReminders, setIsSendingReminders] = useState(false);
   const queryClient = useQueryClient();
   const { isOwner } = useAuth();
 
@@ -280,6 +282,22 @@ export default function TimesheetSummary() {
     }
   };
 
+  const handleSendReminders = async () => {
+    setIsSendingReminders(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('timesheet-reminder');
+      if (error) throw error;
+      
+      const successCount = (data?.results || []).filter((r: any) => r.success).length;
+      toast.success(`Sent ${successCount} reminder emails`);
+    } catch (error) {
+      console.error('Error sending reminders:', error);
+      toast.error('Failed to send reminders');
+    } finally {
+      setIsSendingReminders(false);
+    }
+  };
+
   const daysOfWeek = eachDayOfInterval({ start: weekStart, end: weekEnd });
 
   return (
@@ -296,6 +314,15 @@ export default function TimesheetSummary() {
 
           {/* Week Navigation */}
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={handleSendReminders}
+              disabled={isSendingReminders}
+              className="mr-2"
+            >
+              <Mail className="h-4 w-4 mr-2" />
+              {isSendingReminders ? "Sending..." : "Send Reminders Now"}
+            </Button>
             <Button variant="outline" size="icon" onClick={handlePrevWeek}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
