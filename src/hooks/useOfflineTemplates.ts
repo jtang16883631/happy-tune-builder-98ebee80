@@ -866,28 +866,76 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
   }, [db]);
 
   // Export offline database to binary format for flash drive transfer
-  const exportToFlashDrive = useCallback((): { 
+  // If selectedIds is provided, only export those templates; otherwise export all.
+  const exportToFlashDrive = useCallback((selectedIds?: string[]): { 
     data: Uint8Array; 
     templates: OfflineTemplate[];
     sectionCount: number;
     costItemCount: number;
   } | null => {
-    if (!db) return null;
+    if (!db || !sqlRef.current) return null;
     
     try {
-      const templates = getTemplates();
-      
-      // Count sections and cost items
-      const sectionCountResult = db.exec('SELECT COUNT(*) FROM sections');
-      const sectionCount = sectionCountResult[0]?.values[0]?.[0] as number || 0;
-      
-      const costItemCountResult = db.exec('SELECT COUNT(*) FROM cost_items');
-      const costItemCount = costItemCountResult[0]?.values[0]?.[0] as number || 0;
-      
-      const dbData = db.export();
+      const allTemplates = getTemplates();
+      const templatesToExport = selectedIds && selectedIds.length > 0
+        ? allTemplates.filter(t => selectedIds.includes(t.id))
+        : allTemplates;
+
+      if (templatesToExport.length === 0) return null;
+
+      // Build a filtered in-memory SQLite DB with only the selected templates
+      const exportDb = new sqlRef.current.Database();
+      exportDb.run(`
+        CREATE TABLE templates (
+          id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT NOT NULL, name TEXT NOT NULL,
+          inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
+          job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
+        );
+        CREATE TABLE sections (
+          id TEXT PRIMARY KEY, template_id TEXT NOT NULL, sect TEXT NOT NULL,
+          description TEXT, full_section TEXT, cost_sheet TEXT
+        );
+        CREATE TABLE cost_items (
+          id TEXT PRIMARY KEY, template_id TEXT NOT NULL, ndc TEXT,
+          material_description TEXT, unit_price REAL, source TEXT, material TEXT, sheet_name TEXT
+        );
+      `);
+
+      let sectionCount = 0;
+      let costItemCount = 0;
+
+      for (const t of templatesToExport) {
+        exportDb.run(
+          `INSERT INTO templates VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [t.id, t.cloud_id, t.user_id, t.name, t.inv_date, t.facility_name,
+           t.inv_number, t.cost_file_name, t.job_ticket_file_name,
+           t.status, t.created_at, t.updated_at, 0]
+        );
+
+        const sectResult = db.exec(`SELECT id, template_id, sect, description, full_section, cost_sheet FROM sections WHERE template_id = ?`, [t.id]);
+        if (sectResult.length > 0) {
+          for (const row of sectResult[0].values) {
+            exportDb.run(`INSERT INTO sections VALUES (?,?,?,?,?,?)`, row as any[]);
+            sectionCount++;
+          }
+        }
+
+        const costResult = db.exec(`SELECT id, template_id, ndc, material_description, unit_price, source, material, sheet_name FROM cost_items WHERE template_id = ?`, [t.id]);
+        if (costResult.length > 0) {
+          for (const row of costResult[0].values) {
+            exportDb.run(`INSERT INTO cost_items VALUES (?,?,?,?,?,?,?,?)`, row as any[]);
+            costItemCount++;
+          }
+        }
+      }
+
+      const dbData = exportDb.export();
+      exportDb.close();
+
       return { 
         data: new Uint8Array(dbData), 
-        templates,
+        templates: templatesToExport,
         sectionCount,
         costItemCount,
       };
