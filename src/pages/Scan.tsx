@@ -1403,9 +1403,9 @@ const Scan = () => {
         setScanRows(prev => [...prev, createEmptyRow(selectedSection?.full_section || '')]);
       }
       
-      // Move to next row's NDC field
+      // Move to next row's Priced NDC/UPC field
       setTimeout(() => {
-        ndcInputRefs.current[rowIndex + 1]?.focus();
+        cellInputRefs.current.get(`${rowIndex + 1}-scannedNdc`)?.focus();
         setActiveRowIndex(rowIndex + 1);
       }, 100);
     }
@@ -2166,7 +2166,7 @@ const Scan = () => {
       }
       
       setTimeout(() => {
-        ndcInputRefs.current[rowIndex + 1]?.focus();
+        cellInputRefs.current.get(`${rowIndex + 1}-scannedNdc`)?.focus();
         setActiveRowIndex(rowIndex + 1);
       }, 100);
     }
