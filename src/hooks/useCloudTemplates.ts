@@ -250,7 +250,12 @@ export function useCloudTemplates() {
           .select()
           .single();
 
-        if (templateError) throw templateError;
+        if (templateError) {
+          if (templateError.code === '23505' || templateError.message?.includes('unique')) {
+            return { success: false, error: `A template named "${templateName}" already exists. Please use a different name.` };
+          }
+          throw templateError;
+        }
 
         const templateId = templateData.id;
 
@@ -412,7 +417,12 @@ export function useCloudTemplates() {
           .select()
           .single();
 
-        if (templateError) throw templateError;
+        if (templateError) {
+          if (templateError.code === '23505' || templateError.message?.includes('unique')) {
+            return { success: false, error: `A template named "${templateName}" already exists. Please use a different name.` };
+          }
+          throw templateError;
+        }
 
         const templateId = templateData.id;
 
