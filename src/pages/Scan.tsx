@@ -20,6 +20,7 @@ import { useOfflineTemplates, OfflineTemplate } from '@/hooks/useOfflineTemplate
 import { useLocalFDA, FDADrug } from '@/hooks/useLocalFDA';
 import { SyncButton } from '@/components/scanner/SyncButton';
 import { DeviceSyncDialog } from '@/components/scanner/DeviceSyncDialog';
+import { ManageDeviceDialog } from '@/components/scanner/ManageDeviceDialog';
 import { FlashDriveTransferDialog } from '@/components/scanner/FlashDriveTransferDialog';
 import { OuterNDCSelectionDialog, OuterNDCOption } from '@/components/scanner/OuterNDCSelectionDialog';
 import { CostDataLookupDialog } from '@/components/scanner/CostDataLookupDialog';
@@ -200,12 +201,15 @@ const Scan = () => {
     addSection: offlineAddSection,
     updateSection: offlineUpdateSection,
     deleteSection: offlineDeleteSection,
+    deleteLocalTemplate,
+    getTemplateCostItemCount,
   } = useOfflineTemplates(isOnline);
   
   const { lookupNDC: fdaLookup, checkIsInnerPack, findOuterCandidates, getDrugByOuterNDC } = useLocalFDA();
 
   // State for offline sync dialogs
   const [deviceSyncDialogOpen, setDeviceSyncDialogOpen] = useState(false);
+  const [manageDeviceDialogOpen, setManageDeviceDialogOpen] = useState(false);
   const [flashDriveDialogOpen, setFlashDriveDialogOpen] = useState(false);
 
   // State for outer NDC selection dialog
@@ -2737,6 +2741,15 @@ const Scan = () => {
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => setManageDeviceDialogOpen(true)}
+                className="gap-2"
+              >
+                <HardDrive className="h-4 w-4" />
+                <span className="hidden sm:inline">Manage Device</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setFlashDriveDialogOpen(true)}
                 className="gap-2"
               >
@@ -2801,6 +2814,16 @@ const Scan = () => {
             onSyncTemplates={syncSelectedTemplates}
             isSyncing={isSyncing}
             syncProgress={syncProgress}
+          />
+
+          {/* Manage Device Dialog */}
+          <ManageDeviceDialog
+            open={manageDeviceDialogOpen}
+            onOpenChange={setManageDeviceDialogOpen}
+            localTemplates={offlineTemplates}
+            getTemplateCostItemCount={getTemplateCostItemCount}
+            onDelete={deleteLocalTemplate}
+            onRefresh={() => {}}
           />
 
           {/* Flash Drive Transfer Dialog */}

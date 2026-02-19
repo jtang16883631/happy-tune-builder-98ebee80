@@ -510,37 +510,38 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         // Update progress - fetching cost items
         setSyncProgress(prev => ({ ...prev, status: 'fetching_cost_items', costItemsFetched: 0 }));
 
-        // Fetch and insert cost items with pagination (handle >1000 items)
-        // Using 1000 batch size to stay within Supabase default max_rows limit
-        let costItemsOffset = 0;
-        const costItemsLimit = 1000;
-        let hasMoreCostItems = true;
+        // Parallel fetch: first get count, then fetch all pages simultaneously
+        const PAGE_SIZE = 1000;
+        const { count: totalCount } = await supabase
+          .from('template_cost_items')
+          .select('id', { count: 'exact', head: true })
+          .eq('template_id', ct.id);
+
+        const totalPages = Math.ceil((totalCount || 0) / PAGE_SIZE);
+        const pageNumbers = Array.from({ length: Math.max(totalPages, 1) }, (_, i) => i);
+
+        // Fetch all pages in parallel
+        const pageResults = await Promise.all(
+          pageNumbers.map(page =>
+            supabase
+              .from('template_cost_items')
+              .select('*')
+              .eq('template_id', ct.id)
+              .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+          )
+        );
+
         let totalCostItemsFetched = 0;
-        
-        while (hasMoreCostItems) {
-          const { data: costItems, error: costError } = await supabase
-            .from('template_cost_items')
-            .select('*')
-            .eq('template_id', ct.id)
-            .range(costItemsOffset, costItemsOffset + costItemsLimit - 1);
-
-          if (costError) {
-            console.error('Cost items fetch error:', costError);
-            break;
-          }
-
+        for (const { data: costItems, error: costError } of pageResults) {
+          if (costError) { console.error('Cost items fetch error:', costError); continue; }
           for (const c of costItems || []) {
             db.run(`
               INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `, [c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null]);
           }
-
           totalCostItemsFetched += (costItems?.length || 0);
           setSyncProgress(prev => ({ ...prev, costItemsFetched: totalCostItemsFetched }));
-
-          hasMoreCostItems = (costItems?.length || 0) === costItemsLimit;
-          costItemsOffset += costItemsLimit;
         }
 
         // Update progress - saving
@@ -830,6 +831,29 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     }
   }, [isOnline, pushToCloud, pullFromCloud]);
 
+  // Delete a locally downloaded template (and its sections/cost items)
+  const deleteLocalTemplate = useCallback(async (templateId: string): Promise<{ success: boolean; error?: string }> => {
+    if (!db) return { success: false, error: 'Database not initialized' };
+    try {
+      db.run(`DELETE FROM cost_items WHERE template_id = ?`, [templateId]);
+      db.run(`DELETE FROM sections WHERE template_id = ?`, [templateId]);
+      db.run(`DELETE FROM templates WHERE id = ?`, [templateId]);
+      await saveDatabase();
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }, [db, saveDatabase]);
+
+  // Get cost item count per template
+  const getTemplateCostItemCount = useCallback((templateId: string): number => {
+    if (!db) return 0;
+    try {
+      const result = db.exec(`SELECT COUNT(*) FROM cost_items WHERE template_id = ?`, [templateId]);
+      return result.length > 0 ? (result[0].values[0][0] as number) : 0;
+    } catch { return 0; }
+  }, [db]);
+
   // Check if we have local data
   const hasLocalData = useCallback((): boolean => {
     if (!db) return false;
@@ -1108,6 +1132,8 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     getSections,
     getCostItemByNDC,
     getAllCostItems,
+    deleteLocalTemplate,
+    getTemplateCostItemCount,
     
     // Offline section management
     addSection,
