@@ -27,6 +27,7 @@ interface ScheduleAgendaViewProps {
   endDate: Date;
   onEditEvent: (event: ScheduleEvent) => void;
   onDeleteEvent: (id: string) => void;
+  hideEmptyDays?: boolean;
 }
 
 export function ScheduleAgendaView({
@@ -36,6 +37,7 @@ export function ScheduleAgendaView({
   endDate,
   onEditEvent,
   onDeleteEvent,
+  hideEmptyDays = false,
 }: ScheduleAgendaViewProps) {
   const days = eachDayOfInterval({ start: startDate, end: endDate });
 
@@ -55,6 +57,7 @@ export function ScheduleAgendaView({
       {days.map((day, dayIndex) => {
         const dateStr = format(day, 'yyyy-MM-dd');
         const dayEvents = getEventsForDate(events, day);
+        if (hideEmptyDays && dayEvents.length === 0) return null;
         const travelEvent = dayEvents.find((e) => e.event_type === 'travel' || e.is_travel_day);
         const workEvents = dayEvents.filter((e) => e.event_type === 'work' && !e.is_travel_day);
         const offEvents = dayEvents.filter((e) => e.event_type === 'off');

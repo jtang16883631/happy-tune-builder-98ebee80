@@ -391,6 +391,7 @@ export default function ScheduleHub() {
                   endDate={monthEnd}
                   onEditEvent={handleEditEvent}
                   onDeleteEvent={handleDeleteEvent}
+                  hideEmptyDays
                 />
               );
             })()}
