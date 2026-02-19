@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { format, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns';
+import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -55,6 +55,7 @@ export default function ScheduleHub() {
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  const [myScheduleMonth, setMyScheduleMonth] = useState(() => startOfMonth(new Date()));
   const [isExporting, setIsExporting] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const weekEnd = endOfWeek(weekStart);
@@ -351,25 +352,43 @@ export default function ScheduleHub() {
           </TabsContent>
 
           <TabsContent value="mine" className="mt-4">
+            {/* Month navigation for My Schedule */}
+            <div className="flex items-center justify-between mb-4">
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMyScheduleMonth(subMonths(myScheduleMonth, 1))}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm font-medium">{format(myScheduleMonth, 'MMMM yyyy')}</span>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMyScheduleMonth(addMonths(myScheduleMonth, 1))}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
             ) : (() => {
-              const myEvents = allEvents.filter(e =>
-                user?.id && Array.isArray(e.team_members) && e.team_members.includes(user.id)
-              );
+              const monthStart = startOfMonth(myScheduleMonth);
+              const monthEnd = endOfMonth(myScheduleMonth);
+              const monthStartStr = format(monthStart, 'yyyy-MM-dd');
+              const monthEndStr = format(monthEnd, 'yyyy-MM-dd');
+              const myEvents = allEvents.filter(e => {
+                const isAssigned = user?.id && Array.isArray(e.team_members) && e.team_members.includes(user.id);
+                if (!isAssigned) return false;
+                const jobDate = e.job_date;
+                const endDate = e.end_date || jobDate;
+                return jobDate <= monthEndStr && endDate >= monthStartStr;
+              });
               return myEvents.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
                   <Users className="h-10 w-10 opacity-30" />
-                  <p className="text-sm">No events assigned to you yet.</p>
+                  <p className="text-sm">No events assigned to you in {format(myScheduleMonth, 'MMMM yyyy')}.</p>
                 </div>
               ) : (
                 <ScheduleAgendaView
                   events={myEvents}
                   teamMembers={teamMembers}
-                  startDate={new Date(myEvents[0].job_date)}
-                  endDate={new Date(myEvents[myEvents.length - 1].job_date)}
+                  startDate={monthStart}
+                  endDate={monthEnd}
                   onEditEvent={handleEditEvent}
                   onDeleteEvent={handleDeleteEvent}
                 />
