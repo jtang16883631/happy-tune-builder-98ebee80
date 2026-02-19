@@ -115,6 +115,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const online = new Set<string>();
         
         Object.keys(state).forEach((key) => {
+          // The key itself is the user_id (set as presence key)
+          if (key) online.add(key);
           const presences = state[key] as Array<{ user_id?: string }>;
           presences.forEach((presence) => {
             if (presence.user_id) {
@@ -125,9 +127,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         setOnlineUsers(online);
       })
-      .on('presence', { event: 'join' }, ({ newPresences }) => {
+      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
         setOnlineUsers((prev) => {
           const updated = new Set(prev);
+          // Add by key (which is user_id)
+          if (key) updated.add(key);
           (newPresences as Array<{ user_id?: string }>).forEach((presence) => {
             if (presence.user_id) {
               updated.add(presence.user_id);
@@ -136,10 +140,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return updated;
         });
       })
-      .on('presence', { event: 'leave' }, ({ leftPresences }) => {
+      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
         setOnlineUsers((prev) => {
           const updated = new Set(prev);
-          (leftPresences as Array<{ user_id?: string }>).forEach((presence) => {
+          // Only remove if no presences remain for this key
+          const remainingPresences = leftPresences as Array<{ user_id?: string }>;
+          if (remainingPresences.length === 0 && key) {
+            updated.delete(key);
+          }
+          remainingPresences.forEach((presence) => {
             if (presence.user_id) {
               updated.delete(presence.user_id);
             }
