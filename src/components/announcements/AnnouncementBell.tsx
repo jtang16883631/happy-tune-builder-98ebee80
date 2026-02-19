@@ -150,17 +150,28 @@ export function AnnouncementBell() {
 
     setIsLoading(true);
     try {
-      const { error } = await supabase.from('announcements').insert({
+      const { data: insertedData, error } = await supabase.from('announcements').insert({
         title: newAnnouncement.title.trim(),
         content: newAnnouncement.content.trim(),
         created_by: user?.id,
-      });
+      }).select('id').single();
 
       if (error) throw error;
 
+      // Send email notification to all users
+      if (insertedData?.id) {
+        try {
+          await supabase.functions.invoke('send-announcement-email', {
+            body: { announcementId: insertedData.id },
+          });
+        } catch (emailErr) {
+          console.warn('Failed to send announcement email:', emailErr);
+        }
+      }
+
       toast({
         title: 'Success',
-        description: 'Announcement created successfully',
+        description: 'Announcement created and email sent to all users',
       });
 
       setNewAnnouncement({ title: '', content: '' });

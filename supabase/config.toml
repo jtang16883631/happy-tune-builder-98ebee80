@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.timesheet-reminder]
 verify_jwt = false
+
+[functions.send-announcement-email]
+verify_jwt = false
