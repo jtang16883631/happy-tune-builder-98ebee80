@@ -248,10 +248,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (event, newSession) => {
         if (!isMounted) return;
 
-        setSession(newSession);
-        setUser(newSession?.user ?? null);
-
         if (newSession?.user) {
+          // Session still valid — update state normally
+          setSession(newSession);
+          setUser(newSession.user);
+
           // If offline, use cached roles and skip network calls.
           if (!navigator.onLine) {
             const cached = readCachedRoles(newSession.user.id);
@@ -282,20 +283,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           }, 0);
         } else {
-          // If we're offline and have a cached session, do NOT clear the user.
-          // The SIGNED_OUT event can fire when token refresh fails due to network loss.
-          // We preserve the cached state so the user isn't kicked to /auth when offline.
+          // Session is null — could be a real logout OR a token refresh failure when offline.
+          // CRITICAL: If offline and we have a cached user, DO NOT clear state.
+          // A SIGNED_OUT event can fire when the token refresh request fails due to no network.
+          // Clearing the user here would redirect to /auth even though the user is genuinely logged in.
           if (!navigator.onLine) {
             const cachedUserId = localStorage.getItem('cached_user_id');
             if (cachedUserId) {
-              console.log('[Auth] Offline SIGNED_OUT ignored – restoring cached session');
+              console.log('[Auth] Offline SIGNED_OUT ignored – preserving cached session');
               const cached = readCachedRoles(cachedUserId);
               setRoles(cached);
               setRolesLoaded(true);
               setIsLoading(false);
+              // DO NOT clear user/session — keep whatever we had
               return;
             }
           }
+          // Online real logout — clear everything
+          setSession(null);
+          setUser(null);
           setRoles([]);
           setRolesLoaded(true);
           setIsLoading(false);

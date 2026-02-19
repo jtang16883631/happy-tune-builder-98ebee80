@@ -129,16 +129,29 @@ function ProtectedRoute({
   // Check if we have a cached user ID (set during last successful login)
   const hasCachedSession = !!localStorage.getItem('cached_user_id');
 
-  // If offline and this route allows offline access, always let through
+  // If offline and this route allows offline access, always render children.
+  // The OfflineLayout wrapper in AppLayout handles the locked UI.
   if (!isOnline && allowOffline) {
     return <>{children}</>;
   }
 
-  // While auth is loading: if offline with cached session, don't block (show page immediately)
-  if (isLoading || !rolesLoaded) {
-    if (!isOnline && hasCachedSession) {
-      return <>{children}</>;
+  // If offline on ANY route and we have a cached session, never redirect to auth.
+  // The OfflineRedirect component will handle routing to /scan if needed.
+  if (!isOnline && hasCachedSession) {
+    // Still loading? Show spinner only briefly, then render
+    if (isLoading || !rolesLoaded) {
+      return (
+        <div className="flex min-h-screen items-center justify-center bg-background">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      );
     }
+    // Render children — OfflineRedirect will push non-offline routes to /scan
+    return <>{children}</>;
+  }
+
+  // While auth is loading online
+  if (isLoading || !rolesLoaded) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -147,14 +160,6 @@ function ProtectedRoute({
   }
 
   if (!user) {
-    // If offline and we have a cached session, redirect to scan (offline mode)
-    if (!isOnline && hasCachedSession) {
-      return <Navigate to="/scan" replace />;
-    }
-    // If online but no session, also try to redirect to /scan if cached (race condition)
-    if (!isOnline) {
-      return <Navigate to="/scan" replace />;
-    }
     return <Navigate to="/auth" replace />;
   }
 
