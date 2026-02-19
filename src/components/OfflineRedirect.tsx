@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
-// Routes that are available offline (no auth required when offline)
-// Master Data (FDA) and Audit Projects (Scan) - Issues tab removed from offline
+// Routes that are fully available offline (no auth required when offline)
 const OFFLINE_ROUTES = ['/scan', '/fda', '/auth'];
 
 export function OfflineRedirect() {
@@ -11,15 +10,17 @@ export function OfflineRedirect() {
   const isOnline = useOnlineStatus();
 
   useEffect(() => {
-    // If offline and not on allowed route, redirect to /scan.
-    if (!isOnline && !OFFLINE_ROUTES.includes(location.pathname)) {
-      // Only redirect if we have a cached session (user was logged in before)
-      const hasCachedSession = !!localStorage.getItem('cached_user_id');
-      if (hasCachedSession) {
-        navigate('/scan', { replace: true });
-      } else {
-        navigate('/auth', { replace: true });
-      }
+    // Only redirect when:
+    // 1. We are offline
+    // 2. Current route is NOT one of the allowed offline routes
+    if (isOnline) return;
+    if (OFFLINE_ROUTES.includes(location.pathname)) return;
+
+    const hasCachedSession = !!localStorage.getItem('cached_user_id');
+    if (hasCachedSession) {
+      navigate('/scan', { replace: true });
+    } else {
+      navigate('/auth', { replace: true });
     }
   }, [isOnline, navigate, location.pathname]);
 

@@ -14,6 +14,7 @@ import { MobileHeader } from './MobileHeader';
 import { useOnlineStatus } from '@/components/OfflineRedirect';
 import { useUnreadMessages } from '@/hooks/useUnreadMessages';
 import { Badge } from '@/components/ui/badge';
+import { OfflineLayout } from './OfflineLayout';
 
 
 interface AppLayoutProps {
@@ -99,11 +100,18 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
   const isOnline = useOnlineStatus();
   const { unreadCount } = useUnreadMessages();
 
+  const OFFLINE_ROUTES = ['/scan', '/fda'];
+  const isOfflineRoute = OFFLINE_ROUTES.includes(location.pathname);
 
   // Only treat as "no role" if auth is done AND roles have been loaded AND still empty AND we're online
   // This prevents showing "Access Restricted" while roles are still being fetched
   const hasNoRole = !authLoading && rolesLoaded && roles.length === 0 && isOnline;
   const offlineAllowedRoute = ['/scan', '/fda', '/auth'].includes(location.pathname);
+
+  // ---- OFFLINE MODE: show locked 2-tab layout ----
+  if (!isOnline && isOfflineRoute) {
+    return <OfflineLayout>{children}</OfflineLayout>;
+  }
 
   const getInitials = (name?: string | null) => {
     if (!name) return 'U';
