@@ -78,8 +78,13 @@ serve(async (req) => {
 
     console.log(`Found ${unsubmittedProfiles.length} users who haven't submitted`);
 
-    // Send reminder emails
-    const emailPromises = unsubmittedProfiles.map(async (profile) => {
+    // Send reminder emails sequentially to respect Resend's 2 req/sec free tier limit
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const results: { email: string | null; success: boolean; error?: string }[] = [];
+
+    const fromEmail = Deno.env.get("RESEND_FROM_EMAIL") || "noreply@resend.dev";
+
+    for (const profile of unsubmittedProfiles) {
       const name =
         profile.full_name ||
         [profile.first_name, profile.last_name].filter(Boolean).join(" ") ||
@@ -92,18 +97,30 @@ serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          from: "Timesheet Reminder <noreply@resend.dev>",
+          from: `Meridian Timesheet <${fromEmail}>`,
           to: [profile.email],
-          subject: "Reminder: Please Submit Your Timesheet",
+          subject: "[TEST] Reminder: Please Submit Your Timesheet",
           html: `
-            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-              <h2 style="color: #333;">Timesheet Reminder</h2>
-              <p>Hi ${name},</p>
-              <p>This is a friendly reminder that your timesheet for the week of <strong>${weekStartStr}</strong> to <strong>${weekEndStr}</strong> has not been submitted yet.</p>
-              <p>Please log in and submit your timesheet as soon as possible.</p>
-              <p style="color: #666; font-size: 14px; margin-top: 30px;">
-                This is an automated reminder sent every Sunday at 7:00 PM.
-              </p>
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #f9fafb; padding: 24px; border-radius: 8px;">
+              <div style="background: #1e293b; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+                <h1 style="color: white; margin: 0; font-size: 20px;">⏰ Timesheet Submission Reminder</h1>
+                <p style="color: #94a3b8; margin: 6px 0 0; font-size: 13px;">[TEST EMAIL – for internal testing purposes only]</p>
+              </div>
+              <div style="background: white; padding: 24px; border-radius: 0 0 8px 8px; border: 1px solid #e2e8f0; border-top: none;">
+                <p style="color: #374151; font-size: 16px;">Hi <strong>${name}</strong>,</p>
+                <p style="color: #374151;">This is a friendly reminder that your timesheet for the following week has <strong>not been submitted yet</strong>:</p>
+
+                <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 16px; border-radius: 4px; margin: 20px 0;">
+                  <p style="margin: 0; font-size: 16px; font-weight: bold; color: #1e293b;">📅 Week of ${weekStartStr} – ${weekEndStr}</p>
+                </div>
+
+                <p style="color: #374151;">Please log in to the app and submit your timesheet as soon as possible.</p>
+
+                <p style="color: #6b7280; font-size: 13px; margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 16px;">
+                  This is an automated reminder sent every Sunday at 7:00 PM.<br/>
+                  If you have already submitted your timesheet, please disregard this message.
+                </p>
+              </div>
             </div>
           `,
         }),
@@ -112,14 +129,16 @@ serve(async (req) => {
       if (!emailResponse.ok) {
         const errorText = await emailResponse.text();
         console.error(`Failed to send email to ${profile.email}: ${errorText}`);
-        return { email: profile.email, success: false, error: errorText };
+        results.push({ email: profile.email, success: false, error: errorText });
+      } else {
+        console.log(`Sent reminder to ${profile.email}`);
+        results.push({ email: profile.email, success: true });
       }
 
-      console.log(`Sent reminder to ${profile.email}`);
-      return { email: profile.email, success: true };
-    });
+      // Wait 600ms between emails to stay under Resend's 2 req/sec free tier limit
+      await sleep(600);
+    }
 
-    const results = await Promise.all(emailPromises);
     const successCount = results.filter((r) => r.success).length;
     const failCount = results.filter((r) => !r.success).length;
 
