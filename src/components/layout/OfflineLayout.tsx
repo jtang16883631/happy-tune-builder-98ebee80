@@ -56,7 +56,7 @@ export function OfflineLayout({ children }: OfflineLayoutProps) {
       </nav>
 
       {/* Content */}
-      <main className="flex-1 p-6 max-w-7xl mx-auto w-full">
+      <main className="flex-1 p-6 w-full">
         {children}
       </main>
     </div>

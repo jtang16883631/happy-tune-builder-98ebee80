@@ -45,11 +45,11 @@ import { useAuth } from '@/contexts/AuthContext';
 
 
 export default function ScheduleHub() {
-  const { roles } = useAuth();
+  const { roles, user } = useAuth();
   const isAuditor = roles.includes('auditor') && !roles.includes('owner') && !roles.includes('developer') && !roles.includes('coordinator') && !roles.includes('office_admin');
 
   const [searchParams, setSearchParams] = useSearchParams();
-  const [viewTab, setViewTab] = useState<'agenda' | 'calendar' | 'type'>('agenda');
+  const [viewTab, setViewTab] = useState<'agenda' | 'calendar' | 'type' | 'mine'>('agenda');
   const [builderOpen, setBuilderOpen] = useState(false);
   const [teamDialogOpen, setTeamDialogOpen] = useState(false);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
@@ -259,6 +259,10 @@ export default function ScheduleHub() {
                 <LayoutGrid className="h-3.5 w-3.5" />
                 Type view
               </TabsTrigger>
+              <TabsTrigger value="mine" className="gap-1.5 text-xs data-[state=active]:bg-background px-3">
+                <Users className="h-3.5 w-3.5" />
+                My Schedule
+              </TabsTrigger>
             </TabsList>
 
             <div className="flex items-center gap-2 ml-auto">
@@ -344,6 +348,33 @@ export default function ScheduleHub() {
               onEditEvent={handleEditEvent}
               onDeleteEvent={handleDeleteEvent}
             />
+          </TabsContent>
+
+          <TabsContent value="mine" className="mt-4">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : (() => {
+              const myEvents = allEvents.filter(e =>
+                user?.id && Array.isArray(e.team_members) && e.team_members.includes(user.id)
+              );
+              return myEvents.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-muted-foreground gap-3">
+                  <Users className="h-10 w-10 opacity-30" />
+                  <p className="text-sm">No events assigned to you yet.</p>
+                </div>
+              ) : (
+                <ScheduleAgendaView
+                  events={myEvents}
+                  teamMembers={teamMembers}
+                  startDate={new Date(myEvents[0].job_date)}
+                  endDate={new Date(myEvents[myEvents.length - 1].job_date)}
+                  onEditEvent={handleEditEvent}
+                  onDeleteEvent={handleDeleteEvent}
+                />
+              );
+            })()}
           </TabsContent>
         </Tabs>
       </div>
