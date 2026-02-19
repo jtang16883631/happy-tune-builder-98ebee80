@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Clock, Coffee, LogIn, LogOut, Save, Loader2 } from "lucide-react";
+import { Clock, Coffee, LogIn, LogOut, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -98,81 +98,69 @@ export function QuickClockPanel({ userId, onSaved }: QuickClockPanelProps) {
   const canLunchEnd = hasType("lunch_start") && !hasType("lunch_end");
   const canClockOut = hasType("clock_in") && !hasType("clock_out");
 
-  const handleAction = (type: QuickClockEntry["type"]) => {
+  const handleAction = async (type: QuickClockEntry["type"]) => {
     const time = getNow24();
     const next = [...entries, { type, time, timestamp: new Date() }];
     saveEntries(next);
-  };
 
-  const handleSaveDraft = async () => {
-    const clockInEntry = entries.find((e) => e.type === "clock_in");
-    const clockOutEntry = entries.find((e) => e.type === "clock_out");
-    const lunchStartEntry = entries.find((e) => e.type === "lunch_start");
-    const lunchEndEntry = entries.find((e) => e.type === "lunch_end");
+    // Auto-save to timesheet on clock out
+    if (type === "clock_out") {
+      const clockInEntry = next.find((e) => e.type === "clock_in");
+      const lunchStartEntry = next.find((e) => e.type === "lunch_start");
+      const lunchEndEntry = next.find((e) => e.type === "lunch_end");
+      if (clockInEntry) {
+        setIsSaving(true);
+        try {
+          await supabase
+            .from("timesheet_entries")
+            .delete()
+            .eq("user_id", userId)
+            .eq("work_date", todayKey);
 
-    if (!clockInEntry) {
-      toast({ title: "No clock-in recorded", variant: "destructive" });
-      return;
-    }
+          const hours = calcHours(clockInEntry.time, time, lunchStartEntry?.time, lunchEndEntry?.time);
+          const entriesToInsert: any[] = [
+            {
+              user_id: userId,
+              work_date: todayKey,
+              start_time: clockInEntry.time,
+              end_time: time,
+              hours_worked: hours,
+              break_minutes: lunchStartEntry && lunchEndEntry
+                ? Math.round(
+                    (new Date(`2000-01-01T${lunchEndEntry.time}`).getTime() -
+                     new Date(`2000-01-01T${lunchStartEntry.time}`).getTime()) / 60000
+                  )
+                : 0,
+              client_name: "office",
+              notes: "Quick clock",
+              status: "draft",
+            },
+          ];
 
-    setIsSaving(true);
-    try {
-      // Delete existing for today
-      await supabase
-        .from("timesheet_entries")
-        .delete()
-        .eq("user_id", userId)
-        .eq("work_date", todayKey);
+          if (lunchStartEntry && lunchEndEntry) {
+            entriesToInsert.push({
+              user_id: userId,
+              work_date: todayKey,
+              start_time: lunchStartEntry.time,
+              end_time: lunchEndEntry.time,
+              hours_worked: 0,
+              break_minutes: 0,
+              client_name: "lunch",
+              notes: "Lunch",
+              status: "draft",
+            });
+          }
 
-      const entriesToInsert: any[] = [];
-
-      // Main work segment
-      const endTime = clockOutEntry?.time;
-      const hours = endTime
-        ? calcHours(clockInEntry.time, endTime, lunchStartEntry?.time, lunchEndEntry?.time)
-        : 0;
-
-      entriesToInsert.push({
-        user_id: userId,
-        work_date: todayKey,
-        start_time: clockInEntry.time,
-        end_time: endTime || null,
-        hours_worked: hours,
-        break_minutes: lunchStartEntry && lunchEndEntry
-          ? Math.round(
-              (new Date(`2000-01-01T${lunchEndEntry.time}`).getTime() -
-               new Date(`2000-01-01T${lunchStartEntry.time}`).getTime()) / 60000
-            )
-          : 0,
-        client_name: "office",
-        notes: "Quick clock",
-        status: "draft",
-      });
-
-      // Lunch segment if recorded
-      if (lunchStartEntry && lunchEndEntry) {
-        entriesToInsert.push({
-          user_id: userId,
-          work_date: todayKey,
-          start_time: lunchStartEntry.time,
-          end_time: lunchEndEntry.time,
-          hours_worked: 0,
-          break_minutes: 0,
-          client_name: "lunch",
-          notes: "Lunch",
-          status: "draft",
-        });
+          const { error } = await supabase.from("timesheet_entries").insert(entriesToInsert);
+          if (error) throw error;
+          toast({ title: "Clocked Out ✓", description: "Timesheet saved as draft automatically" });
+          onSaved?.();
+        } catch (err: any) {
+          toast({ title: "Error saving", description: err.message, variant: "destructive" });
+        } finally {
+          setIsSaving(false);
+        }
       }
-
-      const { error } = await supabase.from("timesheet_entries").insert(entriesToInsert);
-      if (error) throw error;
-
-      toast({ title: "Saved", description: "Today's timesheet saved as draft" });
-      onSaved?.();
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -258,32 +246,24 @@ export function QuickClockPanel({ userId, onSaved }: QuickClockPanelProps) {
               </Button>
             )}
 
-            {/* Save + Reset */}
-            {entries.length > 0 && (
-              <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5 text-xs"
-                  onClick={handleSaveDraft}
-                  disabled={isSaving}
-                >
-                  {isSaving ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Save className="h-3.5 w-3.5" />
-                  )}
-                  Save Draft
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="gap-1.5 text-xs text-muted-foreground"
-                  onClick={handleReset}
-                >
-                  Reset
-                </Button>
-              </>
+            {/* Loading indicator while auto-saving on clock out */}
+            {isSaving && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Saving…
+              </div>
+            )}
+
+            {/* Reset */}
+            {entries.length > 0 && !isSaving && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="gap-1.5 text-xs text-muted-foreground"
+                onClick={handleReset}
+              >
+                Reset
+              </Button>
             )}
           </div>
         </div>

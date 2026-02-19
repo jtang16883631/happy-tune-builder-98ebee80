@@ -738,13 +738,6 @@ export default function Timesheet() {
           </Card>
         )}
 
-        {/* Quick Clock Panel - Office Admin only (also on Dashboard) */}
-        {isOfficeAdmin && user && !isLocked && (
-          <QuickClockPanel
-            userId={user.id}
-            onSaved={() => queryClient.invalidateQueries({ queryKey: ["timesheet-entries"] })}
-          />
-        )}
 
         {/* Week Selector + Live Calendar */}
         <div className="flex flex-col lg:flex-row gap-4">
