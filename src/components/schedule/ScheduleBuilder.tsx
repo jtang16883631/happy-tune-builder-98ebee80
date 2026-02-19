@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import { Separator } from '@/components/ui/separator';
 import {
   Dialog,
@@ -266,7 +266,7 @@ export function ScheduleBuilder({
           </DialogTitle>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[75vh]">
+        <div className="overflow-y-auto max-h-[75vh]">
           <form onSubmit={handleSubmit(onSubmit)} className="p-6 pt-4 space-y-6">
             {/* Event Type Selection */}
             <div className="space-y-2">
@@ -666,7 +666,7 @@ export function ScheduleBuilder({
               </Button>
             </div>
           </form>
-        </ScrollArea>
+        </div>
       </DialogContent>
     </Dialog>
   );
