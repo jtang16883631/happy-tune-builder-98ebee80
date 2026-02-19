@@ -200,7 +200,7 @@ export function ScheduleBuilder({
   };
 
   const onSubmit = async (data: FormData) => {
-    const payload: Partial<ScheduleEvent> & { _sections?: any[] } = {
+    const payload: Partial<ScheduleEvent> & { _sections?: any[]; _previousTeamMemberIds?: string[] } = {
       event_type: data.event_type,
       job_date: format(data.job_date, 'yyyy-MM-dd'),
       end_date: data.end_date ? format(data.end_date, 'yyyy-MM-dd') : null,
@@ -229,6 +229,7 @@ export function ScheduleBuilder({
       exact_count_required: data.exact_count_required,
       partial_inventory: data.partial_inventory,
       client_onsite: data.client_onsite,
+      _previousTeamMemberIds: event?.team_members || [],
     };
 
     if (event?.id) {

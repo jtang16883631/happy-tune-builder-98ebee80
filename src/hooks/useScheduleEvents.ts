@@ -301,8 +301,8 @@ export function useScheduleEventMutation(teamMembers: TeamMember[] = []) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (eventWithSections: Partial<ScheduleEvent> & { id?: string; _sections?: ScheduledJobSection[] }) => {
-      const { id, created_at, updated_at, _sections, ...payload } = eventWithSections;
+    mutationFn: async (eventWithSections: Partial<ScheduleEvent> & { id?: string; _sections?: ScheduledJobSection[]; _previousTeamMemberIds?: string[] }) => {
+      const { id, created_at, updated_at, _sections, _previousTeamMemberIds, ...payload } = eventWithSections;
 
       // Ensure event_type is set based on is_travel_day for backwards compatibility
       if (payload.is_travel_day && !payload.event_type) {
@@ -311,6 +311,7 @@ export function useScheduleEventMutation(teamMembers: TeamMember[] = []) {
 
       let eventId = id;
       const isNewEvent = !id;
+      const previousTeamMemberIds = _previousTeamMemberIds || [];
 
       if (id) {
         const { error } = await supabase
@@ -330,13 +331,11 @@ export function useScheduleEventMutation(teamMembers: TeamMember[] = []) {
 
       // If sections are provided, insert them (for new events from previous lookup)
       if (_sections && _sections.length > 0 && eventId) {
-        // First, delete any existing sections for this event (in case of update)
         await supabase
           .from('scheduled_job_sections')
           .delete()
           .eq('schedule_job_id', eventId);
 
-        // Insert the new sections
         const sectionsToInsert = _sections.map((s) => ({
           schedule_job_id: eventId,
           sect: s.sect,
@@ -356,7 +355,6 @@ export function useScheduleEventMutation(teamMembers: TeamMember[] = []) {
 
       // Create OneDrive folder for new work events with invoice number
       if (isNewEvent && payload.event_type === 'work' && payload.invoice_number && payload.client_name && payload.job_date) {
-        // Run folder creation in background (don't await)
         createOneDriveFolderForEvent(
           payload.invoice_number,
           payload.client_name,
@@ -364,7 +362,17 @@ export function useScheduleEventMutation(teamMembers: TeamMember[] = []) {
         );
       }
 
-      // Return the job date for use in onSuccess
+      // Fire-and-forget: notify newly added team members
+      if (eventId && payload.team_members && payload.team_members.length > 0) {
+        supabase.functions.invoke('schedule-assignment-notify', {
+          body: {
+            eventId,
+            newTeamMemberIds: payload.team_members,
+            previousTeamMemberIds,
+          },
+        }).catch((err) => console.warn('Notification failed (non-blocking):', err));
+      }
+
       return { jobDate: payload.job_date };
     },
     onSuccess: (result, variables) => {
