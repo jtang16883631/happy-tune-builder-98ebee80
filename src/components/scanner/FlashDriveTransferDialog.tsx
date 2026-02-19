@@ -10,7 +10,7 @@ import {
   Upload, 
   Loader2, 
   CheckCircle2, 
-  FileText, 
+  FileText,
   Package,
   AlertTriangle,
   Check
@@ -51,7 +51,8 @@ export function FlashDriveTransferDialog({
   const [exportProgress, setExportProgress] = useState(0);
   const [importProgress, setImportProgress] = useState(0);
   const [exportStatus, setExportStatus] = useState<string>('');
-  
+  const [selectedExportIds, setSelectedExportIds] = useState<string[]>([]);
+
   // Import preview state
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importPreview, setImportPreview] = useState<{
@@ -61,6 +62,7 @@ export function FlashDriveTransferDialog({
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const prevOpenRef = useRef(false);
   
   // Use offline templates directly for both export and import
   const { 
@@ -68,11 +70,32 @@ export function FlashDriveTransferDialog({
     exportToFlashDrive,
     previewFlashDriveImport,
     importFromFlashDrive,
+    getTemplateCostItemCount,
   } = useOfflineTemplates();
 
+  // Auto-select all when dialog first opens
+  if (open && !prevOpenRef.current) {
+    setSelectedExportIds(offlineTemplates.map(t => t.id));
+  }
+  prevOpenRef.current = open;
+
+  const handleToggleExportTemplate = (id: string) => {
+    setSelectedExportIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllExport = () => {
+    if (selectedExportIds.length === offlineTemplates.length) {
+      setSelectedExportIds([]);
+    } else {
+      setSelectedExportIds(offlineTemplates.map(t => t.id));
+    }
+  };
+
   const handleExport = async () => {
-    if (offlineTemplates.length === 0) {
-      toast.error('No templates in local cache. Download templates to your device first.');
+    if (selectedExportIds.length === 0) {
+      toast.error('Select at least one template to export.');
       return;
     }
 
@@ -83,8 +106,7 @@ export function FlashDriveTransferDialog({
     try {
       setExportProgress(30);
       
-      // Use the direct export from offline database
-      const result = exportToFlashDrive();
+      const result = exportToFlashDrive(selectedExportIds);
 
       if (!result) {
         toast.error('Export failed - no data available');
@@ -105,7 +127,6 @@ export function FlashDriveTransferDialog({
           filename = parts.join('_');
         }
       } else if (result.templates.length > 1) {
-        // Multiple templates - use date + count
         filename = `templates_${result.templates.length}_${new Date().toISOString().split('T')[0]}`;
       }
 
@@ -125,7 +146,7 @@ export function FlashDriveTransferDialog({
       
       const sizeStr = formatFileSize(result.data.length);
       const costItemCount = result.costItemCount?.toLocaleString() || '0';
-      toast.success(`Exported ${result.templates.length} templates (${costItemCount} cost items, ${sizeStr})`);
+      toast.success(`Exported ${result.templates.length} template(s) (${costItemCount} cost items, ${sizeStr})`);
     } catch (err: any) {
       toast.error(err.message || 'Export failed');
     } finally {
@@ -257,69 +278,86 @@ export function FlashDriveTransferDialog({
 
           {/* Export Tab */}
           <TabsContent value="export" className="space-y-4 mt-4">
-            <div className="bg-muted/50 rounded-lg p-4 border">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-primary/10">
-                  <HardDrive className="h-5 w-5 text-primary" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium">Export to Flash Drive</p>
-                  <p className="text-sm text-muted-foreground">
-                    Save all templates from this device to a .templatedb file
-                  </p>
+            {offlineTemplates.length === 0 ? (
+              <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-destructive mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-destructive">No templates on device</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Download templates to your device first using "Download to Device".
+                    </p>
+                  </div>
                 </div>
               </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleSelectAllExport}
+                    disabled={isExporting}
+                  >
+                    {selectedExportIds.length === offlineTemplates.length ? 'Deselect All' : 'Select All'}
+                  </Button>
+                  <span className="text-sm text-muted-foreground">
+                    {selectedExportIds.length} of {offlineTemplates.length} selected
+                  </span>
+                </div>
 
-              {offlineTemplates.length > 0 ? (
-                <div className="mt-4 space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Templates to export:</span>
-                    <Badge variant="secondary">{offlineTemplates.length}</Badge>
-                  </div>
-                  
-                  <ScrollArea className="h-[150px] border rounded-md p-2 bg-background">
-                    <div className="space-y-1">
-                      {offlineTemplates.map(t => (
-                        <div key={t.id} className="flex items-center gap-2 text-sm py-1">
-                          <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                          <span className="truncate">{t.name}</span>
+                <ScrollArea className="h-[200px] border rounded-md p-2 bg-background">
+                  <div className="space-y-1">
+                    {offlineTemplates.map(t => {
+                      const isSelected = selectedExportIds.includes(t.id);
+                      const costCount = getTemplateCostItemCount(t.id);
+                      return (
+                        <div
+                          key={t.id}
+                          className={`flex items-center gap-3 p-2 rounded-lg border cursor-pointer transition-colors ${
+                            isSelected ? 'bg-primary/10 border-primary/50' : 'hover:bg-muted/50 border-transparent'
+                          } ${isExporting ? 'opacity-60 pointer-events-none' : ''}`}
+                          onClick={() => !isExporting && handleToggleExportTemplate(t.id)}
+                        >
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => !isExporting && handleToggleExportTemplate(t.id)}
+                            disabled={isExporting}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{t.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {t.facility_name || 'No facility'}
+                              {t.inv_date ? ` • ${new Date(t.inv_date).toLocaleDateString()}` : ''}
+                              {costCount > 0 ? ` • ${costCount.toLocaleString()} items` : ''}
+                            </p>
+                          </div>
+                          {isSelected && <Check className="h-4 w-4 text-primary shrink-0" />}
                         </div>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </div>
-              ) : (
-                <div className="mt-4 p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 text-destructive mt-0.5" />
-                    <div>
-                      <p className="text-sm font-medium text-destructive">No templates on device</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Download templates to your device first using "Download to Device" before exporting to flash drive.
-                      </p>
-                    </div>
+                      );
+                    })}
                   </div>
-                </div>
-              )}
+                </ScrollArea>
+              </div>
+            )}
 
-              {isExporting && (
-                <div className="mt-4 space-y-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>{exportStatus || 'Building export file...'}</span>
-                  </div>
-                  <Progress value={exportProgress} className="h-2" />
+            {isExporting && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>{exportStatus || 'Building export file...'}</span>
                 </div>
-              )}
-            </div>
+                <Progress value={exportProgress} className="h-2" />
+              </div>
+            )}
 
             <DialogFooter>
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isExporting}>
                 Cancel
               </Button>
-              <Button 
-                onClick={handleExport} 
-                disabled={isExporting || offlineTemplates.length === 0}
+              <Button
+                onClick={handleExport}
+                disabled={isExporting || selectedExportIds.length === 0}
                 className="gap-2"
               >
                 {isExporting ? (
@@ -330,7 +368,7 @@ export function FlashDriveTransferDialog({
                 ) : (
                   <>
                     <Download className="h-4 w-4" />
-                    Export to File
+                    Export {selectedExportIds.length > 0 ? `(${selectedExportIds.length})` : ''}
                   </>
                 )}
               </Button>
