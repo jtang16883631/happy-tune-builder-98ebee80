@@ -110,6 +110,11 @@ const Scan = () => {
     'genericCode', 'deaClass', 'ahfs', 'expirationDate', 'lotNumber'
   ]));
   
+  // Custom columns added by user
+  const [customColumns, setCustomColumns] = useState<{ key: string; label: string }[]>([]);
+  const [showAddColumnDialog, setShowAddColumnDialog] = useState(false);
+  const [newColumnName, setNewColumnName] = useState('');
+
   // Column widths state for resizable columns
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const resizingRef = useRef<{ key: string; startX: number; startWidth: number } | null>(null);
@@ -2615,8 +2620,6 @@ const Scan = () => {
     { key: 'scannedNdc', label: 'Priced NDC/UPC', editable: true, isNdcInput: true },
     { key: 'ndc', label: 'Original NDC', editable: true, isNdcInput: true },
     { key: 'qty', label: 'QTY', editable: true, type: 'number' },
-    { key: 'expirationDate', label: 'Expiration Date', editable: true, hideable: true },
-    { key: 'lotNumber', label: 'Lot #', editable: true, hideable: true },
     { key: 'misDivisor', label: 'MIS Divisor', editable: true, type: 'number' },
     { key: 'misCountMethod', label: 'MIS Count Method', editable: true },
     { key: 'itemNumber', label: 'Item Number', editable: true },
@@ -2644,7 +2647,10 @@ const Scan = () => {
     { key: 'auditorInitials', label: 'Auditor Initials', editable: true },
     { key: 'results', label: 'Results', editable: true },
     { key: 'additionalNotes', label: 'Additional Notes', editable: true },
-  ], [sectionTotalLabel]);
+    { key: 'expirationDate', label: 'Expiration Date', editable: true, hideable: true },
+    { key: 'lotNumber', label: 'Lot #', editable: true, hideable: true },
+    ...customColumns.map(col => ({ key: col.key, label: col.label, editable: true, hideable: true as true, isCustom: true, type: undefined as string | undefined, isNdcInput: undefined as boolean | undefined })),
+  ], [sectionTotalLabel, customColumns]);
 
   // Get column width (custom or default)
   const getColumnWidth = (key: string) => columnWidths[key] || defaultWidths[key] || 100;
@@ -3200,6 +3206,14 @@ const Scan = () => {
                       )}
                     </DropdownMenuItem>
                   ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setShowAddColumnDialog(true)}
+                    className="flex items-center gap-2 text-primary"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add Custom Column
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -3735,6 +3749,54 @@ const Scan = () => {
             <Button variant="destructive" onClick={handleDeleteSection}>
               <Trash2 className="h-4 w-4 mr-1" />
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Custom Column Dialog */}
+      <Dialog open={showAddColumnDialog} onOpenChange={setShowAddColumnDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Add Custom Column</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="custom-col-name" className="text-sm font-medium mb-2 block">
+              Column Name
+            </Label>
+            <Input
+              id="custom-col-name"
+              placeholder="e.g. Bin Location"
+              value={newColumnName}
+              onChange={e => setNewColumnName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  const trimmed = newColumnName.trim();
+                  if (!trimmed) return;
+                  const key = `custom_${trimmed.toLowerCase().replace(/\s+/g, '_')}_${Date.now()}`;
+                  setCustomColumns(prev => [...prev, { key, label: trimmed }]);
+                  setNewColumnName('');
+                  setShowAddColumnDialog(false);
+                  toast.success(`Column "${trimmed}" added`);
+                }
+              }}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowAddColumnDialog(false); setNewColumnName(''); }}>
+              Cancel
+            </Button>
+            <Button onClick={() => {
+              const trimmed = newColumnName.trim();
+              if (!trimmed) return;
+              const key = `custom_${trimmed.toLowerCase().replace(/\s+/g, '_')}_${Date.now()}`;
+              setCustomColumns(prev => [...prev, { key, label: trimmed }]);
+              setNewColumnName('');
+              setShowAddColumnDialog(false);
+              toast.success(`Column "${trimmed}" added`);
+            }}>
+              Add Column
             </Button>
           </DialogFooter>
         </DialogContent>
