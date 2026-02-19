@@ -931,6 +931,153 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     }
   }, [db, getTemplates]);
 
+  // Export any cloud templates (by their cloud IDs) to a flash drive file.
+  // For templates already on device, uses local data. For cloud-only templates,
+  // fetches data directly from Supabase without saving to device.
+  const exportCloudTemplatesToFlashDrive = useCallback(async (
+    cloudTemplateIds: string[],
+    onStatus?: (msg: string) => void,
+  ): Promise<{
+    data: Uint8Array;
+    exportedTemplates: Array<{ id: string; name: string; inv_date: string | null; facility_name: string | null; inv_number: string | null }>;
+    costItemCount: number;
+  } | null> => {
+    if (!sqlRef.current) return null;
+
+    try {
+      const localTemplates = db ? getTemplates() : [];
+      // Map cloud_id → local template
+      const localByCloudId = new Map(localTemplates.filter(t => t.cloud_id).map(t => [t.cloud_id!, t]));
+
+      const exportDb = new sqlRef.current.Database();
+      exportDb.run(`
+        CREATE TABLE templates (
+          id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT NOT NULL, name TEXT NOT NULL,
+          inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
+          job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
+        );
+        CREATE TABLE sections (
+          id TEXT PRIMARY KEY, template_id TEXT NOT NULL, sect TEXT NOT NULL,
+          description TEXT, full_section TEXT, cost_sheet TEXT
+        );
+        CREATE TABLE cost_items (
+          id TEXT PRIMARY KEY, template_id TEXT NOT NULL, ndc TEXT,
+          material_description TEXT, unit_price REAL, source TEXT, material TEXT, sheet_name TEXT
+        );
+      `);
+
+      let costItemCount = 0;
+      const exportedTemplates: Array<{ id: string; name: string; inv_date: string | null; facility_name: string | null; inv_number: string | null }> = [];
+
+      for (let i = 0; i < cloudTemplateIds.length; i++) {
+        const cloudId = cloudTemplateIds[i];
+        const local = localByCloudId.get(cloudId);
+
+        if (local && db) {
+          // Use local data
+          onStatus?.(`Exporting ${local.name} (from device)...`);
+          exportDb.run(
+            `INSERT INTO templates VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            [local.id, local.cloud_id, local.user_id, local.name, local.inv_date,
+             local.facility_name, local.inv_number, local.cost_file_name,
+             local.job_ticket_file_name, local.status, local.created_at, local.updated_at, 0]
+          );
+
+          const sectResult = db.exec(`SELECT id, template_id, sect, description, full_section, cost_sheet FROM sections WHERE template_id = ?`, [local.id]);
+          if (sectResult.length > 0) {
+            for (const row of sectResult[0].values) {
+              exportDb.run(`INSERT INTO sections VALUES (?,?,?,?,?,?)`, row as any[]);
+            }
+          }
+
+          const costResult = db.exec(`SELECT id, template_id, ndc, material_description, unit_price, source, material, sheet_name FROM cost_items WHERE template_id = ?`, [local.id]);
+          if (costResult.length > 0) {
+            for (const row of costResult[0].values) {
+              exportDb.run(`INSERT INTO cost_items VALUES (?,?,?,?,?,?,?,?)`, row as any[]);
+              costItemCount++;
+            }
+          }
+
+          exportedTemplates.push({ id: local.id, name: local.name, inv_date: local.inv_date, facility_name: local.facility_name, inv_number: local.inv_number });
+        } else {
+          // Fetch from cloud
+          onStatus?.(`Downloading template ${i + 1}/${cloudTemplateIds.length} from cloud...`);
+
+          const { data: tData } = await supabase
+            .from('data_templates')
+            .select('*')
+            .eq('id', cloudId)
+            .single();
+
+          if (!tData) continue;
+
+          const exportId = generateId();
+          exportDb.run(
+            `INSERT INTO templates VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            [exportId, tData.id, tData.user_id, tData.name, tData.inv_date,
+             tData.facility_name, tData.inv_number, tData.cost_file_name,
+             tData.job_ticket_file_name, tData.status ?? 'active',
+             tData.created_at, tData.updated_at, 0]
+          );
+
+          // Fetch sections
+          const { data: sections } = await supabase
+            .from('template_sections')
+            .select('*')
+            .eq('template_id', cloudId);
+
+          for (const s of sections ?? []) {
+            exportDb.run(
+              `INSERT INTO sections VALUES (?,?,?,?,?,?)`,
+              [generateId(), exportId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]
+            );
+          }
+
+          // Fetch cost items in parallel pages
+          const PAGE_SIZE = 1000;
+          const { count: totalCount } = await supabase
+            .from('template_cost_items')
+            .select('id', { count: 'exact', head: true })
+            .eq('template_id', cloudId);
+
+          const totalPages = Math.ceil((totalCount || 0) / PAGE_SIZE);
+          const pages = Array.from({ length: Math.max(totalPages, 1) }, (_, p) => p);
+
+          const pageResults = await Promise.all(
+            pages.map(p =>
+              supabase
+                .from('template_cost_items')
+                .select('*')
+                .eq('template_id', cloudId)
+                .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
+            )
+          );
+
+          for (const { data: items } of pageResults) {
+            for (const c of items ?? []) {
+              exportDb.run(
+                `INSERT INTO cost_items VALUES (?,?,?,?,?,?,?,?)`,
+                [generateId(), exportId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null]
+              );
+              costItemCount++;
+            }
+          }
+
+          exportedTemplates.push({ id: exportId, name: tData.name, inv_date: tData.inv_date, facility_name: tData.facility_name, inv_number: tData.inv_number });
+        }
+      }
+
+      const dbData = exportDb.export();
+      exportDb.close();
+
+      return { data: new Uint8Array(dbData), exportedTemplates, costItemCount };
+    } catch (err) {
+      console.error('Export cloud templates to flash drive error:', err);
+      return null;
+    }
+  }, [db, getTemplates]);
+
   // Preview import from flash drive file
   const previewFlashDriveImport = useCallback(async (
     file: File
@@ -1182,6 +1329,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     
     // Flash drive operations
     exportToFlashDrive,
+    exportCloudTemplatesToFlashDrive,
     previewFlashDriveImport,
     importFromFlashDrive,
   };

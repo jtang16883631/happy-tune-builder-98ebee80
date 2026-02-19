@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +13,9 @@ import {
   FileText,
   Package,
   AlertTriangle,
-  Check
+  Check,
+  Cloud,
+  Laptop,
 } from 'lucide-react';
 import {
   Dialog,
@@ -26,6 +28,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { useOfflineTemplates } from '@/hooks/useOfflineTemplates';
+import { useCloudTemplates } from '@/hooks/useCloudTemplates';
 import { formatFileSize } from '@/lib/dataIntegrity';
 
 interface ImportPreviewTemplate {
@@ -63,26 +66,39 @@ export function FlashDriveTransferDialog({
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // Use offline templates directly for both export and import
   const { 
     templates: offlineTemplates,
-    exportToFlashDrive,
+    syncedTemplateIds,
+    exportCloudTemplatesToFlashDrive,
     previewFlashDriveImport,
     importFromFlashDrive,
-    getTemplateCostItemCount,
   } = useOfflineTemplates();
 
-  const handleToggleExportTemplate = (id: string) => {
+  // Cloud templates — source of truth for the export list
+  const { templates: cloudTemplates, isLoading: isLoadingCloud } = useCloudTemplates();
+
+  // Build a set of cloud IDs that are already downloaded to device
+  const localCloudIds = new Set(syncedTemplateIds);
+
+  // Reset selections when dialog opens
+  useEffect(() => {
+    if (open) {
+      setSelectedExportIds([]);
+      setSelectedImportIds([]);
+    }
+  }, [open]);
+
+  const handleToggleExportTemplate = (cloudId: string) => {
     setSelectedExportIds(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+      prev.includes(cloudId) ? prev.filter(x => x !== cloudId) : [...prev, cloudId]
     );
   };
 
   const handleSelectAllExport = () => {
-    if (selectedExportIds.length === offlineTemplates.length) {
+    if (selectedExportIds.length === cloudTemplates.length) {
       setSelectedExportIds([]);
     } else {
-      setSelectedExportIds(offlineTemplates.map(t => t.id));
+      setSelectedExportIds(cloudTemplates.map(t => t.id));
     }
   };
 
@@ -93,37 +109,35 @@ export function FlashDriveTransferDialog({
     }
 
     setIsExporting(true);
-    setExportProgress(0);
-    setExportStatus('Building export file...');
+    setExportProgress(10);
+    setExportStatus('Preparing export...');
 
     try {
-      setExportProgress(30);
-      
-      const result = exportToFlashDrive(selectedExportIds);
+      const result = await exportCloudTemplatesToFlashDrive(
+        selectedExportIds,
+        (msg) => { setExportStatus(msg); setExportProgress(prev => Math.min(prev + 15, 85)); }
+      );
 
-      if (!result) {
+      if (!result || result.exportedTemplates.length === 0) {
         toast.error('Export failed - no data available');
         return;
       }
 
-      setExportProgress(70);
+      setExportProgress(90);
       setExportStatus('Creating file...');
 
-      // Generate filename based on templates
+      // Generate filename
       let filename = 'templates';
-      if (result.templates.length === 1) {
-        const t = result.templates[0];
+      if (result.exportedTemplates.length === 1) {
+        const t = result.exportedTemplates[0];
         const parts: string[] = [];
         if (t.inv_number) parts.push(t.inv_number.replace(/[^a-zA-Z0-9]/g, ''));
         if (t.facility_name) parts.push(t.facility_name.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_'));
-        if (parts.length > 0) {
-          filename = parts.join('_');
-        }
-      } else if (result.templates.length > 1) {
-        filename = `templates_${result.templates.length}_${new Date().toISOString().split('T')[0]}`;
+        if (parts.length > 0) filename = parts.join('_');
+      } else {
+        filename = `templates_${result.exportedTemplates.length}_${new Date().toISOString().split('T')[0]}`;
       }
 
-      // Create and download the file
       const blob = new Blob([new Uint8Array(result.data)], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -139,7 +153,7 @@ export function FlashDriveTransferDialog({
       
       const sizeStr = formatFileSize(result.data.length);
       const costItemCount = result.costItemCount?.toLocaleString() || '0';
-      toast.success(`Exported ${result.templates.length} template(s) (${costItemCount} cost items, ${sizeStr})`);
+      toast.success(`Exported ${result.exportedTemplates.length} template(s) (${costItemCount} cost items, ${sizeStr})`);
     } catch (err: any) {
       toast.error(err.message || 'Export failed');
     } finally {
@@ -166,11 +180,7 @@ export function FlashDriveTransferDialog({
       const result = await previewFlashDriveImport(file);
       
       if (result.success && result.templates) {
-        setImportPreview({
-          templates: result.templates,
-        });
-        // Select all by default
-        setSelectedImportIds(result.templates.map(t => t.id));
+        setImportPreview({ templates: result.templates });
       } else {
         toast.error(result.error || 'Failed to read file');
         setImportFile(null);
@@ -196,7 +206,6 @@ export function FlashDriveTransferDialog({
 
       if (result.success) {
         toast.success(`Imported ${result.imported} template(s) to this device`);
-        // Reset state
         setImportFile(null);
         setImportPreview(null);
         setSelectedImportIds([]);
@@ -214,15 +223,12 @@ export function FlashDriveTransferDialog({
 
   const handleToggleImportTemplate = (id: string) => {
     setSelectedImportIds(prev => 
-      prev.includes(id) 
-        ? prev.filter(x => x !== id)
-        : [...prev, id]
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     );
   };
 
   const handleSelectAllImport = () => {
     if (!importPreview) return;
-    
     if (selectedImportIds.length === importPreview.templates.length) {
       setSelectedImportIds([]);
     } else {
@@ -239,9 +245,7 @@ export function FlashDriveTransferDialog({
     setImportFile(null);
     setImportPreview(null);
     setSelectedImportIds([]);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   return (
@@ -271,14 +275,19 @@ export function FlashDriveTransferDialog({
 
           {/* Export Tab */}
           <TabsContent value="export" className="space-y-4 mt-4">
-            {offlineTemplates.length === 0 ? (
+            {isLoadingCloud ? (
+              <div className="flex items-center justify-center p-8 gap-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">Loading templates...</span>
+              </div>
+            ) : cloudTemplates.length === 0 ? (
               <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="h-4 w-4 text-destructive mt-0.5" />
                   <div>
-                    <p className="text-sm font-medium text-destructive">No templates on device</p>
+                    <p className="text-sm font-medium text-destructive">No templates available</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Download templates to your device first using "Download to Device".
+                      Upload templates first before exporting.
                     </p>
                   </div>
                 </div>
@@ -292,18 +301,18 @@ export function FlashDriveTransferDialog({
                     onClick={handleSelectAllExport}
                     disabled={isExporting}
                   >
-                    {selectedExportIds.length === offlineTemplates.length ? 'Deselect All' : 'Select All'}
+                    {selectedExportIds.length === cloudTemplates.length ? 'Deselect All' : 'Select All'}
                   </Button>
                   <span className="text-sm text-muted-foreground">
-                    {selectedExportIds.length} of {offlineTemplates.length} selected
+                    {selectedExportIds.length} of {cloudTemplates.length} selected
                   </span>
                 </div>
 
                 <ScrollArea className="h-[200px] border rounded-md p-2 bg-background">
                   <div className="space-y-1">
-                    {offlineTemplates.map(t => {
+                    {cloudTemplates.map(t => {
                       const isSelected = selectedExportIds.includes(t.id);
-                      const costCount = getTemplateCostItemCount(t.id);
+                      const isOnDevice = localCloudIds.has(t.id);
                       return (
                         <div
                           key={t.id}
@@ -314,23 +323,40 @@ export function FlashDriveTransferDialog({
                         >
                           <Checkbox
                             checked={isSelected}
-                            onCheckedChange={() => !isExporting && handleToggleExportTemplate(t.id)}
                             disabled={isExporting}
+                            onClick={(e) => e.stopPropagation()}
+                            onCheckedChange={() => !isExporting && handleToggleExportTemplate(t.id)}
                           />
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium truncate">{t.name}</p>
                             <p className="text-xs text-muted-foreground truncate">
                               {t.facility_name || 'No facility'}
                               {t.inv_date ? ` • ${new Date(t.inv_date).toLocaleDateString()}` : ''}
-                              {costCount > 0 ? ` • ${costCount.toLocaleString()} items` : ''}
                             </p>
                           </div>
-                          {isSelected && <Check className="h-4 w-4 text-primary shrink-0" />}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {isOnDevice ? (
+                              <Badge variant="secondary" className="text-xs gap-1 py-0">
+                                <Laptop className="h-3 w-3" />
+                                On Device
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-xs gap-1 py-0 text-muted-foreground">
+                                <Cloud className="h-3 w-3" />
+                                Cloud
+                              </Badge>
+                            )}
+                            {isSelected && <Check className="h-4 w-4 text-primary" />}
+                          </div>
                         </div>
                       );
                     })}
                   </div>
                 </ScrollArea>
+
+                <p className="text-xs text-muted-foreground">
+                  "On Device" templates export instantly. "Cloud" templates will be fetched during export.
+                </p>
               </div>
             )}
 
@@ -455,8 +481,9 @@ export function FlashDriveTransferDialog({
                           >
                             <Checkbox
                               checked={isSelected}
-                              onCheckedChange={() => !isImporting && handleToggleImportTemplate(template.id)}
                               disabled={isImporting}
+                              onClick={(e) => e.stopPropagation()}
+                              onCheckedChange={() => !isImporting && handleToggleImportTemplate(template.id)}
                             />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
