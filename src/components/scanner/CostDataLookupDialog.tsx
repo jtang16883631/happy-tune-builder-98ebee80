@@ -8,7 +8,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Search, Loader2, DollarSign, ArrowUpDown, Copy, Check } from 'lucide-react';
+import { Search, Loader2, DollarSign, Copy, Check } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -61,13 +61,12 @@ export function CostDataLookupDialog({
   templateId,
 }: CostDataLookupDialogProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [costItems, setCostItems] = useState<CostItem[]>([]);
   const [filteredItems, setFilteredItems] = useState<CostItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>('');
-  const [sortBySource, setSortBySource] = useState<'asc' | 'none'>('asc');
+  const [hasSearched, setHasSearched] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
     const initial: Record<string, number> = {};
@@ -79,13 +78,12 @@ export function CostDataLookupDialog({
   
   const resizingRef = useRef<{ key: string; startX: number; startWidth: number } | null>(null);
 
-  // Load cost items when dialog opens
-  const loadCostItems = useCallback(async () => {
+  // Load sheet tabs only (no data) when dialog opens
+  const loadSheetTabs = useCallback(async () => {
     if (!templateId) return;
     
     setIsLoading(true);
     try {
-      // Get total count
       const { count: totalItems } = await supabase
         .from('template_cost_items')
         .select('*', { count: 'exact', head: true })
@@ -93,7 +91,6 @@ export function CostDataLookupDialog({
       
       setTotalCount(totalItems || 0);
 
-      // Detect sheet tabs by walking forward lexicographically
       const sheetSet = new Set<string>();
       let lastSheet: string | null = null;
       const maxSheetsToDetect = 50;
@@ -120,30 +117,9 @@ export function CostDataLookupDialog({
 
       const uniqueSheets = Array.from(sheetSet).sort((a, b) => a.localeCompare(b));
       setSheetNames(uniqueSheets);
-
-      // Default to first sheet
-      const defaultSheet = uniqueSheets[0] || '';
-      setSelectedSheet(defaultSheet);
-
-      // Load data for the default sheet
-      let dataQuery = supabase
-        .from('template_cost_items')
-        .select('id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name')
-        .eq('template_id', templateId)
-        .order('ndc')
-        .limit(1000);
-
-      if (defaultSheet) {
-        dataQuery = dataQuery.eq('sheet_name', defaultSheet);
-      }
-
-      const { data, error } = await dataQuery;
-
-      if (error) throw error;
-      setCostItems(data || []);
-      setFilteredItems(data || []);
+      setSelectedSheet(uniqueSheets[0] || '');
     } catch (err) {
-      console.error('Error loading cost items:', err);
+      console.error('Error loading sheet tabs:', err);
     } finally {
       setIsLoading(false);
     }
@@ -151,86 +127,36 @@ export function CostDataLookupDialog({
 
   useEffect(() => {
     if (open && templateId) {
-      loadCostItems();
+      loadSheetTabs();
       setSearchQuery('');
+      setFilteredItems([]);
+      setHasSearched(false);
     }
-  }, [open, templateId, loadCostItems]);
+  }, [open, templateId, loadSheetTabs]);
 
-  // Filter items based on search query
-  useEffect(() => {
-    let items = [...costItems];
-
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      items = items.filter(item => 
-        (item.ndc && item.ndc.toLowerCase().includes(query)) ||
-        (item.generic && item.generic.toLowerCase().includes(query)) ||
-        (item.material_description && item.material_description.toLowerCase().includes(query)) ||
-        (item.manufacturer && item.manufacturer.toLowerCase().includes(query))
-      );
-    }
-
-    // Sort by source A-Z
-    if (sortBySource === 'asc') {
-      items.sort((a, b) => {
-        const sa = (a.source || '').toLowerCase();
-        const sb = (b.source || '').toLowerCase();
-        return sa.localeCompare(sb);
-      });
-    }
-
-    setFilteredItems(items);
-  }, [searchQuery, costItems, sortBySource]);
-
-  // Load data for a specific sheet tab
-  const loadSheetData = useCallback(async (sheetName: string) => {
-    if (!templateId) return;
-    
-    setIsLoading(true);
-    try {
-      let query = supabase
-        .from('template_cost_items')
-        .select('id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name')
-        .eq('template_id', templateId)
-        .order('ndc')
-        .limit(1000);
-
-      if (sheetName) {
-        query = query.eq('sheet_name', sheetName);
-      }
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-      setCostItems(data || []);
-      setFilteredItems(data || []);
-    } catch (err) {
-      console.error('Error loading sheet data:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [templateId]);
-
-  // Handle sheet tab click
+  // Handle sheet tab click - clear results, require new search
   const handleSheetChange = (sheet: string) => {
     setSelectedSheet(sheet);
     setSearchQuery('');
-    loadSheetData(sheet);
+    setFilteredItems([]);
+    setHasSearched(false);
   };
 
-  // Search in database for more results
+  // Search in database and auto-sort by source A-Z
   const handleDatabaseSearch = async () => {
     if (!templateId || !searchQuery.trim()) return;
     
     setIsLoading(true);
+    setHasSearched(true);
     try {
       const query = `%${searchQuery}%`;
       let dbQuery = supabase
         .from('template_cost_items')
         .select('id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name')
         .eq('template_id', templateId)
-        .or(`ndc.ilike.${query},generic.ilike.${query},material_description.ilike.${query}`)
-        .limit(100);
+        .or(`ndc.ilike.${query},generic.ilike.${query},material_description.ilike.${query},manufacturer.ilike.${query}`)
+        .order('source', { ascending: true, nullsFirst: false })
+        .limit(500);
 
       if (selectedSheet) {
         dbQuery = dbQuery.eq('sheet_name', selectedSheet);
@@ -372,18 +298,8 @@ export function CostDataLookupDialog({
                 autoFocus
               />
             </div>
-            <Button
-              variant={sortBySource === 'asc' ? 'default' : 'outline'}
-              size="sm"
-              className="whitespace-nowrap"
-              onClick={() => setSortBySource(prev => prev === 'asc' ? 'none' : 'asc')}
-              title="Sort by Source A-Z"
-            >
-              <ArrowUpDown className="h-4 w-4 mr-1" />
-              Source A-Z
-            </Button>
-            <Button onClick={handleDatabaseSearch} disabled={isLoading} variant="outline">
-              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search DB'}
+            <Button onClick={handleDatabaseSearch} disabled={isLoading || !searchQuery.trim()} variant="outline">
+              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
             </Button>
             <Button
               onClick={handleCopyAll}
@@ -393,7 +309,7 @@ export function CostDataLookupDialog({
               title="Copy all data including header to clipboard"
             >
               {isCopied ? (
-                <><Check className="h-4 w-4 mr-1 text-green-500" />Copied!</>
+                <><Check className="h-4 w-4 mr-1 text-primary" />Copied!</>
               ) : (
                 <><Copy className="h-4 w-4 mr-1" />Copy All</>
               )}
@@ -401,11 +317,14 @@ export function CostDataLookupDialog({
           </div>
 
           {/* Results count */}
-          <div className="text-sm text-muted-foreground">
-            Showing {filteredItems.length.toLocaleString()} items
-            {selectedSheet && ` in "${selectedSheet}"`}
-            {searchQuery && ` matching "${searchQuery}"`}
-          </div>
+          {hasSearched && (
+            <div className="text-sm text-muted-foreground">
+              Showing {filteredItems.length.toLocaleString()} results
+              {selectedSheet && ` in "${selectedSheet}"`}
+              {searchQuery && ` for "${searchQuery}"`}
+              {filteredItems.length > 0 && ' · sorted by Source A–Z'}
+            </div>
+          )}
 
           {/* Results table with resizable columns */}
           <ScrollArea className="h-[55vh] rounded-md border">
@@ -437,8 +356,14 @@ export function CostDataLookupDialog({
                     </tr>
                   ) : filteredItems.length === 0 ? (
                     <tr>
-                      <td colSpan={COLUMNS.length} className="text-center py-8 text-muted-foreground">
-                        {searchQuery ? 'No matching cost items found' : 'No cost data available'}
+                      <td colSpan={COLUMNS.length} className="text-center py-12 text-muted-foreground">
+                        {!hasSearched ? (
+                          <div className="flex flex-col items-center gap-2">
+                            <Search className="h-8 w-8 opacity-30" />
+                            <span>Type a search term and press Enter or click Search</span>
+                            <span className="text-xs opacity-60">Results are automatically sorted by Source A–Z</span>
+                          </div>
+                        ) : 'No matching cost items found'}
                       </td>
                     </tr>
                   ) : (
