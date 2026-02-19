@@ -31,6 +31,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { format, isToday, isTomorrow, isThisWeek, parseISO } from 'date-fns';
+import { useAuth } from '@/contexts/AuthContext';
+import { QuickClockPanel } from '@/components/timesheet/QuickClockPanel';
 
 interface ScanRecord {
   id: string;
@@ -52,6 +54,8 @@ interface TemplateStats {
 }
 
 export default function Dashboard() {
+  const { user, roles } = useAuth();
+  const isOfficeAdmin = roles.includes('office_admin' as any);
   const [templateStats, setTemplateStats] = useState<TemplateStats[]>([]);
   const [totalScans, setTotalScans] = useState(0);
   const [recentActivity, setRecentActivity] = useState<{ time: string; message: string }[]>([]);
@@ -193,6 +197,11 @@ export default function Dashboard() {
             </Link>
           </Button>
         </div>
+
+        {/* Quick Clock - Office Admin only */}
+        {isOfficeAdmin && user && (
+          <QuickClockPanel userId={user.id} />
+        )}
 
         {/* Stats Cards */}
         <div className="grid gap-4 md:grid-cols-3">

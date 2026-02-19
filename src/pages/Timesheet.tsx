@@ -738,7 +738,7 @@ export default function Timesheet() {
           </Card>
         )}
 
-        {/* Quick Clock Panel - Office Admin only */}
+        {/* Quick Clock Panel - Office Admin only (also on Dashboard) */}
         {isOfficeAdmin && user && !isLocked && (
           <QuickClockPanel
             userId={user.id}
