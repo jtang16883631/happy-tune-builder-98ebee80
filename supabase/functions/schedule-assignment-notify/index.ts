@@ -56,17 +56,17 @@ serve(async (req) => {
       throw new Error(`Event not found: ${eventError?.message}`);
     }
 
-    // Fetch profiles for the newly added members
-    const { data: profiles, error: profilesError } = await supabase
-      .from("profiles")
-      .select("id, full_name, first_name, last_name, email")
+    // Fetch team members (from team_members table, not profiles)
+    const { data: teamMembers, error: profilesError } = await supabase
+      .from("team_members")
+      .select("id, name, email")
       .in("id", addedMemberIds)
       .not("email", "is", null);
 
     if (profilesError) throw profilesError;
-    if (!profiles?.length) {
+    if (!teamMembers?.length) {
       return new Response(
-        JSON.stringify({ message: "No profiles with email found" }),
+        JSON.stringify({ message: "No team members with email found" }),
         { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
       );
     }
@@ -100,11 +100,8 @@ serve(async (req) => {
         : "Work Day";
 
     // Send emails to each newly added member
-    const emailPromises = profiles.map(async (profile: any) => {
-      const name =
-        profile.full_name ||
-        [profile.first_name, profile.last_name].filter(Boolean).join(" ") ||
-        "Team Member";
+    const emailPromises = teamMembers.map(async (profile: any) => {
+      const name = profile.name || "Team Member";
 
       const html = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #f9fafb; padding: 24px; border-radius: 8px;">
