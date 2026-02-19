@@ -8,7 +8,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Search, Loader2, DollarSign } from 'lucide-react';
+import { Search, Loader2, DollarSign, ArrowUpDown } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface CostItem {
@@ -44,14 +44,14 @@ const COLUMNS: ColumnDef[] = [
   { key: 'ndc', label: 'NDC', minWidth: 80, defaultWidth: 120 },
   { key: 'material_description', label: 'Product Description', minWidth: 150, defaultWidth: 250 },
   { key: 'unit_price', label: 'Invoice Price', minWidth: 80, defaultWidth: 100 },
-  { key: 'source', label: 'Source', minWidth: 60, defaultWidth: 80 },
+  { key: 'source', label: 'Source', minWidth: 60, defaultWidth: 100 },
+  { key: 'manufacturer', label: 'Manufacturer', minWidth: 100, defaultWidth: 150 },
   { key: 'material', label: 'ABC 6', minWidth: 60, defaultWidth: 80 },
   { key: 'billing_date', label: 'Invoice Date', minWidth: 80, defaultWidth: 100 },
-  { key: 'manufacturer', label: 'manu', minWidth: 80, defaultWidth: 120 },
-  { key: 'generic', label: 'generic', minWidth: 100, defaultWidth: 150 },
-  { key: 'strength', label: 'strength', minWidth: 60, defaultWidth: 80 },
-  { key: 'size', label: 'size', minWidth: 50, defaultWidth: 60 },
-  { key: 'dose', label: 'dose', minWidth: 50, defaultWidth: 60 },
+  { key: 'generic', label: 'Generic', minWidth: 100, defaultWidth: 150 },
+  { key: 'strength', label: 'Strength', minWidth: 60, defaultWidth: 80 },
+  { key: 'size', label: 'Size', minWidth: 50, defaultWidth: 60 },
+  { key: 'dose', label: 'Dose', minWidth: 50, defaultWidth: 60 },
 ];
 
 export function CostDataLookupDialog({
@@ -66,6 +66,7 @@ export function CostDataLookupDialog({
   const [totalCount, setTotalCount] = useState(0);
   const [sheetNames, setSheetNames] = useState<string[]>([]);
   const [selectedSheet, setSelectedSheet] = useState<string>('all');
+  const [sortBySource, setSortBySource] = useState<'asc' | 'none'>('asc');
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
     const initial: Record<string, number> = {};
     COLUMNS.forEach(col => {
@@ -150,7 +151,7 @@ export function CostDataLookupDialog({
 
   // Filter items based on search query and selected sheet
   useEffect(() => {
-    let items = costItems;
+    let items = [...costItems];
 
     // Filter by sheet
     if (selectedSheet !== 'all') {
@@ -168,8 +169,17 @@ export function CostDataLookupDialog({
       );
     }
 
+    // Sort by source A-Z
+    if (sortBySource === 'asc') {
+      items.sort((a, b) => {
+        const sa = (a.source || '').toLowerCase();
+        const sb = (b.source || '').toLowerCase();
+        return sa.localeCompare(sb);
+      });
+    }
+
     setFilteredItems(items);
-  }, [searchQuery, costItems, selectedSheet]);
+  }, [searchQuery, costItems, selectedSheet, sortBySource]);
 
   // Load data for specific sheet when tab is selected
   const loadSheetData = useCallback(async (sheetName: string) => {
@@ -346,6 +356,16 @@ export function CostDataLookupDialog({
                 autoFocus
               />
             </div>
+            <Button
+              variant={sortBySource === 'asc' ? 'default' : 'outline'}
+              size="sm"
+              className="whitespace-nowrap"
+              onClick={() => setSortBySource(prev => prev === 'asc' ? 'none' : 'asc')}
+              title="Sort by Source A-Z"
+            >
+              <ArrowUpDown className="h-4 w-4 mr-1" />
+              Source A-Z
+            </Button>
             <Button onClick={handleDatabaseSearch} disabled={isLoading}>
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search DB'}
             </Button>
