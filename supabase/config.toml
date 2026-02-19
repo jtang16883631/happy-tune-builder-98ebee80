@@ -17,3 +17,9 @@ verify_jwt = false
 
 [functions.live-tracker-sheets-sync]
 verify_jwt = false
+
+[functions.schedule-assignment-notify]
+verify_jwt = false
+
+[functions.timesheet-reminder]
+verify_jwt = false
