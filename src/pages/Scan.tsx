@@ -63,6 +63,8 @@ interface ScanRow {
   ndc: string;
   scannedNdc: string;
   qty: number | null;
+  expirationDate: string;
+  lotNumber: string;
   misDivisor: number | null;
   misCountMethod: string;
   itemNumber: string;
@@ -105,7 +107,7 @@ const Scan = () => {
   // Column visibility state - hide the new columns by default except REC
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set([
     'device', 'trade', 'generic', 'strength', 'sizeTxt', 'doseForm', 
-    'genericCode', 'deaClass', 'ahfs'
+    'genericCode', 'deaClass', 'ahfs', 'expirationDate', 'lotNumber'
   ]));
   
   // Column widths state for resizable columns
@@ -280,6 +282,8 @@ const Scan = () => {
     ndc: '',
     scannedNdc: '',
     qty: null,
+    expirationDate: '',
+    lotNumber: '',
     misDivisor: null,
     misCountMethod: '',
     itemNumber: '',
@@ -2611,6 +2615,8 @@ const Scan = () => {
     { key: 'scannedNdc', label: 'Priced NDC/UPC', editable: true, isNdcInput: true },
     { key: 'ndc', label: 'Original NDC', editable: true, isNdcInput: true },
     { key: 'qty', label: 'QTY', editable: true, type: 'number' },
+    { key: 'expirationDate', label: 'Expiration Date', editable: true, hideable: true },
+    { key: 'lotNumber', label: 'Lot #', editable: true, hideable: true },
     { key: 'misDivisor', label: 'MIS Divisor', editable: true, type: 'number' },
     { key: 'misCountMethod', label: 'MIS Count Method', editable: true },
     { key: 'itemNumber', label: 'Item Number', editable: true },

@@ -183,20 +183,6 @@ export default function Dashboard() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        {/* Page Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Dashboard Overview</h1>
-            <p className="text-muted-foreground">Monitor audit progress and field activities</p>
-          </div>
-          <Button className="gap-2" asChild>
-            <Link to="/data-template">
-              <Plus className="h-4 w-4" />
-              New Template
-            </Link>
-          </Button>
-        </div>
-
         {/* Quick Clock - available to all users */}
         {user && (
           <QuickClockPanel userId={user.id} />
