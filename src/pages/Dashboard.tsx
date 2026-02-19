@@ -54,8 +54,7 @@ interface TemplateStats {
 }
 
 export default function Dashboard() {
-  const { user, roles } = useAuth();
-  const isOfficeAdmin = roles.includes('office_admin' as any);
+  const { user } = useAuth();
   const [templateStats, setTemplateStats] = useState<TemplateStats[]>([]);
   const [totalScans, setTotalScans] = useState(0);
   const [recentActivity, setRecentActivity] = useState<{ time: string; message: string }[]>([]);
@@ -198,8 +197,8 @@ export default function Dashboard() {
           </Button>
         </div>
 
-        {/* Quick Clock - Office Admin only */}
-        {isOfficeAdmin && user && (
+        {/* Quick Clock - available to all users */}
+        {user && (
           <QuickClockPanel userId={user.id} />
         )}
 
