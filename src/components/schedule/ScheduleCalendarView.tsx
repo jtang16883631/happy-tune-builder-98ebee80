@@ -2,9 +2,10 @@ import { useState, useMemo } from 'react';
 import {
   format,
   eachDayOfInterval,
-  addDays,
-  subDays,
-  parseISO,
+  startOfMonth,
+  endOfMonth,
+  addMonths,
+  subMonths,
   isSameDay,
 } from 'date-fns';
 import { Card, CardContent } from '@/components/ui/card';
@@ -23,9 +24,7 @@ import {
   ChevronLeft,
   ChevronRight,
   MapPin,
-  Users,
   Briefcase,
-  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -47,16 +46,15 @@ export function ScheduleCalendarView({
   onSelectDate,
   onEditEvent,
 }: ScheduleCalendarViewProps) {
-  const [startDate, setStartDate] = useState(() => new Date());
+  const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [selectedEvent, setSelectedEvent] = useState<ScheduleEvent | null>(null);
-  const numDays = 10;
 
   const days = useMemo(() => {
     return eachDayOfInterval({
-      start: startDate,
-      end: addDays(startDate, numDays - 1),
+      start: startOfMonth(currentMonth),
+      end: endOfMonth(currentMonth),
     });
-  }, [startDate]);
+  }, [currentMonth]);
 
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
@@ -77,14 +75,14 @@ export function ScheduleCalendarView({
     );
 
     if (memberEvents.length === 0) {
-      return { type: 'all', label: 'ALL', events: [] };
+      return { type: 'none', label: '', events: [] };
     }
 
     // Check for travel events
     const travelEvent = memberEvents.find(e => e.event_type === 'travel' || e.is_travel_day);
     if (travelEvent) {
       const locationLabel = travelEvent.location_to 
-        ? travelEvent.location_to.split(',')[0].slice(0, 10)
+        ? travelEvent.location_to.split(',')[0].slice(0, 8)
         : 'Travel';
       return { type: 'travel', label: locationLabel, events: memberEvents };
     }
@@ -92,7 +90,7 @@ export function ScheduleCalendarView({
     // Check for work events
     const workEvent = memberEvents.find(e => e.event_type === 'work');
     if (workEvent) {
-      return { type: 'work', label: 'ALL', events: memberEvents };
+      return { type: 'work', label: workEvent.client_name?.slice(0, 8) || 'Work', events: memberEvents };
     }
 
     // Check for off events
@@ -101,11 +99,11 @@ export function ScheduleCalendarView({
       return { type: 'off', label: 'OFF', events: memberEvents };
     }
 
-    return { type: 'all', label: 'ALL', events: memberEvents };
+    return { type: 'none', label: '', events: memberEvents };
   };
 
-  const handlePrev = () => setStartDate(subDays(startDate, numDays));
-  const handleNext = () => setStartDate(addDays(startDate, numDays));
+  const handlePrev = () => setCurrentMonth(subMonths(currentMonth, 1));
+  const handleNext = () => setCurrentMonth(addMonths(currentMonth, 1));
 
   return (
     <>
@@ -113,12 +111,15 @@ export function ScheduleCalendarView({
         <CardContent className="p-0">
           <ScrollArea className="w-full">
             <div className="min-w-max">
-              {/* Header Row - Dates */}
-              <div className="flex border-b">
-                <div className="w-24 shrink-0 p-3 font-medium text-muted-foreground border-r bg-muted/30 flex items-center justify-between">
+              {/* Month Navigation Header */}
+              <div className="flex border-b sticky top-0 z-10 bg-background">
+                <div className="w-28 shrink-0 p-3 border-r bg-muted/30 flex items-center justify-between">
                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handlePrev}>
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
+                  <span className="text-xs font-semibold text-center leading-tight">
+                    {format(currentMonth, 'MMM yyyy')}
+                  </span>
                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={handleNext}>
                     <ChevronRight className="h-4 w-4" />
                   </Button>
@@ -130,19 +131,19 @@ export function ScheduleCalendarView({
                     <div
                       key={format(day, 'yyyy-MM-dd')}
                       className={cn(
-                        'w-20 shrink-0 p-2 text-center border-r',
+                        'w-16 shrink-0 p-1.5 text-center border-r',
                         isWeekend && 'bg-muted/50',
                         isToday && 'bg-primary/10'
                       )}
                     >
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-[10px] text-muted-foreground">
                         {format(day, 'EEE')}
                       </div>
                       <div className={cn(
-                        'text-sm font-medium',
-                        isToday && 'text-primary'
+                        'text-xs font-medium',
+                        isToday && 'text-primary font-bold'
                       )}>
-                        {format(day, 'MMM d')}
+                        {format(day, 'd')}
                       </div>
                     </div>
                   );
@@ -152,7 +153,7 @@ export function ScheduleCalendarView({
               {/* Team Member Rows */}
               {teamMembers.map((member) => (
                 <div key={member.id} className="flex border-b hover:bg-muted/10">
-                  <div className="w-24 shrink-0 p-2 font-medium border-r flex items-center bg-muted/20">
+                  <div className="w-28 shrink-0 p-2 font-medium border-r flex items-center bg-muted/20">
                     <span className="truncate text-sm">{member.name.split(' ')[0]}</span>
                   </div>
                   {days.map((day) => {
@@ -164,7 +165,7 @@ export function ScheduleCalendarView({
                       <div
                         key={format(day, 'yyyy-MM-dd')}
                         className={cn(
-                          'w-20 shrink-0 p-1 border-r flex items-center justify-center cursor-pointer hover:bg-muted/30',
+                          'w-16 shrink-0 p-0.5 border-r flex items-center justify-center cursor-pointer hover:bg-muted/30 min-h-[36px]',
                           isWeekend && 'bg-muted/20',
                           isToday && 'bg-primary/5'
                         )}
@@ -176,18 +177,19 @@ export function ScheduleCalendarView({
                           }
                         }}
                       >
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            'text-[10px] font-medium cursor-pointer transition-colors px-2 py-0.5',
-                            status.type === 'all' && 'bg-primary text-primary-foreground border-primary hover:bg-primary/90',
-                            status.type === 'travel' && 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900 dark:text-amber-200 hover:bg-amber-200',
-                            status.type === 'work' && 'bg-primary text-primary-foreground border-primary hover:bg-primary/90',
-                            status.type === 'off' && 'bg-slate-200 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300'
-                          )}
-                        >
-                          {status.label}
-                        </Badge>
+                        {status.type !== 'none' && (
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              'text-[9px] font-medium cursor-pointer transition-colors px-1 py-0 truncate max-w-[56px]',
+                              status.type === 'travel' && 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-900 dark:text-amber-200',
+                              status.type === 'work' && 'bg-primary text-primary-foreground border-primary hover:bg-primary/90',
+                              status.type === 'off' && 'bg-muted text-muted-foreground border-border'
+                            )}
+                          >
+                            {status.label}
+                          </Badge>
+                        )}
                       </div>
                     );
                   })}
@@ -198,26 +200,21 @@ export function ScheduleCalendarView({
           </ScrollArea>
 
           {/* Legend */}
-          <div className="flex items-center gap-4 p-3 border-t bg-muted/20">
+          <div className="flex items-center gap-4 p-3 border-t bg-muted/20 flex-wrap">
             <span className="text-xs text-muted-foreground font-medium">Legend:</span>
             <div className="flex items-center gap-1">
-              <Badge className="bg-primary text-primary-foreground text-[10px] px-2 py-0">
-                ALL
-              </Badge>
-              <span className="text-xs text-muted-foreground">Assigned</span>
+              <Badge className="bg-primary text-primary-foreground text-[10px] px-2 py-0">Work</Badge>
+              <span className="text-xs text-muted-foreground">Working</span>
             </div>
             <div className="flex items-center gap-1">
-              <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] px-2 py-0">
-                Travel
-              </Badge>
+              <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] px-2 py-0">Travel</Badge>
               <span className="text-xs text-muted-foreground">Traveling</span>
             </div>
             <div className="flex items-center gap-1">
-              <Badge variant="outline" className="bg-slate-200 text-slate-600 border-slate-300 text-[10px] px-2 py-0">
-                OFF
-              </Badge>
+              <Badge variant="outline" className="bg-muted text-muted-foreground border-border text-[10px] px-2 py-0">OFF</Badge>
               <span className="text-xs text-muted-foreground">Off</span>
             </div>
+            <span className="text-xs text-muted-foreground ml-auto">Click any cell to add/view event</span>
           </div>
         </CardContent>
       </Card>
