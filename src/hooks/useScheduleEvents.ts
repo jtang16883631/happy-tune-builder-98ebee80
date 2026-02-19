@@ -363,9 +363,7 @@ export function useScheduleEventMutation(teamMembers: TeamMember[] = []) {
       }
 
       // Fire-and-forget: notify newly added team members
-      console.log('[Notify] eventId:', eventId, 'team_members:', payload.team_members, 'previous:', previousTeamMemberIds);
       if (eventId && payload.team_members && payload.team_members.length > 0) {
-        console.log('[Notify] Invoking schedule-assignment-notify...');
         supabase.functions.invoke('schedule-assignment-notify', {
           body: {
             eventId,
@@ -373,10 +371,18 @@ export function useScheduleEventMutation(teamMembers: TeamMember[] = []) {
             previousTeamMemberIds,
           },
         }).then((res) => {
-          console.log('[Notify] Response:', res);
-        }).catch((err) => console.warn('[Notify] Failed:', err));
-      } else {
-        console.log('[Notify] Skipped: no team members or no eventId');
+          if (res.error) {
+            console.error('[Notify] Edge function error:', res.error);
+          } else {
+            const sent = res.data?.results?.filter((r: any) => r.success).length ?? 0;
+            const newAdded = (payload.team_members || []).filter(
+              (id: string) => !previousTeamMemberIds.includes(id)
+            ).length;
+            if (newAdded > 0 && sent > 0) {
+              toast({ title: `📧 ${sent} team member(s) notified by email` });
+            }
+          }
+        }).catch((err) => console.error('[Notify] Failed:', err));
       }
 
       return { jobDate: payload.job_date };
