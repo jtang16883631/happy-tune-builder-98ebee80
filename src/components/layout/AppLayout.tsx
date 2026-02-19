@@ -373,7 +373,7 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
           </Button>
         )}
         
-        <main className={cn("p-6", hideNavigation ? "pt-4" : "pt-16", fullWidth ? "" : "max-w-7xl mx-auto")}>{children}</main>
+        <main className={cn(hideNavigation ? "p-0 h-screen flex flex-col overflow-hidden" : cn("p-6 pt-16", fullWidth ? "" : "max-w-7xl mx-auto"))}>{children}</main>
       </div>
     </div>
     </>

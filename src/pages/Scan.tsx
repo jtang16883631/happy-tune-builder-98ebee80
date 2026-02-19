@@ -1649,6 +1649,98 @@ const Scan = () => {
   // State for cloud sync
   const [isSyncingScans, setIsSyncingScans] = useState(false);
   const [isExportingMerged, setIsExportingMerged] = useState(false);
+  
+  // Track previous online state to detect offline→online transitions
+  const prevIsOnlineRef = useRef<boolean>(isOnline);
+
+  // Auto-sync scans when coming back online (offline→online transition)
+  useEffect(() => {
+    const wasOffline = !prevIsOnlineRef.current;
+    const isNowOnline = isOnline;
+    prevIsOnlineRef.current = isOnline;
+
+    // Only fire when transitioning from offline to online AND we have a selected template
+    if (wasOffline && isNowOnline && selectedTemplate && user?.id && sections.length > 0) {
+      // Small delay to let the connection stabilize
+      const timer = setTimeout(async () => {
+        const hasAnyScanData = sections.some(section => {
+          const data = localStorage.getItem(`scan_records_${selectedTemplate.id}_${section.id}`);
+          if (!data) return false;
+          try {
+            const records = JSON.parse(data) as ScanRow[];
+            return records.some(r => r.ndc || r.scannedNdc);
+          } catch { return false; }
+        });
+
+        if (hasAnyScanData) {
+          toast.info('Back online — syncing your offline scans...', { duration: 3000 });
+          await syncScansToCloudInternal(selectedTemplate, sections, user.id);
+        }
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [isOnline, selectedTemplate, sections, user?.id]);
+
+  // Internal sync function (does not depend on state that changes during sync)
+  const syncScansToCloudInternal = useCallback(async (
+    template: CloudTemplate,
+    sectionList: CloudSection[],
+    userId: string
+  ) => {
+    setIsSyncingScans(true);
+    try {
+      let totalSynced = 0;
+
+      for (const section of sectionList) {
+        const savedData = localStorage.getItem(`scan_records_${template.id}_${section.id}`);
+        if (!savedData) continue;
+
+        try {
+          const savedRecords = JSON.parse(savedData) as ScanRow[];
+          const validRecords = savedRecords.filter(r => r.ndc || r.scannedNdc);
+          if (validRecords.length === 0) continue;
+
+          await supabase
+            .from('scan_records')
+            .delete()
+            .eq('template_id', template.id)
+            .eq('section_id', section.id)
+            .eq('user_id', userId);
+
+          const recordsToInsert = validRecords.map(r => ({
+            template_id: template.id,
+            section_id: section.id,
+            user_id: userId,
+            loc: r.loc, device: r.device, rec: r.rec, time: r.time,
+            ndc: r.ndc, scanned_ndc: r.scannedNdc, qty: r.qty,
+            mis_divisor: r.misDivisor, mis_count_method: r.misCountMethod,
+            item_number: r.itemNumber, med_desc: r.medDesc, meridian_desc: r.meridianDesc,
+            trade: r.trade, generic: r.generic, strength: r.strength,
+            pack_sz: r.packSz, fda_size: r.fdaSize, size_txt: r.sizeTxt,
+            dose_form: r.doseForm, manufacturer: r.manufacturer, generic_code: r.genericCode,
+            dea_class: r.deaClass, ahfs: r.ahfs, source: r.source,
+            pack_cost: r.packCost, unit_cost: r.unitCost, extended: r.extended,
+            blank: r.blank, sheet_type: r.sheetType, audit_criteria: r.auditCriteria,
+            original_qty: r.originalQty, auditor_initials: r.auditorInitials,
+            results: r.results, additional_notes: r.additionalNotes,
+          }));
+
+          const { error } = await supabase.from('scan_records').insert(recordsToInsert);
+          if (!error) totalSynced += validRecords.length;
+        } catch (e) {
+          console.error('Error syncing section:', section.id, e);
+        }
+      }
+
+      if (totalSynced > 0) {
+        toast.success(`Auto-synced ${totalSynced} offline scan records to cloud`);
+      }
+    } catch (error) {
+      console.error('Auto-sync error:', error);
+    } finally {
+      setIsSyncingScans(false);
+    }
+  }, []);
 
   // Sync local scans to cloud database
   const syncScansToCloud = useCallback(async () => {
@@ -2844,9 +2936,9 @@ const Scan = () => {
   // Scan View (Excel-like with horizontal scroll)
   return (
     <AppLayout fullWidth hideNavigation>
-      <div className="space-y-4 w-full" style={{ fontFamily: 'Arial, sans-serif' }}>
+      <div className="flex flex-col h-full overflow-hidden p-3 gap-2 w-full" style={{ fontFamily: 'Arial, sans-serif' }}>
         {/* Header with back button */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 shrink-0">
           <Button 
             variant="ghost" 
             size="icon"
@@ -2935,8 +3027,8 @@ const Scan = () => {
 
         {/* Section required warning - only show on scan tab */}
         {!selectedSection && activeTab === 'scan' && (
-          <Card className="border-warning bg-warning/10">
-            <CardContent className="py-3 flex items-center gap-2">
+          <Card className="border-warning bg-warning/10 shrink-0">
+            <CardContent className="py-2 flex items-center gap-2">
               <AlertCircle className="h-4 w-4 text-warning" />
               <span className="text-sm">Please select a Section first to start scanning</span>
             </CardContent>
@@ -2944,8 +3036,8 @@ const Scan = () => {
         )}
 
         {/* Tabs for Scan and Summary */}
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'scan' | 'summary')} className="w-full">
-          <TabsList className="mb-4">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'scan' | 'summary')} className="flex-1 flex flex-col min-h-0">
+          <TabsList className="shrink-0">
             <TabsTrigger value="scan" className="gap-2">
               <ScanBarcode className="h-4 w-4" />
               Scan
@@ -2956,12 +3048,12 @@ const Scan = () => {
             </TabsTrigger>
           </TabsList>
           
-          <TabsContent value="scan" className="mt-0">
+          <TabsContent value="scan" className="flex-1 flex flex-col min-h-0 mt-2">
             {/* Scan Input */}
-            <Card className="w-full">
-              <CardContent className="p-4">
+            <Card className="w-full flex-1 flex flex-col min-h-0">
+              <CardContent className="p-3 flex-1 flex flex-col min-h-0">
                 {/* Toolbar - search and buttons on left */}
-            <div className="flex items-center gap-2 mb-4 flex-wrap">
+            <div className="flex items-center gap-2 mb-2 flex-wrap shrink-0">
               {/* Search on left */}
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -3085,7 +3177,7 @@ const Scan = () => {
 
              {/* Excel-style Formula Bar */}
             {selectedSection && (
-              <div className="flex items-center border rounded-md mb-2 bg-card overflow-hidden sticky top-0 z-30">
+              <div className="flex items-center border rounded-md mb-1 bg-card overflow-hidden shrink-0">
                 <div className="flex items-center gap-1.5 px-3 py-1.5 bg-muted/50 border-r min-w-[100px] shrink-0">
                   <span className="text-xs font-mono font-semibold text-muted-foreground">
                     {activeColKey && activeRowIndex >= 0
@@ -3146,7 +3238,7 @@ const Scan = () => {
             )}
 
             {/* Excel-like Table with horizontal scroll */}
-            <ScrollArea className="w-full whitespace-nowrap rounded-lg border relative">
+            <ScrollArea className="flex-1 min-h-0 whitespace-nowrap rounded-lg border relative">
               {/* Overlay when no section selected */}
               {!selectedSection && (
                 <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-20 flex items-center justify-center">
