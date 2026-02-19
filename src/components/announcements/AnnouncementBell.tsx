@@ -42,6 +42,7 @@ export function AnnouncementBell() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [newAnnouncement, setNewAnnouncement] = useState({ title: '', content: '' });
+  const [selectedAnnouncement, setSelectedAnnouncement] = useState<Announcement | null>(null);
 
   const fetchAnnouncements = async () => {
     if (!user) return;
@@ -252,7 +253,11 @@ export function AnnouncementBell() {
                     className={`p-3 cursor-pointer hover:bg-muted/50 transition-colors ${
                       !announcement.is_read ? 'bg-primary/5' : ''
                     }`}
-                    onClick={() => markAsRead(announcement.id)}
+                    onClick={() => {
+                      markAsRead(announcement.id);
+                      setIsOpen(false);
+                      setSelectedAnnouncement(announcement);
+                    }}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
@@ -297,6 +302,27 @@ export function AnnouncementBell() {
           </ScrollArea>
         </PopoverContent>
       </Popover>
+
+      {/* Announcement Detail Dialog */}
+      <Dialog open={!!selectedAnnouncement} onOpenChange={(open) => !open && setSelectedAnnouncement(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{selectedAnnouncement?.title}</DialogTitle>
+            <DialogDescription>
+              {selectedAnnouncement?.creator_name && (
+                <span className="font-medium">{selectedAnnouncement.creator_name} · </span>
+              )}
+              {selectedAnnouncement?.created_at && formatDistanceToNow(new Date(selectedAnnouncement.created_at), { addSuffix: true })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm whitespace-pre-wrap">{selectedAnnouncement?.content}</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSelectedAnnouncement(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Create Announcement Dialog */}
       <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
