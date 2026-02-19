@@ -111,47 +111,37 @@ export function QuickClockPanel({ userId, onSaved }: QuickClockPanelProps) {
       if (clockInEntry) {
         setIsSaving(true);
         try {
-          const hours = calcHours(clockInEntry.time, time, lunchStartEntry?.time, lunchEndEntry?.time);
-          const breakMins = lunchStartEntry && lunchEndEntry
-            ? Math.round(
-                (new Date(`2000-01-01T${lunchEndEntry.time}`).getTime() -
-                 new Date(`2000-01-01T${lunchStartEntry.time}`).getTime()) / 60000
-              )
-            : 0;
-
-          // Fetch existing quick-clock entries for today (can't delete as office_admin)
-          const { data: existing } = await supabase
+          // Delete all existing quick-clock draft entries for today (now allowed via RLS)
+          await supabase
             .from("timesheet_entries")
-            .select("id, client_name")
+            .delete()
             .eq("user_id", userId)
             .eq("work_date", todayKey)
+            .eq("status", "draft")
             .in("notes", ["Quick clock", "Lunch"]);
 
-          const existingWork = existing?.find((e) => e.client_name === "office");
-          const existingLunch = existing?.find((e) => e.client_name === "lunch");
+          const hours = calcHours(clockInEntry.time, time, lunchStartEntry?.time, lunchEndEntry?.time);
+          const entriesToInsert: any[] = [
+            {
+              user_id: userId,
+              work_date: todayKey,
+              start_time: clockInEntry.time,
+              end_time: time,
+              hours_worked: hours,
+              break_minutes: lunchStartEntry && lunchEndEntry
+                ? Math.round(
+                    (new Date(`2000-01-01T${lunchEndEntry.time}`).getTime() -
+                     new Date(`2000-01-01T${lunchStartEntry.time}`).getTime()) / 60000
+                  )
+                : 0,
+              client_name: "office",
+              notes: "Quick clock",
+              status: "draft",
+            },
+          ];
 
-          // Upsert work entry
-          const workPayload = {
-            user_id: userId,
-            work_date: todayKey,
-            start_time: clockInEntry.time,
-            end_time: time,
-            hours_worked: hours,
-            break_minutes: breakMins,
-            client_name: "office",
-            notes: "Quick clock",
-            status: "draft",
-          };
-
-          if (existingWork) {
-            await supabase.from("timesheet_entries").update(workPayload).eq("id", existingWork.id);
-          } else {
-            await supabase.from("timesheet_entries").insert(workPayload);
-          }
-
-          // Upsert lunch entry if applicable
           if (lunchStartEntry && lunchEndEntry) {
-            const lunchPayload = {
+            entriesToInsert.push({
               user_id: userId,
               work_date: todayKey,
               start_time: lunchStartEntry.time,
@@ -161,14 +151,11 @@ export function QuickClockPanel({ userId, onSaved }: QuickClockPanelProps) {
               client_name: "lunch",
               notes: "Lunch",
               status: "draft",
-            };
-            if (existingLunch) {
-              await supabase.from("timesheet_entries").update(lunchPayload).eq("id", existingLunch.id);
-            } else {
-              await supabase.from("timesheet_entries").insert(lunchPayload);
-            }
+            });
           }
 
+          const { error } = await supabase.from("timesheet_entries").insert(entriesToInsert);
+          if (error) throw error;
           toast({ title: "Clocked Out ✓", description: "Timesheet saved as draft automatically" });
           onSaved?.();
         } catch (err: any) {
