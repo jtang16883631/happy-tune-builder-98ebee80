@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { 
   Activity, 
   AlertTriangle, 
@@ -16,7 +17,8 @@ import {
   Loader2,
   CalendarDays,
   AlertCircle,
-  MapPin
+  MapPin,
+  Users
 } from 'lucide-react';
 import {
   Table,
@@ -54,7 +56,7 @@ interface TemplateStats {
 }
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, onlineUsers, isOnline: checkIsOnline } = useAuth();
   const [templateStats, setTemplateStats] = useState<TemplateStats[]>([]);
   const [totalScans, setTotalScans] = useState(0);
   const [recentActivity, setRecentActivity] = useState<{ time: string; message: string }[]>([]);
@@ -327,36 +329,42 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          {/* Activity Feed */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Recent Activity</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {isLoading ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-              ) : recentActivity.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Activity className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p>No recent activity</p>
-                </div>
-              ) : (
-                recentActivity.map((activity, index) => (
-                  <div key={index} className="flex gap-3 text-sm">
-                    <div className="flex-shrink-0 mt-1">
-                      <div className="h-2 w-2 rounded-full bg-primary" />
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">{activity.time}</span>
-                      <p className="text-muted-foreground mt-0.5">{activity.message}</p>
-                    </div>
+          {/* Right column: Activity + Online */}
+          <div className="space-y-6">
+            {/* Who's Online */}
+            <OnlineUsersCard onlineUsers={onlineUsers} currentUserId={user?.id} />
+
+            {/* Activity Feed */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Recent Activity</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+                ) : recentActivity.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Activity className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>No recent activity</p>
+                  </div>
+                ) : (
+                  recentActivity.map((activity, index) => (
+                    <div key={index} className="flex gap-3 text-sm">
+                      <div className="flex-shrink-0 mt-1">
+                        <div className="h-2 w-2 rounded-full bg-primary" />
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">{activity.time}</span>
+                        <p className="text-muted-foreground mt-0.5">{activity.message}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
 
         {/* Quick Actions */}
@@ -401,6 +409,78 @@ export default function Dashboard() {
         </Card>
       </div>
     </AppLayout>
+  );
+}
+
+// Who's Online Card Component
+function OnlineUsersCard({ onlineUsers, currentUserId }: { onlineUsers: Set<string>; currentUserId?: string }) {
+  const { data: profiles } = useQuery({
+    queryKey: ['online-profiles', Array.from(onlineUsers).sort().join(',')],
+    queryFn: async () => {
+      if (onlineUsers.size === 0) return [];
+      const ids = Array.from(onlineUsers);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url')
+        .in('id', ids);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: onlineUsers.size > 0,
+    staleTime: 30000,
+  });
+
+  const getInitials = (name?: string | null) => {
+    if (!name) return 'U';
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg flex items-center gap-2">
+          <Users className="h-5 w-5" />
+          Who's Online
+          <Badge variant="secondary" className="ml-auto">
+            {onlineUsers.size}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {onlineUsers.size === 0 ? (
+          <div className="text-center py-4 text-muted-foreground text-sm">
+            No one else is online right now
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {(profiles || []).map((profile) => (
+              <div key={profile.id} className="flex items-center gap-3">
+                <div className="relative">
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage src={profile.avatar_url || undefined} />
+                    <AvatarFallback className="text-xs bg-primary text-primary-foreground">
+                      {getInitials(profile.full_name)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-background" />
+                </div>
+                <span className="text-sm font-medium">
+                  {profile.full_name || 'User'}
+                  {profile.id === currentUserId && (
+                    <span className="text-xs text-muted-foreground ml-1">(you)</span>
+                  )}
+                </span>
+              </div>
+            ))}
+            {onlineUsers.size > (profiles?.length || 0) && (
+              <p className="text-xs text-muted-foreground">
+                +{onlineUsers.size - (profiles?.length || 0)} more
+              </p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
