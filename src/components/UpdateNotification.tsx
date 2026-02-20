@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Download, RefreshCw, Sparkles, X } from 'lucide-react';
+import { Download, RefreshCw, Sparkles, X, ArrowUpCircle } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
 
 // Extend Window interface for Electron API
 declare global {
@@ -26,15 +27,33 @@ export function UpdateNotification() {
   const [updateStatus, setUpdateStatus] = useState<string>('');
   const [isElectron, setIsElectron] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  // "justUpdated" fires when we detect the app version is newer than last seen
   const [justUpdated, setJustUpdated] = useState(false);
   const [displayVersion, setDisplayVersion] = useState(BUILD_VERSION);
+  // New version available from DB (web refresh prompt)
+  const [newVersionAvailable, setNewVersionAvailable] = useState<string | null>(null);
+  const [newVersionDismissed, setNewVersionDismissed] = useState(false);
+
+  // Poll DB for newer version every 5 minutes
+  const checkDbVersion = useCallback(async () => {
+    try {
+      const { data } = await supabase
+        .from('changelog_entries')
+        .select('version, release_date')
+        .order('release_date', { ascending: false })
+        .limit(1)
+        .single();
+      if (data?.version && data.version !== BUILD_VERSION) {
+        setNewVersionAvailable(data.version);
+      }
+    } catch {
+      // silently ignore
+    }
+  }, []);
 
   useEffect(() => {
     const isElectronEnv = !!window.electronAPI;
     setIsElectron(isElectronEnv);
 
-    // Determine current version
     const resolveVersion = async () => {
       let currentVersion = BUILD_VERSION;
 
@@ -48,13 +67,10 @@ export function UpdateNotification() {
 
       setDisplayVersion(currentVersion);
 
-      // Compare with what the user last saw
       const lastSeen = localStorage.getItem(LAST_SEEN_VERSION_KEY);
       if (!lastSeen) {
-        // First ever launch — just save the version, no banner
         localStorage.setItem(LAST_SEEN_VERSION_KEY, currentVersion);
       } else if (lastSeen !== currentVersion) {
-        // Version changed → show "just updated" banner
         setJustUpdated(true);
         localStorage.setItem(LAST_SEEN_VERSION_KEY, currentVersion);
       }
@@ -62,23 +78,28 @@ export function UpdateNotification() {
 
     resolveVersion();
 
+    // Check DB for newer version on mount and every 5 min
+    checkDbVersion();
+    const interval = setInterval(checkDbVersion, 5 * 60 * 1000);
+
     if (isElectronEnv && window.electronAPI) {
-      // Listen for Electron auto-updater events
       window.electronAPI.onUpdateStatus((message) => {
         setUpdateStatus(message);
       });
 
       window.electronAPI.onUpdateDownloaded(() => {
         setUpdateAvailable(true);
-        // Clear justUpdated so only one banner shows at a time
         setJustUpdated(false);
       });
 
       return () => {
         window.electronAPI?.removeUpdateListeners();
+        clearInterval(interval);
       };
     }
-  }, []);
+
+    return () => clearInterval(interval);
+  }, [checkDbVersion]);
 
   const handleDismissUpdated = () => {
     setDismissed(true);
@@ -90,6 +111,50 @@ export function UpdateNotification() {
       window.electronAPI.installUpdate();
     }
   };
+
+  // ── "New version in DB, please refresh" (Web only) ──────────────────────
+  if (!newVersionDismissed && newVersionAvailable && !isElectron) {
+    return (
+      <div className="fixed bottom-4 right-4 z-50 animate-in slide-in-from-bottom-4">
+        <Card className="w-80 shadow-lg border-primary/30 bg-background">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2 text-primary">
+                <ArrowUpCircle className="h-4 w-4" />
+                新版本可用 v{newVersionAvailable}
+              </CardTitle>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setNewVersionDismissed(true)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <CardDescription>
+              管理员已发布新版本，刷新页面即可立即更新。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-2">
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                className="flex-1 gap-2"
+                onClick={() => window.location.reload()}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                立即刷新更新
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setNewVersionDismissed(true)}>
+                稍后
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   // ── "Update downloaded, restart to install" (Electron only) ──────────────
   if (!dismissed && updateAvailable) {
