@@ -16,6 +16,7 @@ interface QuickClockEntry {
 
 interface QuickClockPanelProps {
   userId: string;
+  userRole?: string | null; // used to auto-set work type on clock-out
   onSaved?: () => void;
 }
 
@@ -43,11 +44,19 @@ function calcHours(start: string, end: string, lunchStart?: string, lunchEnd?: s
   return Math.max(0, total / 60);
 }
 
+/** Returns the work type client_name based on the user's role */
+function getWorkTypeForRole(role?: string | null): string {
+  if (role === 'office_admin') return 'office';
+  if (role === 'coordinator' || role === 'auditor') return 'hospital';
+  return 'office'; // default
+}
+
 async function pushToTimesheet(
   userId: string,
   todayKey: string,
   entries: QuickClockEntry[],
-  clockOutTime: string
+  clockOutTime: string,
+  workType: string
 ): Promise<void> {
   const clockInEntry = entries.find((e) => e.type === "clock_in");
   const lunchStartEntry = entries.find((e) => e.type === "lunch_start");
@@ -79,7 +88,7 @@ async function pushToTimesheet(
                 60000
             )
           : 0,
-      client_name: "office",
+      client_name: workType,
       notes: "Quick clock",
       status: "draft",
     },
@@ -103,7 +112,7 @@ async function pushToTimesheet(
   if (error) throw error;
 }
 
-export function QuickClockPanel({ userId, onSaved }: QuickClockPanelProps) {
+export function QuickClockPanel({ userId, userRole, onSaved }: QuickClockPanelProps) {
   const { toast } = useToast();
   const [nowStr, setNowStr] = useState(() => format(new Date(), "hh:mm:ss a"));
   const [isSaving, setIsSaving] = useState(false);
@@ -152,7 +161,7 @@ export function QuickClockPanel({ userId, onSaved }: QuickClockPanelProps) {
             ...e,
             timestamp: new Date(e.timestamp),
           }));
-          await pushToTimesheet(userId, todayKey, restoredEntries, clockOutTime);
+          await pushToTimesheet(userId, todayKey, restoredEntries, clockOutTime, getWorkTypeForRole(userRole));
           localStorage.removeItem(pendingKey);
           setPendingSync(false);
           toast({
@@ -212,7 +221,7 @@ export function QuickClockPanel({ userId, onSaved }: QuickClockPanelProps) {
 
       setIsSaving(true);
       try {
-        await pushToTimesheet(userId, todayKey, next, time);
+        await pushToTimesheet(userId, todayKey, next, time, getWorkTypeForRole(userRole));
         toast({ title: "Clocked Out ✓", description: "Timesheet saved as draft automatically" });
         onSaved?.();
       } catch (err: any) {
@@ -234,7 +243,7 @@ export function QuickClockPanel({ userId, onSaved }: QuickClockPanelProps) {
         ...e,
         timestamp: new Date(e.timestamp),
       }));
-      await pushToTimesheet(userId, todayKey, restoredEntries, clockOutTime);
+      await pushToTimesheet(userId, todayKey, restoredEntries, clockOutTime, getWorkTypeForRole(userRole));
       localStorage.removeItem(pendingKey);
       setPendingSync(false);
       toast({ title: "Synced ✓", description: "Timesheet saved as draft." });

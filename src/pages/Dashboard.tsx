@@ -56,7 +56,7 @@ interface TemplateStats {
 }
 
 export default function Dashboard() {
-  const { user, onlineUsers, isOnline: checkIsOnline } = useAuth();
+  const { user, roles, onlineUsers, isOnline: checkIsOnline } = useAuth();
   const [templateStats, setTemplateStats] = useState<TemplateStats[]>([]);
   const [totalScans, setTotalScans] = useState(0);
   const [recentActivity, setRecentActivity] = useState<{ time: string; message: string }[]>([]);
@@ -187,7 +187,7 @@ export default function Dashboard() {
       <div className="space-y-6">
         {/* Quick Clock - available to all users */}
         {user && (
-          <QuickClockPanel userId={user.id} />
+          <QuickClockPanel userId={user.id} userRole={roles[0] ?? null} />
         )}
 
         {/* Stats Cards */}
