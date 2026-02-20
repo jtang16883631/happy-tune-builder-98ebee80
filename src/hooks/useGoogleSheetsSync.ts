@@ -66,9 +66,13 @@ export function useGoogleSheetsSync() {
     },
     onError: (error) => {
       console.error('Init sheet error:', error);
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      const isPermission = msg.toLowerCase().includes('permission') || msg.includes('403');
       toast({
-        title: 'Failed to create sheet',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        title: 'Failed to connect Google Sheet',
+        description: isPermission
+          ? 'Permission denied — make sure Google Sheets API and Google Drive API are enabled in Google Cloud Console for your service account project.'
+          : msg,
         variant: 'destructive',
       });
     },
