@@ -121,7 +121,7 @@ export function UpdateNotification() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2 text-primary">
                 <ArrowUpCircle className="h-4 w-4" />
-                新版本可用 v{newVersionAvailable}
+                Update Available v{newVersionAvailable}
               </CardTitle>
               <Button
                 variant="ghost"
@@ -133,7 +133,7 @@ export function UpdateNotification() {
               </Button>
             </div>
             <CardDescription>
-              管理员已发布新版本，刷新页面即可立即更新。
+              A new version has been released. Refresh to update instantly.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-2">
@@ -144,10 +144,10 @@ export function UpdateNotification() {
                 onClick={() => window.location.reload()}
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                立即刷新更新
+                Refresh & Update
               </Button>
               <Button size="sm" variant="outline" onClick={() => setNewVersionDismissed(true)}>
-                稍后
+                Later
               </Button>
             </div>
           </CardContent>
