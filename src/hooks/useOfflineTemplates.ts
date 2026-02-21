@@ -8,31 +8,10 @@ const DB_STORE = 'sqlite_store';
 const DB_KEY = 'templates_db';
 const SYNC_META_KEY = 'sync_meta';
 
-// Multiple WASM sources for maximum reliability
-const WASM_URLS = [
-  `${typeof window !== 'undefined' ? import.meta.env.BASE_URL : '/'}sql-wasm.wasm`,
-  'https://sql.js.org/dist/sql-wasm.wasm',
-  'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.13.0/sql-wasm.wasm',
-];
-
-const initSqlWithFallback = async () => {
-  // Strategy: fetch the wasm binary ourselves, then pass it directly.
-  // This avoids locateFile issues in iframes / preview environments.
-  for (const url of WASM_URLS) {
-    try {
-      console.log('[OfflineDB] Trying wasm from:', url);
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const wasmBinary = await response.arrayBuffer();
-      console.log('[OfflineDB] Fetched wasm binary, size:', wasmBinary.byteLength);
-      const SQL = await initSqlJs({ wasmBinary });
-      console.log('[OfflineDB] sql.js initialized successfully from:', url);
-      return SQL;
-    } catch (err) {
-      console.warn(`[OfflineDB] Failed to load wasm from ${url}:`, err);
-    }
-  }
-  throw new Error('Failed to load sql-wasm.wasm from all sources');
+const initSqlSimple = async () => {
+  return await initSqlJs({
+    locateFile: (file: string) => `/${file}`,
+  });
 };
 
 export type TemplateStatus = 'active' | 'working' | 'completed';
@@ -151,7 +130,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       try {
         setIsLoading(true);
         
-        const SQL = await initSqlWithFallback();
+        const SQL = await initSqlSimple();
         sqlRef.current = SQL;
 
         const savedDb = await loadFromIndexedDB<Uint8Array>(DB_KEY);
@@ -238,7 +217,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     if (db) return db;
     try {
       console.log('[OfflineDB] Lazy-init: retrying sql.js initialisation…');
-      const SQL = await initSqlWithFallback();
+      const SQL = await initSqlSimple();
       sqlRef.current = SQL;
 
       const savedDb = await loadFromIndexedDB<Uint8Array>(DB_KEY);
