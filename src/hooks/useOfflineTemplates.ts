@@ -8,22 +8,31 @@ const DB_STORE = 'sqlite_store';
 const DB_KEY = 'templates_db';
 const SYNC_META_KEY = 'sync_meta';
 
-// CDN fallback for sql-wasm.wasm when local file isn't available
-const SQL_WASM_CDN = 'https://sql.js.org/dist/sql-wasm.wasm';
+// Multiple WASM sources for maximum reliability
+const WASM_URLS = [
+  `${typeof window !== 'undefined' ? import.meta.env.BASE_URL : '/'}sql-wasm.wasm`,
+  'https://sql.js.org/dist/sql-wasm.wasm',
+  'https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.13.0/sql-wasm.wasm',
+];
 
 const initSqlWithFallback = async () => {
-  // Try local first
-  try {
-    return await initSqlJs({
-      locateFile: (file: string) => `${import.meta.env.BASE_URL}${file}`,
-    });
-  } catch (localErr) {
-    console.warn('[OfflineDB] Local wasm failed, trying CDN fallback…', localErr);
+  // Strategy: fetch the wasm binary ourselves, then pass it directly.
+  // This avoids locateFile issues in iframes / preview environments.
+  for (const url of WASM_URLS) {
+    try {
+      console.log('[OfflineDB] Trying wasm from:', url);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const wasmBinary = await response.arrayBuffer();
+      console.log('[OfflineDB] Fetched wasm binary, size:', wasmBinary.byteLength);
+      const SQL = await initSqlJs({ wasmBinary });
+      console.log('[OfflineDB] sql.js initialized successfully from:', url);
+      return SQL;
+    } catch (err) {
+      console.warn(`[OfflineDB] Failed to load wasm from ${url}:`, err);
+    }
   }
-  // Fallback to CDN
-  return await initSqlJs({
-    locateFile: () => SQL_WASM_CDN,
-  });
+  throw new Error('Failed to load sql-wasm.wasm from all sources');
 };
 
 export type TemplateStatus = 'active' | 'working' | 'completed';
