@@ -207,6 +207,58 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     };
   }, []);
 
+  // Lazy-init: if the initial useEffect failed, retry on demand so the user
+  // doesn't get stuck with "Local database not ready" forever.
+  const ensureDb = useCallback(async (): Promise<Database | null> => {
+    if (db) return db;
+    try {
+      console.log('[OfflineDB] Lazy-init: retrying sql.js initialisation…');
+      const SQL = await initSqlJs({
+        locateFile: (file: string) => `${import.meta.env.BASE_URL}${file}`,
+      });
+      sqlRef.current = SQL;
+
+      const savedDb = await loadFromIndexedDB<Uint8Array>(DB_KEY);
+      let database: Database;
+      if (savedDb) {
+        database = new SQL.Database(savedDb);
+      } else {
+        database = new SQL.Database();
+        database.run(`
+          CREATE TABLE IF NOT EXISTS templates (
+            id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT NOT NULL, name TEXT NOT NULL,
+            inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
+            job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
+          );
+          CREATE TABLE IF NOT EXISTS sections (
+            id TEXT PRIMARY KEY, template_id TEXT NOT NULL, sect TEXT NOT NULL,
+            description TEXT, full_section TEXT, cost_sheet TEXT,
+            FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
+          );
+          CREATE TABLE IF NOT EXISTS cost_items (
+            id TEXT PRIMARY KEY, template_id TEXT NOT NULL, ndc TEXT,
+            material_description TEXT, unit_price REAL, source TEXT, material TEXT, sheet_name TEXT,
+            FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
+          );
+          CREATE INDEX IF NOT EXISTS idx_templates_date ON templates(inv_date DESC);
+          CREATE INDEX IF NOT EXISTS idx_templates_cloud ON templates(cloud_id);
+          CREATE INDEX IF NOT EXISTS idx_sections_template ON sections(template_id);
+          CREATE INDEX IF NOT EXISTS idx_cost_template ON cost_items(template_id);
+          CREATE INDEX IF NOT EXISTS idx_cost_ndc ON cost_items(ndc);
+          CREATE INDEX IF NOT EXISTS idx_cost_sheet ON cost_items(sheet_name);
+        `);
+      }
+      setDb(database);
+      setError(null);
+      console.log('[OfflineDB] Lazy-init succeeded');
+      return database;
+    } catch (err: any) {
+      console.error('[OfflineDB] Lazy-init failed:', err);
+      return null;
+    }
+  }, [db]);
+
   const saveDatabase = useCallback(async (database?: Database) => {
     const targetDb = database || db;
     if (!targetDb) return;
@@ -421,9 +473,10 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     synced: number; 
     error?: string 
   }> => {
-    if (!db || !user || !isOnline) {
-      const reason = !db ? 'Local database not ready' : !user ? 'Not authenticated — please sign in' : 'No internet connection';
-      console.warn('[syncSelectedTemplates] blocked:', { db: !!db, user: !!user, isOnline });
+    const activeDb = db || await ensureDb();
+    if (!activeDb || !user || !isOnline) {
+      const reason = !activeDb ? 'Local database not ready — please reload the page' : !user ? 'Not authenticated — please sign in' : 'No internet connection';
+      console.warn('[syncSelectedTemplates] blocked:', { db: !!activeDb, user: !!user, isOnline });
       return { success: false, synced: 0, error: reason };
     }
 
@@ -481,10 +534,10 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         const localId = ct.id;
 
         // --- BEGIN TRANSACTION for all inserts of this template ---
-        db.run('BEGIN TRANSACTION');
+        activeDb.run('BEGIN TRANSACTION');
 
         try {
-          db.run(`
+          activeDb.run(`
             INSERT OR REPLACE INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, inv_number, 
                                    cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
@@ -503,7 +556,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
             .eq('template_id', ct.id);
 
           for (const s of sections || []) {
-            db.run(`
+            activeDb.run(`
               INSERT OR REPLACE INTO sections (id, template_id, sect, description, full_section, cost_sheet)
               VALUES (?, ?, ?, ?, ?, ?)
             `, [s.id, localId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]);
@@ -529,7 +582,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
           );
 
           // Bulk insert with prepared statement
-          const costStmt = db.prepare(`
+          const costStmt = activeDb.prepare(`
             INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `);
@@ -545,9 +598,9 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
           }
           costStmt.free();
 
-          db.run('COMMIT');
+          activeDb.run('COMMIT');
         } catch (txErr) {
-          db.run('ROLLBACK');
+          activeDb.run('ROLLBACK');
           throw txErr;
         }
 
@@ -584,7 +637,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         });
       }, 2000);
     }
-  }, [db, user, isOnline, saveDatabase, updateSyncMeta, getSyncedTemplateIds]);
+  }, [db, user, isOnline, ensureDb, saveDatabase, updateSyncMeta, getSyncedTemplateIds]);
 
   // SYNC: Pull from cloud to local (all templates)
   const pullFromCloud = useCallback(async (): Promise<{ success: boolean; pulled: number; error?: string }> => {
