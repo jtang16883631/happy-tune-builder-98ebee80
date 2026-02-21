@@ -195,6 +195,7 @@ const Scan = () => {
   const {
     templates: offlineTemplates,
     isLoading: offlineLoading,
+    isReady: offlineDbReady,
     isSyncing,
     syncMeta,
     syncProgress,
@@ -2744,10 +2745,12 @@ const Scan = () => {
                   variant="outline"
                   size="sm"
                   onClick={() => setDeviceSyncDialogOpen(true)}
+                  disabled={!offlineDbReady}
                   className="gap-2"
+                  title={!offlineDbReady ? 'Local database is initializing…' : undefined}
                 >
                   <Smartphone className="h-4 w-4" />
-                  <span className="hidden sm:inline">Download to Device</span>
+                  <span className="hidden sm:inline">{!offlineDbReady ? 'Initializing…' : 'Download to Device'}</span>
                 </Button>
               )}
               <Button

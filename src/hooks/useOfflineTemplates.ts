@@ -191,6 +191,10 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       } catch (err: any) {
         console.error('Failed to initialize offline DB:', err);
         setError(err.message);
+        // Surface failure to user so they know why downloads won't work
+        if (typeof window !== 'undefined') {
+          console.warn('[OfflineDB] Init failed — "Download to Device" will not work until page is reloaded. Error:', err.message);
+        }
       } finally {
         setIsLoading(false);
       }
