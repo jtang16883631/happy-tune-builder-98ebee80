@@ -418,7 +418,9 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     error?: string 
   }> => {
     if (!db || !user || !isOnline) {
-      return { success: false, synced: 0, error: 'Cannot sync: offline or not authenticated' };
+      const reason = !db ? 'Local database not ready' : !user ? 'Not authenticated — please sign in' : 'No internet connection';
+      console.warn('[syncSelectedTemplates] blocked:', { db: !!db, user: !!user, isOnline });
+      return { success: false, synced: 0, error: reason };
     }
 
     setIsSyncing(true);
@@ -583,7 +585,8 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
   // SYNC: Pull from cloud to local (all templates)
   const pullFromCloud = useCallback(async (): Promise<{ success: boolean; pulled: number; error?: string }> => {
     if (!db || !user || !isOnline) {
-      return { success: false, pulled: 0, error: 'Cannot sync: offline or not authenticated' };
+      const reason = !db ? 'Local database not ready' : !user ? 'Not authenticated — please sign in' : 'No internet connection';
+      return { success: false, pulled: 0, error: reason };
     }
 
     try {
@@ -702,7 +705,8 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
   // SYNC: Push local changes to cloud
   const pushToCloud = useCallback(async (): Promise<{ success: boolean; pushed: number; error?: string }> => {
     if (!db || !user || !isOnline) {
-      return { success: false, pushed: 0, error: 'Cannot sync: offline or not authenticated' };
+      const reason = !db ? 'Local database not ready' : !user ? 'Not authenticated — please sign in' : 'No internet connection';
+      return { success: false, pushed: 0, error: reason };
     }
 
     try {
