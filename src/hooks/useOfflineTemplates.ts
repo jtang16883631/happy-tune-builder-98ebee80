@@ -8,6 +8,24 @@ const DB_STORE = 'sqlite_store';
 const DB_KEY = 'templates_db';
 const SYNC_META_KEY = 'sync_meta';
 
+// CDN fallback for sql-wasm.wasm when local file isn't available
+const SQL_WASM_CDN = 'https://sql.js.org/dist/sql-wasm.wasm';
+
+const initSqlWithFallback = async () => {
+  // Try local first
+  try {
+    return await initSqlJs({
+      locateFile: (file: string) => `${import.meta.env.BASE_URL}${file}`,
+    });
+  } catch (localErr) {
+    console.warn('[OfflineDB] Local wasm failed, trying CDN fallback…', localErr);
+  }
+  // Fallback to CDN
+  return await initSqlJs({
+    locateFile: () => SQL_WASM_CDN,
+  });
+};
+
 export type TemplateStatus = 'active' | 'working' | 'completed';
 
 export interface OfflineTemplate {
@@ -124,9 +142,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       try {
         setIsLoading(true);
         
-        const SQL = await initSqlJs({
-          locateFile: (file: string) => `${import.meta.env.BASE_URL}${file}`,
-        });
+        const SQL = await initSqlWithFallback();
         sqlRef.current = SQL;
 
         const savedDb = await loadFromIndexedDB<Uint8Array>(DB_KEY);
@@ -213,9 +229,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     if (db) return db;
     try {
       console.log('[OfflineDB] Lazy-init: retrying sql.js initialisation…');
-      const SQL = await initSqlJs({
-        locateFile: (file: string) => `${import.meta.env.BASE_URL}${file}`,
-      });
+      const SQL = await initSqlWithFallback();
       sqlRef.current = SQL;
 
       const savedDb = await loadFromIndexedDB<Uint8Array>(DB_KEY);
@@ -610,7 +624,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         synced++;
       }
 
-      await saveDatabase();
+      await saveDatabase(activeDb);
       await updateSyncMeta({ lastSyncedAt: new Date().toISOString() });
       
       // Mark sync complete
