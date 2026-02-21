@@ -450,13 +450,20 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
           costItemsFetched: 0,
         }));
 
-        // Fetch template from cloud
-        const { data: ct, error: fetchError } = await supabase
-          .from('data_templates')
-          .select('*')
-          .eq('id', cloudId)
-          .single();
+        // Fetch template + count in parallel
+        const [templateResult, countResult] = await Promise.all([
+          supabase
+            .from('data_templates')
+            .select('id, user_id, name, inv_date, facility_name, inv_number, cost_file_name, job_ticket_file_name, status, created_at, updated_at')
+            .eq('id', cloudId)
+            .single(),
+          supabase
+            .from('template_cost_items')
+            .select('id', { count: 'exact', head: true })
+            .eq('template_id', cloudId),
+        ]);
 
+        const { data: ct, error: fetchError } = templateResult;
         if (fetchError || !ct) continue;
 
         setSyncProgress(prev => ({
@@ -464,70 +471,78 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
           currentTemplate: ct.name || ct.facility_name || 'Template',
         }));
 
-        // Use cloud ID as local ID so localStorage scan records
-        // (keyed by template/section ID) stay consistent between online and offline.
+        // Use cloud ID as local ID so localStorage scan records stay consistent
         const localId = ct.id;
-        db.run(`
-          INSERT OR REPLACE INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, inv_number, 
-                                 cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-        `, [
-          localId, ct.id, ct.user_id, ct.name, ct.inv_date, ct.facility_name, ct.inv_number,
-          ct.cost_file_name, ct.job_ticket_file_name, ct.status || 'active', ct.created_at, ct.updated_at
-        ]);
 
-        // Update progress - fetching sections
-        setSyncProgress(prev => ({ ...prev, status: 'fetching_sections' }));
+        // --- BEGIN TRANSACTION for all inserts of this template ---
+        db.run('BEGIN TRANSACTION');
 
-        // Fetch and insert sections — use cloud section IDs so localStorage
-        // scan_records keys are identical to those written during online scanning.
-        const { data: sections } = await supabase
-          .from('template_sections')
-          .select('*')
-          .eq('template_id', ct.id);
-
-        for (const s of sections || []) {
+        try {
           db.run(`
-            INSERT OR REPLACE INTO sections (id, template_id, sect, description, full_section, cost_sheet)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `, [s.id, localId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]);
-        }
+            INSERT OR REPLACE INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, inv_number, 
+                                   cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+          `, [
+            localId, ct.id, ct.user_id, ct.name, ct.inv_date, ct.facility_name, ct.inv_number,
+            ct.cost_file_name, ct.job_ticket_file_name, ct.status || 'active', ct.created_at, ct.updated_at
+          ]);
 
-        // Update progress - fetching cost items
-        setSyncProgress(prev => ({ ...prev, status: 'fetching_cost_items', costItemsFetched: 0 }));
+          // Update progress - fetching sections
+          setSyncProgress(prev => ({ ...prev, status: 'fetching_sections' }));
 
-        // Parallel fetch: first get count, then fetch all pages simultaneously
-        const PAGE_SIZE = 1000;
-        const { count: totalCount } = await supabase
-          .from('template_cost_items')
-          .select('id', { count: 'exact', head: true })
-          .eq('template_id', ct.id);
+          // Fetch sections
+          const { data: sections } = await supabase
+            .from('template_sections')
+            .select('id, template_id, sect, description, full_section, cost_sheet')
+            .eq('template_id', ct.id);
 
-        const totalPages = Math.ceil((totalCount || 0) / PAGE_SIZE);
-        const pageNumbers = Array.from({ length: Math.max(totalPages, 1) }, (_, i) => i);
-
-        // Fetch all pages in parallel
-        const pageResults = await Promise.all(
-          pageNumbers.map(page =>
-            supabase
-              .from('template_cost_items')
-              .select('*')
-              .eq('template_id', ct.id)
-              .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
-          )
-        );
-
-        let totalCostItemsFetched = 0;
-        for (const { data: costItems, error: costError } of pageResults) {
-          if (costError) { console.error('Cost items fetch error:', costError); continue; }
-          for (const c of costItems || []) {
+          for (const s of sections || []) {
             db.run(`
-              INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `, [c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null]);
+              INSERT OR REPLACE INTO sections (id, template_id, sect, description, full_section, cost_sheet)
+              VALUES (?, ?, ?, ?, ?, ?)
+            `, [s.id, localId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]);
           }
-          totalCostItemsFetched += (costItems?.length || 0);
-          setSyncProgress(prev => ({ ...prev, costItemsFetched: totalCostItemsFetched }));
+
+          // Update progress - fetching cost items
+          setSyncProgress(prev => ({ ...prev, status: 'fetching_cost_items', costItemsFetched: 0 }));
+
+          // Parallel fetch cost item pages
+          const PAGE_SIZE = 1000;
+          const totalCount = countResult.count || 0;
+          const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+          const pageNumbers = Array.from({ length: Math.max(totalPages, 1) }, (_, i) => i);
+
+          const pageResults = await Promise.all(
+            pageNumbers.map(page =>
+              supabase
+                .from('template_cost_items')
+                .select('id, ndc, material_description, unit_price, source, material, sheet_name')
+                .eq('template_id', ct.id)
+                .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+            )
+          );
+
+          // Bulk insert with prepared statement
+          const costStmt = db.prepare(`
+            INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+
+          let totalCostItemsFetched = 0;
+          for (const { data: costItems, error: costError } of pageResults) {
+            if (costError) { console.error('Cost items fetch error:', costError); continue; }
+            for (const c of costItems || []) {
+              costStmt.run([c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null]);
+            }
+            totalCostItemsFetched += (costItems?.length || 0);
+            setSyncProgress(prev => ({ ...prev, costItemsFetched: totalCostItemsFetched }));
+          }
+          costStmt.free();
+
+          db.run('COMMIT');
+        } catch (txErr) {
+          db.run('ROLLBACK');
+          throw txErr;
         }
 
         // Update progress - saving
@@ -572,10 +587,10 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     }
 
     try {
-      // Fetch all cloud templates
+      // Fetch all cloud templates (selective columns)
       const { data: cloudTemplates, error: fetchError } = await supabase
         .from('data_templates')
-        .select('*')
+        .select('id, user_id, name, inv_date, facility_name, inv_number, cost_file_name, job_ticket_file_name, status, created_at, updated_at')
         .order('inv_date', { ascending: false });
 
       if (fetchError) throw fetchError;
@@ -587,57 +602,74 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         const existing = db.exec(`SELECT id FROM templates WHERE cloud_id = ?`, [ct.id]);
         
         if (existing.length === 0 || existing[0].values.length === 0) {
-          // Use cloud ID as local ID so localStorage scan_records keys are consistent
           const localId = ct.id;
-          db.run(`
-            INSERT OR REPLACE INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, inv_number, 
-                                   cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-          `, [
-            localId, ct.id, ct.user_id, ct.name, ct.inv_date, ct.facility_name, ct.inv_number,
-            ct.cost_file_name, ct.job_ticket_file_name, ct.status || 'active', ct.created_at, ct.updated_at
-          ]);
 
-          // Fetch and insert sections using cloud section IDs
-          const { data: sections } = await supabase
-            .from('template_sections')
-            .select('*')
-            .eq('template_id', ct.id);
+          // --- BEGIN TRANSACTION for all inserts of this template ---
+          db.run('BEGIN TRANSACTION');
 
-          for (const s of sections || []) {
+          try {
             db.run(`
-              INSERT OR REPLACE INTO sections (id, template_id, sect, description, full_section, cost_sheet)
-              VALUES (?, ?, ?, ?, ?, ?)
-            `, [s.id, localId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]);
-          }
+              INSERT OR REPLACE INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, inv_number, 
+                                     cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            `, [
+              localId, ct.id, ct.user_id, ct.name, ct.inv_date, ct.facility_name, ct.inv_number,
+              ct.cost_file_name, ct.job_ticket_file_name, ct.status || 'active', ct.created_at, ct.updated_at
+            ]);
 
-          // Fetch and insert cost items with pagination (handle >1000 items)
-          // Using 1000 batch size to stay within Supabase default max_rows limit
-          let costItemsOffset = 0;
-          const costItemsLimit = 1000;
-          let hasMoreCostItems = true;
-          
-          while (hasMoreCostItems) {
-            const { data: costItems, error: costError } = await supabase
-              .from('template_cost_items')
-              .select('*')
-              .eq('template_id', ct.id)
-              .range(costItemsOffset, costItemsOffset + costItemsLimit - 1);
+            // Fetch sections and cost item count in parallel
+            const [sectionsResult, countResult] = await Promise.all([
+              supabase
+                .from('template_sections')
+                .select('id, template_id, sect, description, full_section, cost_sheet')
+                .eq('template_id', ct.id),
+              supabase
+                .from('template_cost_items')
+                .select('id', { count: 'exact', head: true })
+                .eq('template_id', ct.id),
+            ]);
 
-            if (costError) {
-              console.error('Cost items fetch error:', costError);
-              break;
-            }
-
-            for (const c of costItems || []) {
+            for (const s of sectionsResult.data || []) {
               db.run(`
-                INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-              `, [c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null]);
+                INSERT OR REPLACE INTO sections (id, template_id, sect, description, full_section, cost_sheet)
+                VALUES (?, ?, ?, ?, ?, ?)
+              `, [s.id, localId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]);
             }
 
-            hasMoreCostItems = (costItems?.length || 0) === costItemsLimit;
-            costItemsOffset += costItemsLimit;
+            // Parallel fetch cost item pages
+            const PAGE_SIZE = 1000;
+            const totalCount = countResult.count || 0;
+            const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+            const pageNumbers = Array.from({ length: Math.max(totalPages, 1) }, (_, i) => i);
+
+            const pageResults = await Promise.all(
+              pageNumbers.map(page =>
+                supabase
+                  .from('template_cost_items')
+                  .select('id, ndc, material_description, unit_price, source, material, sheet_name')
+                  .eq('template_id', ct.id)
+                  .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+              )
+            );
+
+            // Bulk insert with prepared statement
+            const costStmt = db.prepare(`
+              INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+
+            for (const { data: costItems, error: costError } of pageResults) {
+              if (costError) { console.error('Cost items fetch error:', costError); continue; }
+              for (const c of costItems || []) {
+                costStmt.run([c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null]);
+              }
+            }
+            costStmt.free();
+
+            db.run('COMMIT');
+          } catch (txErr) {
+            db.run('ROLLBACK');
+            throw txErr;
           }
 
           pulled++;
