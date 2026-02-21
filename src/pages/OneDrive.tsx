@@ -1,10 +1,12 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useToast } from "@/hooks/use-toast";
 import { useOneDrive } from "@/hooks/useOneDrive";
-import { CloudOff, Cloud } from "lucide-react";
+import { CloudOff, Cloud, FolderPlus, Upload, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { OneDriveToolbar } from "@/components/onedrive/OneDriveToolbar";
 import { OneDriveFileGrid } from "@/components/onedrive/OneDriveFileGrid";
 import { OneDrivePreviewPanel } from "@/components/onedrive/OneDrivePreviewPanel";
@@ -25,7 +27,9 @@ export default function OneDrive() {
     connect, 
     disconnect,
     listFiles,
-    downloadFile
+    downloadFile,
+    uploadFile,
+    createFolder,
   } = useOneDrive();
 
   // Initialize state from URL params and sessionStorage
@@ -54,7 +58,48 @@ export default function OneDrive() {
   const [selectedFile, setSelectedFile] = useState<OneDriveItem | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) return;
+    setIsCreatingFolder(true);
+    try {
+      await createFolder(newFolderName.trim(), currentFolderId || undefined);
+      setShowNewFolderDialog(false);
+      setNewFolderName("");
+      loadFiles(currentFolderId);
+    } finally {
+      setIsCreatingFolder(false);
+    }
+  };
+
+  const handleUploadFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+    setIsUploading(true);
+    try {
+      for (const file of Array.from(fileList)) {
+        const reader = new FileReader();
+        const base64 = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => {
+            const result = reader.result as string;
+            resolve(result.split(',')[1]); // strip data:...;base64,
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        await uploadFile(file.name, base64, currentFolderId || undefined);
+      }
+      loadFiles(currentFolderId);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
   const loadFiles = async (folderId: string | null = null) => {
     if (!isConnected) return;
     
@@ -189,12 +234,23 @@ export default function OneDrive() {
               )}
             </div>
           </div>
-          {canManage && (
-            <Button variant="ghost" size="sm" onClick={disconnect} className="text-muted-foreground">
-              <CloudOff className="mr-2 h-4 w-4" />
-              Disconnect
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowNewFolderDialog(true)}>
+              <FolderPlus className="mr-1.5 h-4 w-4" />
+              New Folder
             </Button>
-          )}
+            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
+              {isUploading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}
+              Upload
+            </Button>
+            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleUploadFiles} />
+            {canManage && (
+              <Button variant="ghost" size="sm" onClick={disconnect} className="text-muted-foreground">
+                <CloudOff className="mr-2 h-4 w-4" />
+                Disconnect
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Toolbar */}
@@ -242,6 +298,29 @@ export default function OneDrive() {
           )}
         </div>
       </div>
+
+      {/* New Folder Dialog */}
+      <Dialog open={showNewFolderDialog} onOpenChange={setShowNewFolderDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New Folder</DialogTitle>
+          </DialogHeader>
+          <Input
+            placeholder="Folder name"
+            value={newFolderName}
+            onChange={(e) => setNewFolderName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleCreateFolder()}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewFolderDialog(false)}>Cancel</Button>
+            <Button onClick={handleCreateFolder} disabled={!newFolderName.trim() || isCreatingFolder}>
+              {isCreatingFolder ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

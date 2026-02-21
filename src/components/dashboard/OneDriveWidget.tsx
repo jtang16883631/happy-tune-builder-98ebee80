@@ -33,7 +33,7 @@ export function OneDriveWidget() {
           OneDrive
         </CardTitle>
         <Button variant="ghost" size="sm" asChild>
-          <a href="/onedrive" target="_blank" rel="noopener noreferrer">
+          <a href="/#/onedrive" target="_blank" rel="noopener noreferrer">
             <ExternalLink className="h-4 w-4 mr-1" />
             Open
           </a>
