@@ -11,7 +11,10 @@ import {
   CalendarDays,
   AlertCircle,
   MapPin,
-  Users
+  Users,
+  ExternalLink,
+  Download,
+  BarChart3
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
@@ -21,7 +24,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { QuickClockPanel } from '@/components/timesheet/QuickClockPanel';
 
 export default function Dashboard() {
-  const { user, roles, onlineUsers } = useAuth();
+  const { user, roles, onlineUsers, isAuditor, isCoordinator, isOwner, isDeveloper } = useAuth();
+
+  const showOneDriveAndTracker = isOwner || isDeveloper || isCoordinator || roles.includes('office_admin');
+  const showDownloadTemplate = isAuditor || isCoordinator;
 
   return (
     <AppLayout>
@@ -31,13 +37,117 @@ export default function Dashboard() {
           <QuickClockPanel userId={user.id} userRole={roles[0] ?? null} />
         )}
 
+        {/* Quick Access Cards */}
+        {(showOneDriveAndTracker || showDownloadTemplate) && (
+          <QuickAccessSection
+            showOneDrive={showOneDriveAndTracker}
+            showTracker={showOneDriveAndTracker}
+            showDownload={showDownloadTemplate}
+          />
+        )}
+
         {/* Schedule & Issues */}
-        <ScheduleAndIssuesSection />
+        <ScheduleAndIssuesSection userId={user?.id} />
 
         {/* Who's Online */}
         <OnlineUsersCard onlineUsers={onlineUsers} currentUserId={user?.id} />
       </div>
     </AppLayout>
+  );
+}
+
+// Quick Access Section
+function QuickAccessSection({ showOneDrive, showTracker, showDownload }: { showOneDrive: boolean; showTracker: boolean; showDownload: boolean }) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {showOneDrive && (
+        <a href="/onedrive" target="_blank" rel="noopener noreferrer">
+          <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-primary/10 p-2.5">
+                <ExternalLink className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="font-medium text-sm">OneDrive</p>
+                <p className="text-xs text-muted-foreground">Open company files</p>
+              </div>
+            </CardContent>
+          </Card>
+        </a>
+      )}
+      {showTracker && (
+        <Link to="/live-tracker">
+          <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-primary/10 p-2.5">
+                <BarChart3 className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="font-medium text-sm">Live Tracker</p>
+                <p className="text-xs text-muted-foreground">Job workflow overview</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+      )}
+      {showDownload && (
+        <Link to="/scan">
+          <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
+            <CardContent className="flex items-center gap-3 p-4">
+              <div className="rounded-lg bg-primary/10 p-2.5">
+                <Download className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="font-medium text-sm">Download Templates</p>
+                <p className="text-xs text-muted-foreground">Get data templates to device</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+      )}
+    </div>
+  );
+}
+
+// Live Tracker Summary (for privileged roles)
+function LiveTrackerSummary() {
+  const { data: stageCounts, isLoading } = useQuery({
+    queryKey: ['dashboard-tracker-summary'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('live_tracker_jobs')
+        .select('stage')
+        .neq('stage', 'final_approved');
+      if (error) throw error;
+      const counts: Record<string, number> = {};
+      (data || []).forEach(j => { counts[j.stage] = (counts[j.stage] || 0) + 1; });
+      return counts;
+    },
+    staleTime: 30000,
+  });
+
+  const total = Object.values(stageCounts || {}).reduce((a, b) => a + b, 0);
+
+  if (isLoading) return null;
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-lg flex items-center gap-2">
+          <BarChart3 className="h-5 w-5" />
+          Live Tracker
+        </CardTitle>
+        <Button variant="ghost" size="sm" asChild>
+          <Link to="/live-tracker">View All</Link>
+        </Button>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center gap-4">
+          <div className="text-3xl font-bold">{total}</div>
+          <p className="text-sm text-muted-foreground">active jobs in pipeline</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -114,20 +224,23 @@ function OnlineUsersCard({ onlineUsers, currentUserId }: { onlineUsers: Set<stri
 }
 
 // Schedule & Issues Section Component
-function ScheduleAndIssuesSection() {
+function ScheduleAndIssuesSection({ userId }: { userId?: string }) {
+  // Fetch MY upcoming schedule (filtered by team_members containing current user)
   const { data: upcomingJobs, isLoading: jobsLoading } = useQuery({
-    queryKey: ['dashboard-upcoming-jobs'],
+    queryKey: ['dashboard-my-schedule', userId],
     queryFn: async () => {
       const today = new Date().toISOString().split('T')[0];
       const { data, error } = await supabase
         .from('scheduled_jobs')
         .select('*')
         .gte('job_date', today)
+        .contains('team_members', [userId!])
         .order('job_date', { ascending: true })
         .limit(5);
       if (error) throw error;
       return data;
     },
+    enabled: !!userId,
     refetchInterval: 30000,
     refetchOnWindowFocus: true,
   });
@@ -157,12 +270,12 @@ function ScheduleAndIssuesSection() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      {/* Upcoming Schedule */}
+      {/* My Upcoming Schedule */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg flex items-center gap-2">
             <CalendarDays className="h-5 w-5" />
-            Upcoming Schedule
+            My Schedule
           </CardTitle>
           <Button variant="ghost" size="sm" asChild>
             <Link to="/schedule">View All</Link>
@@ -176,7 +289,7 @@ function ScheduleAndIssuesSection() {
           ) : !upcomingJobs || upcomingJobs.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <CalendarDays className="h-12 w-12 mx-auto mb-2 opacity-50" />
-              <p>No upcoming jobs scheduled</p>
+              <p>No upcoming jobs assigned to you</p>
             </div>
           ) : (
             <div className="space-y-3">
