@@ -237,25 +237,20 @@ export function useScheduleEventSections(scheduleJobId: string | undefined) {
 }
 
 // Helper function to sync schedule to Google Docs
-async function syncScheduleToGoogleDocs(jobDate: string, teamMembers: TeamMember[]) {
+async function syncToMakeWebhook(jobDate: string, teamMembers: TeamMember[]) {
   try {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      console.log('No session, skipping Google Doc sync');
-      return;
-    }
+    if (!session) return;
 
-    // Get the week containing the job date
     const date = parseISO(jobDate);
     const startOfWeek = new Date(date);
-    startOfWeek.setDate(date.getDate() - date.getDay()); // Start of week (Sunday)
+    startOfWeek.setDate(date.getDate() - date.getDay());
     const endOfWeek = new Date(startOfWeek);
-    endOfWeek.setDate(startOfWeek.getDate() + 6); // End of week (Saturday)
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
 
     const startStr = format(startOfWeek, 'yyyy-MM-dd');
     const endStr = format(endOfWeek, 'yyyy-MM-dd');
 
-    // Fetch all events for that week
     const { data: weekEvents, error: fetchError } = await supabase
       .from('scheduled_jobs')
       .select('*')
@@ -265,11 +260,10 @@ async function syncScheduleToGoogleDocs(jobDate: string, teamMembers: TeamMember
       .order('start_time', { ascending: true });
 
     if (fetchError) {
-      console.error('Error fetching week events for sync:', fetchError);
+      console.error('Error fetching week events for webhook sync:', fetchError);
       return;
     }
 
-    // Map team member IDs to names
     const eventsWithNames = (weekEvents || []).map(event => ({
       ...event,
       team_member_names: (event.team_members || [])
@@ -277,22 +271,18 @@ async function syncScheduleToGoogleDocs(jobDate: string, teamMembers: TeamMember
         .filter(Boolean) as string[],
     }));
 
-    // Call the export function
-    const { error } = await supabase.functions.invoke('export-schedule-to-docs', {
-      body: {
+    const response = await fetch('https://hook.us2.make.com/uz11u4w5w8cs9esg6o4y3uq7w9q34ggw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         startDate: startStr,
         endDate: endStr,
         events: eventsWithNames,
-      }
+      }),
     });
-
-    if (error) {
-      console.error('Google Doc sync error:', error);
-    } else {
-      console.log('Schedule synced to Google Docs');
-    }
+    console.log('Real webhook fired! Status:', response.status);
   } catch (error) {
-    console.error('Error syncing to Google Docs:', error);
+    console.error('Real webhook failed:', error);
   }
 }
 
@@ -395,9 +385,9 @@ export function useScheduleEventMutation(teamMembers: TeamMember[] = []) {
       queryClient.invalidateQueries({ queryKey: ['schedule-event-sections'] });
       toast({ title: 'Event saved successfully' });
 
-      // Sync to Google Docs in background
+      // Sync to Make.com webhook in background
       if (result?.jobDate && teamMembers.length > 0) {
-        syncScheduleToGoogleDocs(result.jobDate, teamMembers);
+        syncToMakeWebhook(result.jobDate, teamMembers);
       }
     },
     onError: (error) => {
