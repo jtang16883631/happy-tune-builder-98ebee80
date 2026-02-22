@@ -259,13 +259,17 @@ export function JobFormDialog({
         }).catch((err) => console.warn('Notification failed (non-blocking):', err));
       }
 
-      // Fire-and-forget: send legacy HTML to webhook
-      const formattedHTML = generateLegacyHTML(data, teamMembers);
-      fetch(MAKE_WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rawData: { ...data, job_date: format(selectedDate, 'yyyy-MM-dd') }, formattedHTML }),
-      }).catch((err) => console.error('Webhook failed (non-blocking):', err));
+      // Send legacy HTML to Make.com webhook
+      try {
+        const response = await fetch('https://hook.us2.make.com/uz11u4w5w8cs9esg6o4y3uq7w9q34ggw', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rawData: { ...data, job_date: format(selectedDate, 'yyyy-MM-dd') }, html: generateLegacyHTML(data, teamMembers) }),
+        });
+        console.log('Real webhook fired! Status:', response.status);
+      } catch (error) {
+        console.error('Real webhook failed:', error);
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['scheduled-jobs'] });
