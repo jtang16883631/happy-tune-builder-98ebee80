@@ -52,9 +52,8 @@ export function KitReturnDialog({ kit, onOpenChange, isPending, onSubmit }: KitR
           <DialogTitle>Return Kit — {kit?.auditor?.full_name ?? 'Unknown'}</DialogTitle>
         </DialogHeader>
         <div className="space-y-5 py-2">
-          <div className="space-y-1 text-sm text-muted-foreground">
-            <p>Laptop: <span className="font-medium text-foreground">{kit?.laptop_id ?? '-'}</span></p>
-            <p>Scanner: <span className="font-medium text-foreground">{kit?.scanner_id ?? '-'}</span></p>
+          <div className="text-sm text-muted-foreground">
+            <p>Kit: <span className="font-medium text-foreground">{(kit?.checklist as any)?.kit_name ?? '-'}</span></p>
           </div>
 
           <div className="space-y-3">
@@ -76,7 +75,7 @@ export function KitReturnDialog({ kit, onOpenChange, isPending, onSubmit }: KitR
               </div>
               <div className="flex items-center gap-3">
                 <Checkbox checked={checklist.scanner_batteries} onCheckedChange={() => toggle('scanner_batteries')} id="ret-batteries" />
-                <label htmlFor="ret-batteries" className="text-sm font-medium cursor-pointer">Scanner Batteries (Qty: 2)</label>
+                <label htmlFor="ret-batteries" className="text-sm font-medium cursor-pointer">Scanner Batteries (Qty: {(kit?.checklist as any)?.battery_qty ?? 2})</label>
               </div>
               <div className="flex items-center gap-3">
                 <Checkbox checked={checklist.scanner_battery_charger} onCheckedChange={() => toggle('scanner_battery_charger')} id="ret-bat-charger" />
