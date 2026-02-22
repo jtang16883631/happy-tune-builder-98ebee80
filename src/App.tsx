@@ -7,6 +7,7 @@ import { HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 
 import { OfflineRedirect, useOnlineStatus } from "@/components/OfflineRedirect";
+import { UpdateBanner } from "@/components/UpdateBanner";
 import { supabase } from "@/integrations/supabase/client";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
@@ -375,7 +376,7 @@ const App = () => {
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        
+        <UpdateBanner />
         <HashRouter>
           <AuthProvider>
             <AppRoutes />
