@@ -47,7 +47,6 @@ export default function Equipment() {
           )}
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <div className="rounded-lg border bg-card p-4">
             <p className="text-sm text-muted-foreground">Total Kits</p>
@@ -63,7 +62,6 @@ export default function Equipment() {
           </div>
         </div>
 
-        {/* Table */}
         {isLoading ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -73,9 +71,8 @@ export default function Equipment() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Auditor Name</TableHead>
-                  <TableHead>Laptop ID</TableHead>
-                  <TableHead>Scanner ID</TableHead>
+                  <TableHead>Kit Name</TableHead>
+                  <TableHead>Auditor</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Checkout Date</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -84,7 +81,7 @@ export default function Equipment() {
               <TableBody>
                 {kits.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
+                    <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
                       <Package className="h-10 w-10 mx-auto mb-2 opacity-40" />
                       No equipment kits assigned yet
                     </TableCell>
@@ -92,11 +89,11 @@ export default function Equipment() {
                 ) : (
                   kits.map((kit) => {
                     const cfg = statusConfig[kit.status] ?? statusConfig.out_in_field;
+                    const kitName = (kit.checklist as any)?.kit_name ?? '-';
                     return (
                       <TableRow key={kit.id}>
-                        <TableCell className="font-medium">{kit.auditor?.full_name ?? '-'}</TableCell>
-                        <TableCell>{kit.laptop_id ?? '-'}</TableCell>
-                        <TableCell>{kit.scanner_id ?? '-'}</TableCell>
+                        <TableCell className="font-medium">{kitName}</TableCell>
+                        <TableCell>{kit.auditor?.full_name ?? '-'}</TableCell>
                         <TableCell>
                           <Badge className={cfg.className}>{cfg.label}</Badge>
                         </TableCell>

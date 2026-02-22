@@ -18,7 +18,7 @@ interface KitCheckoutDialogProps {
   onOpenChange: (open: boolean) => void;
   profiles: Profile[];
   isPending: boolean;
-  onSubmit: (data: { auditor_id: string; laptop_id: string; scanner_id: string; checklist: KitChecklist }) => void;
+  onSubmit: (data: { auditor_id: string; kit_name: string; battery_qty: number; checklist: KitChecklist }) => void;
 }
 
 const defaultChecklist: KitChecklist = {
@@ -31,23 +31,23 @@ const defaultChecklist: KitChecklist = {
 
 export function KitCheckoutDialog({ open, onOpenChange, profiles, isPending, onSubmit }: KitCheckoutDialogProps) {
   const [auditorId, setAuditorId] = useState('');
-  const [laptopId, setLaptopId] = useState('');
-  const [scannerId, setScannerId] = useState('');
+  const [kitName, setKitName] = useState('');
+  const [batteryQty, setBatteryQty] = useState(2);
   const [checklist, setChecklist] = useState<KitChecklist>({ ...defaultChecklist });
 
   const allChecked = Object.values(checklist).every(Boolean);
-  const canSubmit = auditorId && laptopId.trim() && scannerId.trim() && allChecked;
+  const canSubmit = auditorId && kitName.trim() && allChecked;
 
   const handleSubmit = () => {
     if (!canSubmit) return;
-    onSubmit({ auditor_id: auditorId, laptop_id: laptopId.trim(), scanner_id: scannerId.trim(), checklist });
+    onSubmit({ auditor_id: auditorId, kit_name: kitName.trim(), battery_qty: batteryQty, checklist });
     resetForm();
   };
 
   const resetForm = () => {
     setAuditorId('');
-    setLaptopId('');
-    setScannerId('');
+    setKitName('');
+    setBatteryQty(2);
     setChecklist({ ...defaultChecklist });
   };
 
@@ -74,42 +74,44 @@ export function KitCheckoutDialog({ open, onOpenChange, profiles, isPending, onS
             </Select>
           </div>
 
+          <div className="space-y-2">
+            <Label>Kit Name</Label>
+            <Input placeholder="e.g. Kit A, Kit #3" value={kitName} onChange={(e) => setKitName(e.target.value)} />
+          </div>
+
           <div className="space-y-3">
             <Label className="text-sm font-semibold">Standard Kit Checklist</Label>
             <p className="text-xs text-muted-foreground">All items must be checked before submitting.</p>
 
             <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
-              {/* Laptop */}
-              <div className="flex items-start gap-3">
+              <div className="flex items-center gap-3">
                 <Checkbox checked={checklist.laptop} onCheckedChange={() => toggle('laptop')} id="laptop" />
-                <div className="flex-1 space-y-1">
-                  <label htmlFor="laptop" className="text-sm font-medium cursor-pointer">Laptop</label>
-                  <Input placeholder="Laptop SN / ID" value={laptopId} onChange={(e) => setLaptopId(e.target.value)} className="h-8 text-xs" />
-                </div>
+                <label htmlFor="laptop" className="text-sm font-medium cursor-pointer">Laptop</label>
               </div>
 
-              {/* Laptop Charger */}
               <div className="flex items-center gap-3">
                 <Checkbox checked={checklist.laptop_charger} onCheckedChange={() => toggle('laptop_charger')} id="charger" />
                 <label htmlFor="charger" className="text-sm font-medium cursor-pointer">Laptop Charger</label>
               </div>
 
-              {/* Scanner */}
-              <div className="flex items-start gap-3">
+              <div className="flex items-center gap-3">
                 <Checkbox checked={checklist.barcode_scanner} onCheckedChange={() => toggle('barcode_scanner')} id="scanner" />
-                <div className="flex-1 space-y-1">
-                  <label htmlFor="scanner" className="text-sm font-medium cursor-pointer">Barcode Scanner</label>
-                  <Input placeholder="Scanner SN / ID" value={scannerId} onChange={(e) => setScannerId(e.target.value)} className="h-8 text-xs" />
-                </div>
+                <label htmlFor="scanner" className="text-sm font-medium cursor-pointer">Barcode Scanner</label>
               </div>
 
-              {/* Batteries */}
               <div className="flex items-center gap-3">
                 <Checkbox checked={checklist.scanner_batteries} onCheckedChange={() => toggle('scanner_batteries')} id="batteries" />
-                <label htmlFor="batteries" className="text-sm font-medium cursor-pointer">Scanner Batteries <span className="text-muted-foreground">(Qty: 2)</span></label>
+                <label htmlFor="batteries" className="text-sm font-medium cursor-pointer">Scanner Batteries</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={batteryQty}
+                  onChange={(e) => setBatteryQty(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="h-7 w-16 text-xs text-center"
+                />
               </div>
 
-              {/* Battery Charger */}
               <div className="flex items-center gap-3">
                 <Checkbox checked={checklist.scanner_battery_charger} onCheckedChange={() => toggle('scanner_battery_charger')} id="bat-charger" />
                 <label htmlFor="bat-charger" className="text-sm font-medium cursor-pointer">Scanner Battery Charger</label>

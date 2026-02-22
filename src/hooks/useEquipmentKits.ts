@@ -19,7 +19,7 @@ export interface EquipmentKit {
   return_date: string | null;
   laptop_id: string | null;
   scanner_id: string | null;
-  checklist: KitChecklist;
+  checklist: KitChecklist & { battery_qty?: number; kit_name?: string };
   return_checklist: KitChecklist | null;
   return_notes: string | null;
   checked_out_by: string | null;
@@ -48,15 +48,13 @@ export function useEquipmentKits() {
   const checkoutKit = useMutation({
     mutationFn: async (kit: {
       auditor_id: string;
-      laptop_id: string;
-      scanner_id: string;
+      kit_name: string;
+      battery_qty: number;
       checklist: KitChecklist;
     }) => {
       const { error } = await supabase.from('equipment_kits' as any).insert({
         auditor_id: kit.auditor_id,
-        laptop_id: kit.laptop_id,
-        scanner_id: kit.scanner_id,
-        checklist: kit.checklist as any,
+        checklist: { ...kit.checklist, kit_name: kit.kit_name, battery_qty: kit.battery_qty } as any,
         checked_out_by: user?.id,
         status: 'out_in_field',
       } as any);
