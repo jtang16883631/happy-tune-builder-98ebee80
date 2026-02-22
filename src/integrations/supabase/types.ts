@@ -413,6 +413,62 @@ export type Database = {
         }
         Relationships: []
       }
+      equipment_kits: {
+        Row: {
+          auditor_id: string
+          checked_out_by: string | null
+          checklist: Json
+          checkout_date: string
+          created_at: string
+          id: string
+          laptop_id: string | null
+          return_checklist: Json | null
+          return_date: string | null
+          return_notes: string | null
+          scanner_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          auditor_id: string
+          checked_out_by?: string | null
+          checklist?: Json
+          checkout_date?: string
+          created_at?: string
+          id?: string
+          laptop_id?: string | null
+          return_checklist?: Json | null
+          return_date?: string | null
+          return_notes?: string | null
+          scanner_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          auditor_id?: string
+          checked_out_by?: string | null
+          checklist?: Json
+          checkout_date?: string
+          created_at?: string
+          id?: string
+          laptop_id?: string | null
+          return_checklist?: Json | null
+          return_date?: string | null
+          return_notes?: string | null
+          scanner_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "equipment_kits_auditor_id_fkey"
+            columns: ["auditor_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       live_tracker_jobs: {
         Row: {
           assigned_to: string | null
