@@ -28,6 +28,7 @@ import LiveTracker from "./pages/LiveTracker";
 import Tickets from "./pages/Tickets";
 import Chat from "./pages/Chat";
 import OneDrive from "./pages/OneDrive";
+import Equipment from "./pages/Equipment";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -350,6 +351,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute>
               <Chat />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/equipment"
+          element={
+            <ProtectedRoute redirectAuditors>
+              <Equipment />
             </ProtectedRoute>
           }
         />

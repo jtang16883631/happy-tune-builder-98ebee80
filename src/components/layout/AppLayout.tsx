@@ -2,7 +2,7 @@ import { ReactNode, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { LogOut, Users, ScanBarcode, FolderOpen, Pill, LayoutDashboard, CalendarDays, Clock, PanelLeftClose, PanelLeft, Radio, ClipboardList, AlertTriangle, HardDrive, FileText, Database, ShieldX, MessageSquare, UserCog, Ticket, FileStack, Zap, History, Lightbulb } from 'lucide-react';
+import { LogOut, Users, ScanBarcode, FolderOpen, Pill, LayoutDashboard, CalendarDays, Clock, PanelLeftClose, PanelLeft, Radio, ClipboardList, AlertTriangle, HardDrive, FileText, Database, ShieldX, MessageSquare, UserCog, Ticket, FileStack, Zap, History, Lightbulb, Monitor } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { AnnouncementBell } from '@/components/announcements/AnnouncementBell';
@@ -62,6 +62,7 @@ const navSections: NavSection[] = [
       { href: '/automation', label: 'Automation', icon: Zap, roles: standardRoles },
       { href: '/data-template', label: 'Data Templates', icon: FolderOpen, roles: standardRoles },
       { href: '/issues', label: 'Issues', icon: AlertTriangle, roles: standardRoles },
+      { href: '/equipment', label: 'Equipment', icon: Monitor, roles: standardRoles },
     ],
   },
   {

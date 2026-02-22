@@ -324,6 +324,53 @@ export type Database = {
         }
         Relationships: []
       }
+      devices: {
+        Row: {
+          assigned_to: string | null
+          checkout_date: string | null
+          created_at: string
+          created_by: string | null
+          device_id: string
+          device_type: string
+          id: string
+          notes: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          checkout_date?: string | null
+          created_at?: string
+          created_by?: string | null
+          device_id: string
+          device_type?: string
+          id?: string
+          notes?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string | null
+          checkout_date?: string | null
+          created_at?: string
+          created_by?: string | null
+          device_id?: string
+          device_type?: string
+          id?: string
+          notes?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "devices_assigned_to_fkey"
+            columns: ["assigned_to"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       drugs: {
         Row: {
           created_at: string
