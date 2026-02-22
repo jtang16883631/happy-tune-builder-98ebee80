@@ -48,14 +48,14 @@ export function UpdateBanner() {
     <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9999] animate-in slide-in-from-bottom-4 duration-500">
       <div className="flex items-center gap-3 rounded-lg bg-primary px-4 py-2.5 text-primary-foreground shadow-lg">
         <Sparkles className="h-4 w-4 shrink-0" />
-        <span className="text-sm font-medium whitespace-nowrap">新版本已就绪 · New update available</span>
+        <span className="text-sm font-medium whitespace-nowrap">New update available</span>
         <Button
           size="sm"
           variant="secondary"
           className="h-7 text-xs font-semibold"
           onClick={applyUpdate}
         >
-          立即刷新 Update Now
+          Update Now
         </Button>
         <button
           onClick={() => { setVisible(false); sessionStorage.removeItem('update_pending'); }}
