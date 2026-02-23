@@ -74,40 +74,26 @@ interface FormData {
 
 const MAKE_WEBHOOK_URL = import.meta.env.VITE_MAKE_WEBHOOK_URL || '';
 
-function generateLegacyHTML(data: FormData, teamMembers: TeamMember[]): string {
-  let html = '';
+function generateLegacyPayload(data: FormData, teamMembers: TeamMember[]) {
+  const memberNames = data.team_members
+    .map(id => {
+      const m = teamMembers.find(tm => tm.id === id);
+      return m ? m.name.replace(/\s+/g, '') : id;
+    })
+    .join('+');
 
-  // Line 1: Invoice & Time
-  if (data.invoice_number || data.start_time || data.arrival_note) {
-    html += `<span style="background-color: yellow; font-weight: bold;">-Invoice: ${data.invoice_number || ''} START: ${data.start_time || ''} NOTE: ${data.arrival_note || ''}</span><br/>`;
-  }
-
-  // Line 2: Team Members
-  if (data.team_members.length > 0) {
-    const memberNames = data.team_members
-      .map(id => {
-        const m = teamMembers.find(tm => tm.id === id);
-        return m ? m.name.replace(/\s+/g, '') : id;
-      })
-      .join('+');
-    html += `<span style="background-color: cyan; font-style: italic;">(${data.team_members.length})${memberNames}</span><br/>`;
-  }
-
-  // Line 3: Special Notes
-  if (data.special_notes) {
-    html += `<span style="background-color: red; color: white; font-weight: bold;">***NOTE: ${data.special_notes}***</span><br/>`;
-  }
-
-  // Line 4 & 5: Client & Address
-  html += `<b>Client:</b> ${data.client_id || ''} - ${data.is_travel_day ? 'Travel Day' : data.client_name}<br/>`;
-  html += `<b>Address:</b> ${data.address || ''}<br/>`;
-
-  // Hotel Info
-  if (data.is_travel_day && data.hotel_info) {
-    html += `<span style="background-color: lightgreen;">Hotel info: ${data.hotel_info}</span><br/>`;
-  }
-
-  return html;
+  return {
+    line1: data.invoice_number || data.start_time || data.arrival_note
+      ? `-Invoice: ${data.invoice_number || ''} START: ${data.start_time || ''} NOTE: ${data.arrival_note || ''}`
+      : '',
+    line2: data.team_members.length > 0
+      ? `(${data.team_members.length})${memberNames}`
+      : '',
+    line3: data.special_notes
+      ? `***NOTE: ${data.special_notes}***`
+      : '',
+    line4: `Client: ${data.client_id || ''} - ${data.is_travel_day ? 'Travel Day' : data.client_name} | Address: ${data.address || ''}${data.is_travel_day && data.hotel_info ? ` | Hotel info: ${data.hotel_info}` : ''}`,
+  };
 }
 
 interface JobFormDialogProps {
@@ -264,7 +250,7 @@ export function JobFormDialog({
         const response = await fetch('https://hook.us2.make.com/uz11u4w5w8cs9esg6o4y3uq7w9q34ggw', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rawData: { ...data, job_date: format(selectedDate, 'yyyy-MM-dd') }, html: generateLegacyHTML(data, teamMembers) }),
+          body: JSON.stringify({ rawData: { ...data, job_date: format(selectedDate, 'yyyy-MM-dd') }, payload: generateLegacyPayload(data, teamMembers) }),
         });
         console.log('Real webhook fired! Status:', response.status);
       } catch (error) {
