@@ -19,6 +19,7 @@ import { useCloudTemplates, CloudTemplate, CloudSection, TemplateStatus } from '
 import { useOfflineTemplates, OfflineTemplate } from '@/hooks/useOfflineTemplates';
 import { useLocalFDA, FDADrug } from '@/hooks/useLocalFDA';
 import { SyncButton } from '@/components/scanner/SyncButton';
+import { DeviceSyncDialog } from '@/components/scanner/DeviceSyncDialog';
 import { OuterNDCSelectionDialog, OuterNDCOption } from '@/components/scanner/OuterNDCSelectionDialog';
 import { CostDataLookupDialog } from '@/components/scanner/CostDataLookupDialog';
 import { ScanSummaryTab } from '@/components/scanner/ScanSummaryTab';
@@ -213,6 +214,8 @@ const Scan = () => {
   
   const { lookupNDC: fdaLookup, checkIsInnerPack, findOuterCandidates, getDrugByOuterNDC } = useLocalFDA();
 
+  // State for download to device dialog
+  const [deviceSyncDialogOpen, setDeviceSyncDialogOpen] = useState(false);
 
   // State for outer NDC selection dialog
   const [outerNDCDialogOpen, setOuterNDCDialogOpen] = useState(false);
@@ -2730,6 +2733,17 @@ const Scan = () => {
           <div className="text-center py-4 relative">
             {/* Sync buttons in top right */}
             <div className="absolute right-0 top-0 flex items-center gap-2">
+              {isOnline && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDeviceSyncDialogOpen(true)}
+                  className="gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  <span className="hidden sm:inline">Download to Device</span>
+                </Button>
+              )}
               <SyncButton
                 isOnline={isOnline}
                 isSyncing={isSyncing}
@@ -2778,6 +2792,17 @@ const Scan = () => {
             )}
             
           </div>
+
+          {/* Device Sync Dialog */}
+          <DeviceSyncDialog
+            open={deviceSyncDialogOpen}
+            onOpenChange={setDeviceSyncDialogOpen}
+            cloudTemplates={cloudTemplates}
+            syncedTemplateIds={syncedTemplateIds}
+            onSyncTemplates={syncSelectedTemplates}
+            isSyncing={isSyncing}
+            syncProgress={syncProgress}
+          />
 
 
           {sortedTemplates.length === 0 ? (
