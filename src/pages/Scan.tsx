@@ -43,6 +43,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { supabase } from '@/integrations/supabase/client';
+import { saveScanRecords, loadScanRecords, deleteScanRecords, loadManyScanRecords } from '@/lib/scanRecordsDB';
 import {
   Table,
   TableBody,
@@ -334,24 +335,34 @@ const Scan = () => {
   const cellInputRefs = useRef<Map<string, HTMLInputElement | null>>(new Map());
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Collect all section records from localStorage for summary
-  const allSectionRecords = useMemo(() => {
-    if (!selectedTemplate) return {};
+  // Collect all section records from IndexedDB for summary
+  const [allSectionRecords, setAllSectionRecords] = useState<Record<string, ScanRow[]>>({});
+  
+  // Reload allSectionRecords whenever scanRows or sections change
+  useEffect(() => {
+    if (!selectedTemplate || sections.length === 0) {
+      setAllSectionRecords({});
+      return;
+    }
     
-    const records: Record<string, ScanRow[]> = {};
-    sections.forEach(section => {
-      const savedData = localStorage.getItem(`scan_records_${selectedTemplate.id}_${section.id}`);
-      if (savedData) {
-        try {
-          const savedRecords = JSON.parse(savedData) as ScanRow[];
-          records[section.id] = savedRecords;
-        } catch {
-          // Ignore parse errors
+    let cancelled = false;
+    const load = async () => {
+      const sectionIds = sections.map(s => s.id);
+      const records = await loadManyScanRecords<ScanRow>(selectedTemplate.id, sectionIds);
+      
+      // Also include the current in-memory scanRows for the active section
+      if (selectedSection) {
+        const activeRows = scanRows.filter(r => r.ndc || r.scannedNdc);
+        if (activeRows.length > 0) {
+          records[selectedSection.id] = activeRows;
         }
       }
-    });
-    return records;
-  }, [selectedTemplate, sections, scanRows]); // Re-calculate when scanRows changes to reflect current edits
+      
+      if (!cancelled) setAllSectionRecords(records);
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [selectedTemplate, sections, scanRows, selectedSection]);
 
   // Calculate current section total (Scan tab header value next to "Extended")
   const sectionExtendedTotal = useMemo(() => {
@@ -449,7 +460,7 @@ const Scan = () => {
     }));
   }, [selectedSection]);
 
-  // Auto-save with debounce - using localStorage for scan records (per template + section)
+  // Auto-save with debounce - using IndexedDB for scan records (per template + section)
   useEffect(() => {
     if (!selectedTemplate || !selectedSection) return;
 
@@ -462,8 +473,10 @@ const Scan = () => {
         .filter(r => r.ndc || r.scannedNdc)
         .map(r => ({ ...r, id: undefined }));
       
-      // Save per template + section combination
-      localStorage.setItem(`scan_records_${selectedTemplate.id}_${selectedSection.id}`, JSON.stringify(recordsToSave));
+      // Save per template + section combination to IndexedDB
+      saveScanRecords(selectedTemplate.id, selectedSection.id, recordsToSave).catch(err => {
+        console.error('Failed to save scan records to IndexedDB:', err);
+      });
     }, 500);
 
     return () => {
@@ -473,13 +486,12 @@ const Scan = () => {
     };
   }, [scanRows, selectedTemplate, selectedSection]);
 
-  // Load scan records when section changes
-  const loadSectionRecords = useCallback((templateId: string, sectionId: string, sectionName: string) => {
-    const savedData = localStorage.getItem(`scan_records_${templateId}_${sectionId}`);
-    
-    if (savedData) {
-      try {
-        const savedRecords = JSON.parse(savedData) as Omit<ScanRow, 'id'>[];
+  // Load scan records when section changes (async from IndexedDB)
+  const loadSectionRecords = useCallback(async (templateId: string, sectionId: string, sectionName: string) => {
+    try {
+      const savedRecords = await loadScanRecords<Omit<ScanRow, 'id'>>(templateId, sectionId);
+      
+      if (savedRecords && savedRecords.length > 0) {
         const rows: ScanRow[] = savedRecords.map(r => ({
           ...createEmptyRow(sectionName),
           ...r,
@@ -488,11 +500,12 @@ const Scan = () => {
         rows.push(createEmptyRow(sectionName));
         setScanRows(rows);
         setActiveRowIndex(rows.length - 1);
-      } catch {
+      } else {
         setScanRows([createEmptyRow(sectionName)]);
         setActiveRowIndex(0);
       }
-    } else {
+    } catch (err) {
+      console.error('Failed to load scan records from IndexedDB:', err);
       setScanRows([createEmptyRow(sectionName)]);
       setActiveRowIndex(0);
     }
@@ -747,20 +760,19 @@ const Scan = () => {
         return row;
       }));
 
-      // Also update localStorage records for this section
+      // Also update IndexedDB records for this section
       if (selectedTemplate) {
-        const savedData = localStorage.getItem(`scan_records_${selectedTemplate.id}_${editingSectionId}`);
-        if (savedData) {
-          try {
-            const savedRecords = JSON.parse(savedData);
+        try {
+          const savedRecords = await loadScanRecords(selectedTemplate.id, editingSectionId);
+          if (savedRecords) {
             const updatedRecords = savedRecords.map((r: any) => ({
               ...r,
               loc: r.loc === oldFullSection ? newFullSection : r.loc
             }));
-            localStorage.setItem(`scan_records_${selectedTemplate.id}_${editingSectionId}`, JSON.stringify(updatedRecords));
-          } catch (e) {
-            console.error('Error updating localStorage records:', e);
+            await saveScanRecords(selectedTemplate.id, editingSectionId, updatedRecords);
           }
+        } catch (e) {
+          console.error('Error updating IndexedDB records:', e);
         }
       }
 
@@ -825,8 +837,8 @@ const Scan = () => {
         if (!result.success) throw new Error(result.error);
       }
 
-      // Also clear localStorage scan records for this section
-      localStorage.removeItem(`scan_records_${selectedTemplate.id}_${deletingSectionId}`);
+      // Also clear IndexedDB scan records for this section
+      await deleteScanRecords(selectedTemplate.id, deletingSectionId);
 
       toast.success('Section deleted successfully');
       setDeleteSectionDialogOpen(false);
@@ -1483,21 +1495,17 @@ const Scan = () => {
       // Track section totals for summary
       const sectionTotals: { section: string; count: number; value: number }[] = [];
 
-      // First pass: calculate grand total for all sections
+      // First pass: calculate grand total for all sections (from IndexedDB)
       let calculatedGrandTotal = 0;
+      const allRecordsForExport = await loadManyScanRecords<ScanRow>(selectedTemplate.id, sections.map(s => s.id));
       for (const section of sections) {
-        const savedData = localStorage.getItem(`scan_records_${selectedTemplate.id}_${section.id}`);
-        if (savedData) {
-          try {
-            const savedRecords = JSON.parse(savedData) as ScanRow[];
-            savedRecords.forEach(record => {
-              if (record.extended !== null && record.extended !== undefined) {
-                calculatedGrandTotal += record.extended;
-              }
-            });
-          } catch (e) {
-            console.error('Error calculating total:', e);
-          }
+        const savedRecords = allRecordsForExport[section.id];
+        if (savedRecords) {
+          savedRecords.forEach(record => {
+            if (record.extended !== null && record.extended !== undefined) {
+              calculatedGrandTotal += record.extended;
+            }
+          });
         }
       }
 
@@ -1513,15 +1521,13 @@ const Scan = () => {
 
       // Iterate through all sections
       for (const section of sections) {
-        // Load scan records for this section from localStorage
-        const savedData = localStorage.getItem(`scan_records_${selectedTemplate.id}_${section.id}`);
+        // Load scan records for this section from IndexedDB (already fetched above)
+        const savedRecords = allRecordsForExport[section.id] as ScanRow[] | undefined;
         
         let rows: any[][] = [headers];
         let sectionTotal = 0;
         
-        if (savedData) {
-          try {
-            const savedRecords = JSON.parse(savedData) as ScanRow[];
+        if (savedRecords && savedRecords.length > 0) {
             
             // Convert each record to a row array
             savedRecords.forEach(record => {
@@ -1567,9 +1573,6 @@ const Scan = () => {
                 record.additionalNotes || '',
               ]);
             });
-          } catch (e) {
-            console.error('Error parsing section data:', e);
-          }
         }
 
         // Store section total for summary
@@ -1677,14 +1680,10 @@ const Scan = () => {
     if (wasOffline && isNowOnline && selectedTemplate && user?.id && sections.length > 0) {
       // Small delay to let the connection stabilize
       const timer = setTimeout(async () => {
-        const hasAnyScanData = sections.some(section => {
-          const data = localStorage.getItem(`scan_records_${selectedTemplate.id}_${section.id}`);
-          if (!data) return false;
-          try {
-            const records = JSON.parse(data) as ScanRow[];
-            return records.some(r => r.ndc || r.scannedNdc);
-          } catch { return false; }
-        });
+        const allData = await loadManyScanRecords<ScanRow>(selectedTemplate.id, sections.map(s => s.id));
+        const hasAnyScanData = Object.values(allData).some(records =>
+          records.some(r => r.ndc || r.scannedNdc)
+        );
 
         if (hasAnyScanData) {
           toast.info('Back online — syncing your offline scans...', { duration: 3000 });
@@ -1706,11 +1705,10 @@ const Scan = () => {
       let totalSynced = 0;
 
       for (const section of sectionList) {
-        const savedData = localStorage.getItem(`scan_records_${template.id}_${section.id}`);
-        if (!savedData) continue;
+        const savedRecords = await loadScanRecords<ScanRow>(template.id, section.id);
+        if (!savedRecords) continue;
 
         try {
-          const savedRecords = JSON.parse(savedData) as ScanRow[];
           const validRecords = savedRecords.filter(r => r.ndc || r.scannedNdc);
           if (validRecords.length === 0) continue;
 
@@ -1768,11 +1766,10 @@ const Scan = () => {
       let totalSynced = 0;
 
       for (const section of sections) {
-        const savedData = localStorage.getItem(`scan_records_${selectedTemplate.id}_${section.id}`);
-        if (!savedData) continue;
+        const savedRecords = await loadScanRecords<ScanRow>(selectedTemplate.id, section.id);
+        if (!savedRecords) continue;
 
         try {
-          const savedRecords = JSON.parse(savedData) as ScanRow[];
           const validRecords = savedRecords.filter(r => r.ndc || r.scannedNdc);
           
           if (validRecords.length === 0) continue;
