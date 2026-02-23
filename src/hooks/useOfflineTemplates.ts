@@ -11,7 +11,7 @@ const SYNC_META_KEY = 'sync_meta';
 
 const initSqlSimple = async () => {
   return await initSqlJs({
-    locateFile: (file: string) => `/${file}`,
+    locateFile: (file: string) => `${import.meta.env.BASE_URL}${file}`,
   });
 };
 
@@ -112,6 +112,7 @@ const generateId = () => crypto.randomUUID();
 export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
   const { user } = useAuth();
   const [db, setDb] = useState<Database | null>(null);
+  const dbRef = useRef<Database | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMeta, setSyncMeta] = useState<SyncMeta>({ lastSyncedAt: null, pendingChanges: 0 });
@@ -124,146 +125,104 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     status: 'idle',
   });
   const sqlRef = useRef<any>(null);
+  const initPromiseRef = useRef<Promise<Database | null> | null>(null);
+
+  const createSchema = (database: Database) => {
+    database.run(`
+      CREATE TABLE IF NOT EXISTS templates (
+        id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT NOT NULL, name TEXT NOT NULL,
+        inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
+        job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS sections (
+        id TEXT PRIMARY KEY, template_id TEXT NOT NULL, sect TEXT NOT NULL,
+        description TEXT, full_section TEXT, cost_sheet TEXT,
+        FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS cost_items (
+        id TEXT PRIMARY KEY, template_id TEXT NOT NULL, ndc TEXT,
+        material_description TEXT, unit_price REAL, source TEXT, material TEXT, sheet_name TEXT,
+        FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_templates_date ON templates(inv_date DESC);
+      CREATE INDEX IF NOT EXISTS idx_templates_cloud ON templates(cloud_id);
+      CREATE INDEX IF NOT EXISTS idx_sections_template ON sections(template_id);
+      CREATE INDEX IF NOT EXISTS idx_cost_template ON cost_items(template_id);
+      CREATE INDEX IF NOT EXISTS idx_cost_ndc ON cost_items(ndc);
+      CREATE INDEX IF NOT EXISTS idx_cost_sheet ON cost_items(sheet_name);
+    `);
+  };
+
+  const doInit = async (): Promise<Database | null> => {
+    try {
+      const SQL = await initSqlSimple();
+      sqlRef.current = SQL;
+
+      const savedDb = await loadFromIndexedDB<Uint8Array>(DB_KEY);
+      const savedMeta = await loadFromIndexedDB<SyncMeta>(SYNC_META_KEY);
+
+      let database: Database;
+      if (savedDb) {
+        database = new SQL.Database(savedDb);
+        if (savedMeta) setSyncMeta(savedMeta);
+      } else {
+        database = new SQL.Database();
+        createSchema(database);
+        const dbData = database.export();
+        await saveToIndexedDB(DB_KEY, new Uint8Array(dbData));
+      }
+
+      dbRef.current = database;
+      setDb(database);
+      setError(null);
+      return database;
+    } catch (err: any) {
+      console.error('Failed to initialize offline DB:', err);
+      setError(err.message);
+      return null;
+    }
+  };
 
   // Initialize sql.js and load database
   useEffect(() => {
     const init = async () => {
-      try {
-        setIsLoading(true);
-        
-        const SQL = await initSqlSimple();
-        sqlRef.current = SQL;
-
-        const savedDb = await loadFromIndexedDB<Uint8Array>(DB_KEY);
-        const savedMeta = await loadFromIndexedDB<SyncMeta>(SYNC_META_KEY);
-
-        if (savedDb) {
-          const database = new SQL.Database(savedDb);
-          setDb(database);
-          if (savedMeta) setSyncMeta(savedMeta);
-        } else {
-          const database = new SQL.Database();
-            database.run(`
-              CREATE TABLE IF NOT EXISTS templates (
-                id TEXT PRIMARY KEY,
-                cloud_id TEXT,
-                user_id TEXT NOT NULL,
-                name TEXT NOT NULL,
-                inv_date TEXT,
-                facility_name TEXT,
-                inv_number TEXT,
-                cost_file_name TEXT,
-                job_ticket_file_name TEXT,
-                status TEXT DEFAULT 'active',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                is_dirty INTEGER DEFAULT 0
-              );
-              
-              CREATE TABLE IF NOT EXISTS sections (
-                id TEXT PRIMARY KEY,
-                template_id TEXT NOT NULL,
-                sect TEXT NOT NULL,
-                description TEXT,
-                full_section TEXT,
-                cost_sheet TEXT,
-                FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
-              );
-              
-              CREATE TABLE IF NOT EXISTS cost_items (
-                id TEXT PRIMARY KEY,
-                template_id TEXT NOT NULL,
-                ndc TEXT,
-                material_description TEXT,
-                unit_price REAL,
-                source TEXT,
-                material TEXT,
-                sheet_name TEXT,
-                FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
-              );
-              
-              CREATE INDEX IF NOT EXISTS idx_templates_date ON templates(inv_date DESC);
-              CREATE INDEX IF NOT EXISTS idx_templates_cloud ON templates(cloud_id);
-              CREATE INDEX IF NOT EXISTS idx_sections_template ON sections(template_id);
-              CREATE INDEX IF NOT EXISTS idx_cost_template ON cost_items(template_id);
-              CREATE INDEX IF NOT EXISTS idx_cost_ndc ON cost_items(ndc);
-              CREATE INDEX IF NOT EXISTS idx_cost_sheet ON cost_items(sheet_name);
-            `);
-          
-          setDb(database);
-          await saveDatabase(database);
-        }
-      } catch (err: any) {
-        console.error('Failed to initialize offline DB:', err);
-        setError(err.message);
-        // Surface failure to user so they know why downloads won't work
-        if (typeof window !== 'undefined') {
-          console.warn('[OfflineDB] Init failed — "Download to Device" will not work until page is reloaded. Error:', err.message);
-        }
-      } finally {
-        setIsLoading(false);
-      }
+      setIsLoading(true);
+      initPromiseRef.current = doInit();
+      await initPromiseRef.current;
+      setIsLoading(false);
     };
 
     init();
 
     return () => {
-      db?.close();
+      dbRef.current?.close();
     };
   }, []);
 
-  // Lazy-init: if the initial useEffect failed, retry on demand so the user
-  // doesn't get stuck with "Local database not ready" forever.
-  const ensureDb = useCallback(async (): Promise<Database | null> => {
-    if (db) return db;
-    try {
-      console.log('[OfflineDB] Lazy-init: retrying sql.js initialisation…');
-      const SQL = await initSqlSimple();
-      sqlRef.current = SQL;
-
-      const savedDb = await loadFromIndexedDB<Uint8Array>(DB_KEY);
-      let database: Database;
-      if (savedDb) {
-        database = new SQL.Database(savedDb);
-      } else {
-        database = new SQL.Database();
-        database.run(`
-          CREATE TABLE IF NOT EXISTS templates (
-            id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT NOT NULL, name TEXT NOT NULL,
-            inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
-            job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
-            created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
-          );
-          CREATE TABLE IF NOT EXISTS sections (
-            id TEXT PRIMARY KEY, template_id TEXT NOT NULL, sect TEXT NOT NULL,
-            description TEXT, full_section TEXT, cost_sheet TEXT,
-            FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
-          );
-          CREATE TABLE IF NOT EXISTS cost_items (
-            id TEXT PRIMARY KEY, template_id TEXT NOT NULL, ndc TEXT,
-            material_description TEXT, unit_price REAL, source TEXT, material TEXT, sheet_name TEXT,
-            FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
-          );
-          CREATE INDEX IF NOT EXISTS idx_templates_date ON templates(inv_date DESC);
-          CREATE INDEX IF NOT EXISTS idx_templates_cloud ON templates(cloud_id);
-          CREATE INDEX IF NOT EXISTS idx_sections_template ON sections(template_id);
-          CREATE INDEX IF NOT EXISTS idx_cost_template ON cost_items(template_id);
-          CREATE INDEX IF NOT EXISTS idx_cost_ndc ON cost_items(ndc);
-          CREATE INDEX IF NOT EXISTS idx_cost_sheet ON cost_items(sheet_name);
-        `);
-      }
-      setDb(database);
-      setError(null);
-      console.log('[OfflineDB] Lazy-init succeeded');
-      return database;
-    } catch (err: any) {
-      console.error('[OfflineDB] Lazy-init failed:', err);
-      return null;
-    }
+  // Keep dbRef in sync
+  useEffect(() => {
+    dbRef.current = db;
   }, [db]);
 
+  // ensureDb: wait for in-flight init or retry
+  const ensureDb = useCallback(async (): Promise<Database | null> => {
+    if (dbRef.current) return dbRef.current;
+
+    // If init is still running, wait for it
+    if (initPromiseRef.current) {
+      const result = await initPromiseRef.current;
+      if (result) return result;
+    }
+
+    // Retry once
+    console.log('[OfflineDB] Lazy-init: retrying sql.js initialisation…');
+    initPromiseRef.current = doInit();
+    return await initPromiseRef.current;
+  }, []);
+
   const saveDatabase = useCallback(async (database?: Database) => {
-    const targetDb = database || db;
+    const targetDb = database || dbRef.current || db;
     if (!targetDb) return;
     
     const dbData = targetDb.export();
