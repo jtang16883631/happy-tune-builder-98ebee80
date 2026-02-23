@@ -9,10 +9,23 @@ const DB_STORE = 'sqlite_store';
 const DB_KEY = 'templates_db';
 const SYNC_META_KEY = 'sync_meta';
 
+const CDN_WASM_URL = 'https://sql.js.org/dist/sql-wasm.wasm';
+
 const initSqlSimple = async () => {
-  return await initSqlJs({
-    locateFile: (file: string) => `${import.meta.env.BASE_URL}${file}`,
-  });
+  // Try local WASM first, fall back to CDN
+  const localPath = `${import.meta.env.BASE_URL}sql-wasm.wasm`;
+  
+  try {
+    return await initSqlJs({ locateFile: () => localPath });
+  } catch (localErr) {
+    console.warn('[sql.js] Local WASM failed, trying CDN…', localErr);
+    try {
+      return await initSqlJs({ locateFile: () => CDN_WASM_URL });
+    } catch (cdnErr) {
+      console.error('[sql.js] CDN WASM also failed:', cdnErr);
+      throw cdnErr;
+    }
+  }
 };
 
 export type TemplateStatus = 'active' | 'working' | 'completed';
@@ -156,7 +169,9 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
 
   const doInit = async (): Promise<Database | null> => {
     try {
+      console.log('[OfflineDB] Starting sql.js init…');
       const SQL = await initSqlSimple();
+      console.log('[OfflineDB] sql.js loaded successfully');
       sqlRef.current = SQL;
 
       const savedDb = await loadFromIndexedDB<Uint8Array>(DB_KEY);
@@ -166,11 +181,13 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       if (savedDb) {
         database = new SQL.Database(savedDb);
         if (savedMeta) setSyncMeta(savedMeta);
+        console.log('[OfflineDB] Restored existing database from IndexedDB');
       } else {
         database = new SQL.Database();
         createSchema(database);
         const dbData = database.export();
         await saveToIndexedDB(DB_KEY, new Uint8Array(dbData));
+        console.log('[OfflineDB] Created fresh database');
       }
 
       dbRef.current = database;
@@ -178,7 +195,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       setError(null);
       return database;
     } catch (err: any) {
-      console.error('Failed to initialize offline DB:', err);
+      console.error('[OfflineDB] Failed to initialize:', err);
       setError(err.message);
       return null;
     }
@@ -205,7 +222,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     dbRef.current = db;
   }, [db]);
 
-  // ensureDb: wait for in-flight init or retry
+  // ensureDb: wait for in-flight init or retry up to 3 times
   const ensureDb = useCallback(async (): Promise<Database | null> => {
     if (dbRef.current) return dbRef.current;
 
@@ -215,10 +232,17 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       if (result) return result;
     }
 
-    // Retry once
-    console.log('[OfflineDB] Lazy-init: retrying sql.js initialisation…');
-    initPromiseRef.current = doInit();
-    return await initPromiseRef.current;
+    // Retry up to 3 times with a small delay
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      console.log(`[OfflineDB] Retry attempt ${attempt}/3…`);
+      await new Promise(r => setTimeout(r, 500 * attempt));
+      initPromiseRef.current = doInit();
+      const result = await initPromiseRef.current;
+      if (result) return result;
+    }
+
+    console.error('[OfflineDB] All init attempts failed');
+    return null;
   }, []);
 
   const saveDatabase = useCallback(async (database?: Database) => {
