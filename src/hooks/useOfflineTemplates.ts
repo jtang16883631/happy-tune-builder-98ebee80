@@ -143,7 +143,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
   const createSchema = (database: Database) => {
     database.run(`
       CREATE TABLE IF NOT EXISTS templates (
-        id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT NOT NULL, name TEXT NOT NULL,
+        id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
         inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
         job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
@@ -181,6 +181,23 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       if (savedDb) {
         database = new SQL.Database(savedDb);
         if (savedMeta) setSyncMeta(savedMeta);
+        // Migrate: recreate templates table without user_id NOT NULL constraint
+        try {
+          database.run(`
+            CREATE TABLE IF NOT EXISTS templates_new (
+              id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
+              inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
+              job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
+              created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
+            )
+          `);
+          database.run(`INSERT OR IGNORE INTO templates_new SELECT * FROM templates`);
+          database.run(`DROP TABLE templates`);
+          database.run(`ALTER TABLE templates_new RENAME TO templates`);
+          console.log('[OfflineDB] Migrated templates table (user_id now nullable)');
+        } catch (migErr) {
+          console.log('[OfflineDB] Migration skipped (already migrated or no data)');
+        }
         console.log('[OfflineDB] Restored existing database from IndexedDB');
       } else {
         database = new SQL.Database();
@@ -952,7 +969,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       const exportDb = new sqlRef.current.Database();
       exportDb.run(`
         CREATE TABLE templates (
-          id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT NOT NULL, name TEXT NOT NULL,
+          id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
           inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
           job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
@@ -1031,7 +1048,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       const exportDb = new sqlRef.current.Database();
       exportDb.run(`
         CREATE TABLE templates (
-          id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT NOT NULL, name TEXT NOT NULL,
+          id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
           inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
           job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
