@@ -1,4 +1,4 @@
-import { File, Folder, FileImage, FileText, FileSpreadsheet, FileVideo, FileAudio, MoreVertical } from "lucide-react";
+import { File, Folder, FileImage, FileText, FileSpreadsheet, FileVideo, FileAudio, MoreVertical, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,7 @@ interface OneDriveFileGridProps {
   onFolderClick: (folder: OneDriveItem) => void;
   onFileSelect: (file: OneDriveItem) => void;
   onDownload: (file: OneDriveItem) => void;
+  onDelete?: (item: OneDriveItem) => void;
 }
 
 const getFileIcon = (item: OneDriveItem) => {
@@ -64,6 +65,7 @@ export function OneDriveFileGrid({
   onFolderClick,
   onFileSelect,
   onDownload,
+  onDelete,
 }: OneDriveFileGridProps) {
   if (viewMode === "grid") {
     return (
@@ -94,6 +96,15 @@ export function OneDriveFileGrid({
                   <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onFileSelect(item); }}>
                     Details
                   </DropdownMenuItem>
+                  {onDelete && (
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={(e) => { e.stopPropagation(); onDelete(item); }}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -167,6 +178,15 @@ export function OneDriveFileGrid({
                 <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onFileSelect(item); }}>
                   Details
                 </DropdownMenuItem>
+                {onDelete && (
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onClick={(e) => { e.stopPropagation(); onDelete(item); }}
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

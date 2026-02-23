@@ -30,6 +30,7 @@ export default function OneDrive() {
     downloadFile,
     uploadFile,
     createFolder,
+    deleteItem,
   } = useOneDrive();
 
   // Initialize state from URL params and sessionStorage
@@ -205,6 +206,17 @@ export default function OneDrive() {
     }
   };
 
+  const handleDelete = async (item: OneDriveItem) => {
+    const confirmed = window.confirm(`Are you sure you want to delete "${item.name}"?${item.folder ? ' This will delete all contents inside.' : ''}`);
+    if (!confirmed) return;
+
+    const success = await deleteItem(item.id);
+    if (success) {
+      if (selectedFile?.id === item.id) setSelectedFile(null);
+      loadFiles(currentFolderId);
+    }
+  };
+
   const filteredFiles = files.filter(file => 
     file.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -282,6 +294,7 @@ export default function OneDrive() {
                 onFolderClick={handleFolderClick}
                 onFileSelect={handleFileSelect}
                 onDownload={handleDownload}
+                onDelete={handleDelete}
               />
             )}
           </div>
