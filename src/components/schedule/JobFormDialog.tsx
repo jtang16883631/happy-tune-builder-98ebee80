@@ -9,13 +9,20 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface TeamMember {
   id: string;
@@ -49,9 +56,13 @@ interface ScheduledJob {
   travel_info: string | null;
   hotel_info: string | null;
   status: string | null;
+  event_type?: string | null;
+  location_from?: string | null;
+  location_to?: string | null;
 }
 
 interface FormData {
+  event_type: 'work' | 'travel' | 'off';
   invoice_number: string;
   start_time: string;
   arrival_note: string;
@@ -67,14 +78,18 @@ interface FormData {
   notes: string;
   special_notes: string;
   team_members: string[];
-  is_travel_day: boolean;
   travel_info: string;
   hotel_info: string;
+  location_from: string;
+  location_to: string;
 }
 
-const MAKE_WEBHOOK_URL = import.meta.env.VITE_MAKE_WEBHOOK_URL || '';
+function generateLegacyPayload(data: FormData, teamMembers: TeamMember[], selectedDate: Date): string[] {
+  const lines: string[] = [];
 
-function generateLegacyPayload(data: FormData, teamMembers: TeamMember[]) {
+  // First line is ALWAYS the formatted date
+  lines.push(format(selectedDate, 'EEEE, MMM d, yyyy'));
+
   const memberNames = data.team_members
     .map(id => {
       const m = teamMembers.find(tm => tm.id === id);
@@ -82,19 +97,53 @@ function generateLegacyPayload(data: FormData, teamMembers: TeamMember[]) {
     })
     .join('+');
 
-  return {
-    line1: data.invoice_number || data.start_time || data.arrival_note
-      ? `-Invoice: ${data.invoice_number || ''} START: ${data.start_time || ''} NOTE: ${data.arrival_note || ''}`
-      : '',
-    line2: data.team_members.length > 0
-      ? `(${data.team_members.length})${memberNames}`
-      : '',
-    line3: data.special_notes
-      ? `***NOTE: ${data.special_notes}***`
-      : '',
-    line4: `Client: ${data.client_id || ''} - ${data.is_travel_day ? 'Travel Day' : data.client_name} | Address: ${data.address || ''}${data.is_travel_day && data.hotel_info ? ` | Hotel info: ${data.hotel_info}` : ''}`,
-  };
+  if (data.event_type === 'off') {
+    lines.push('ALL off per schedule');
+  } else if (data.event_type === 'travel') {
+    lines.push('***Travel ONLY***');
+    lines.push(`Travel/DRIVE to ${data.location_to || ''} from ${data.location_from || ''}:`);
+    if (data.team_members.length > 0) {
+      lines.push(`(${data.team_members.length})${memberNames}`);
+    }
+    lines.push(`Hotel info: ${data.hotel_info || ''}`);
+  } else {
+    // Work day
+    lines.push(`-Invoice: ${data.invoice_number || 'TBD'} START: ${data.start_time || ''} NOTE: ${data.arrival_note || ''}`);
+    if (data.team_members.length > 0) {
+      lines.push(`(${data.team_members.length})${memberNames}`);
+    }
+    if (data.special_notes) {
+      lines.push(`***NOTE: ${data.special_notes}***`);
+    }
+    lines.push(`Client: ${data.client_name}`);
+    lines.push(`Address: ${data.address || ''}`);
+  }
+
+  return lines;
 }
+
+const DEFAULT_FORM: FormData = {
+  event_type: 'work',
+  invoice_number: '',
+  start_time: '',
+  arrival_note: '',
+  client_name: '',
+  client_id: '',
+  address: '',
+  phone: '',
+  previous_inventory_value: '',
+  onsite_contact: '',
+  corporate_contact: '',
+  email_data_to: '',
+  final_invoice_to: '',
+  notes: '',
+  special_notes: '',
+  team_members: [],
+  travel_info: '',
+  hotel_info: '',
+  location_from: '',
+  location_to: '',
+};
 
 interface JobFormDialogProps {
   open: boolean;
@@ -115,35 +164,21 @@ export function JobFormDialog({
   const isEditing = !!job;
 
   const { register, handleSubmit, reset, watch, setValue, formState: { isSubmitting } } = useForm<FormData>({
-    defaultValues: {
-      invoice_number: '',
-      start_time: '',
-      arrival_note: '',
-      client_name: '',
-      client_id: '',
-      address: '',
-      phone: '',
-      previous_inventory_value: '',
-      onsite_contact: '',
-      corporate_contact: '',
-      email_data_to: '',
-      final_invoice_to: '',
-      notes: '',
-      special_notes: '',
-      team_members: [],
-      is_travel_day: false,
-      travel_info: '',
-      hotel_info: '',
-    },
+    defaultValues: DEFAULT_FORM,
   });
 
-  const isTravelDay = watch('is_travel_day');
+  const eventType = watch('event_type');
   const selectedTeamMembers = watch('team_members');
 
   useEffect(() => {
     if (open) {
       if (job) {
+        const derivedType: FormData['event_type'] =
+          (job.event_type as FormData['event_type']) ||
+          (job.is_travel_day ? 'travel' : 'work');
+
         reset({
+          event_type: derivedType,
           invoice_number: job.invoice_number || '',
           start_time: job.start_time || '',
           arrival_note: job.arrival_note || '',
@@ -159,31 +194,13 @@ export function JobFormDialog({
           notes: job.notes || '',
           special_notes: job.special_notes || '',
           team_members: job.team_members || [],
-          is_travel_day: job.is_travel_day || false,
           travel_info: job.travel_info || '',
           hotel_info: job.hotel_info || '',
+          location_from: job.location_from || '',
+          location_to: job.location_to || '',
         });
       } else {
-        reset({
-          invoice_number: '',
-          start_time: '',
-          arrival_note: '',
-          client_name: '',
-          client_id: '',
-          address: '',
-          phone: '',
-          previous_inventory_value: '',
-          onsite_contact: '',
-          corporate_contact: '',
-          email_data_to: '',
-          final_invoice_to: '',
-          notes: '',
-          special_notes: '',
-          team_members: [],
-          is_travel_day: false,
-          travel_info: '',
-          hotel_info: '',
-        });
+        reset(DEFAULT_FORM);
       }
     }
   }, [open, job, reset]);
@@ -197,7 +214,7 @@ export function JobFormDialog({
         job_date: format(selectedDate, 'yyyy-MM-dd'),
         start_time: data.start_time || null,
         arrival_note: data.arrival_note || null,
-        client_name: data.is_travel_day ? 'Travel Day' : data.client_name,
+        client_name: data.event_type === 'travel' ? 'Travel Day' : (data.event_type === 'off' ? 'Off Day' : data.client_name),
         client_id: data.client_id || null,
         address: data.address || null,
         phone: data.phone || null,
@@ -210,9 +227,12 @@ export function JobFormDialog({
         special_notes: data.special_notes || null,
         team_members: data.team_members,
         team_count: data.team_members.length,
-        is_travel_day: data.is_travel_day,
+        is_travel_day: data.event_type === 'travel',
         travel_info: data.travel_info || null,
         hotel_info: data.hotel_info || null,
+        event_type: data.event_type,
+        location_from: data.location_from || null,
+        location_to: data.location_to || null,
       };
 
       let savedJobId: string | null = null;
@@ -245,12 +265,15 @@ export function JobFormDialog({
         }).catch((err) => console.warn('Notification failed (non-blocking):', err));
       }
 
-      // Send legacy HTML to Make.com webhook
+      // Send payload to Make.com webhook
       try {
         const response = await fetch('https://hook.us2.make.com/uz11u4w5w8cs9esg6o4y3uq7w9q34ggw', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rawData: { ...data, job_date: format(selectedDate, 'yyyy-MM-dd') }, payload: generateLegacyPayload(data, teamMembers) }),
+          body: JSON.stringify({
+            rawData: { ...data, job_date: format(selectedDate, 'yyyy-MM-dd') },
+            payloadLines: generateLegacyPayload(data, teamMembers, selectedDate),
+          }),
         });
         console.log('Real webhook fired! Status:', response.status);
       } catch (error) {
@@ -269,7 +292,7 @@ export function JobFormDialog({
   });
 
   const onSubmit = (data: FormData) => {
-    if (!data.is_travel_day && !data.client_name.trim()) {
+    if (data.event_type === 'work' && !data.client_name.trim()) {
       toast({ title: 'Client name is required', variant: 'destructive' });
       return;
     }
@@ -292,27 +315,46 @@ export function JobFormDialog({
           <DialogTitle>
             {isEditing ? 'Edit Job' : 'Add Job'} - {format(selectedDate, 'MMMM d, yyyy')}
           </DialogTitle>
+          <DialogDescription>
+            Fill in the job details below.
+          </DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="max-h-[70vh] pr-4">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-            {/* Travel Day Toggle */}
-            <div className="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-950/20 rounded-lg">
-              <Checkbox
-                id="is_travel_day"
-                checked={isTravelDay}
-                onCheckedChange={(checked) => setValue('is_travel_day', !!checked)}
-              />
-              <Label htmlFor="is_travel_day" className="cursor-pointer">
-                This is a Travel Day
-              </Label>
+            {/* Event Type Selector */}
+            <div className="space-y-2">
+              <Label>Event Type</Label>
+              <Select
+                value={eventType}
+                onValueChange={(val) => setValue('event_type', val as FormData['event_type'])}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="work">Work Day</SelectItem>
+                  <SelectItem value="travel">Travel Day</SelectItem>
+                  <SelectItem value="off">Off Day</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            {isTravelDay ? (
+            {eventType === 'off' ? (
+              <p className="text-sm text-muted-foreground p-3 bg-muted rounded-lg">
+                This day will be marked as "ALL off per schedule."
+              </p>
+            ) : eventType === 'travel' ? (
               <div className="space-y-4">
-                <div>
-                  <Label htmlFor="travel_info">Travel Info (e.g., "DRIVE to New Orleans, LA from Atlanta, GA")</Label>
-                  <Input id="travel_info" {...register('travel_info')} placeholder="Travel details..." />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="location_from">From Location</Label>
+                    <Input id="location_from" {...register('location_from')} placeholder="e.g., Atlanta, GA" />
+                  </div>
+                  <div>
+                    <Label htmlFor="location_to">To Location</Label>
+                    <Input id="location_to" {...register('location_to')} placeholder="e.g., New Orleans, LA" />
+                  </div>
                 </div>
                 <div>
                   <Label htmlFor="hotel_info">Hotel Info</Label>
@@ -391,47 +433,53 @@ export function JobFormDialog({
               </>
             )}
 
-            {/* Team Members */}
-            <div className="space-y-2">
-              <Label>Team Members</Label>
-              <div className="flex flex-wrap gap-2 p-3 border rounded-lg min-h-[60px]">
-                {teamMembers.length > 0 ? (
-                  teamMembers.map((member) => (
-                    <button
-                      key={member.id}
-                      type="button"
-                      onClick={() => toggleTeamMember(member.id)}
-                      className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
-                        selectedTeamMembers?.includes(member.id)
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted hover:bg-muted/80'
-                      }`}
-                    >
-                      {member.name}
-                    </button>
-                  ))
-                ) : (
-                  <p className="text-sm text-muted-foreground">No team members. Add them from the Team button.</p>
+            {/* Team Members - show for work and travel */}
+            {eventType !== 'off' && (
+              <div className="space-y-2">
+                <Label>Team Members</Label>
+                <div className="flex flex-wrap gap-2 p-3 border rounded-lg min-h-[60px]">
+                  {teamMembers.length > 0 ? (
+                    teamMembers.map((member) => (
+                      <button
+                        key={member.id}
+                        type="button"
+                        onClick={() => toggleTeamMember(member.id)}
+                        className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
+                          selectedTeamMembers?.includes(member.id)
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted hover:bg-muted/80'
+                        }`}
+                      >
+                        {member.name}
+                      </button>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No team members. Add them from the Team button.</p>
+                  )}
+                </div>
+                {selectedTeamMembers && selectedTeamMembers.length > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    Selected: {selectedTeamMembers.length} member{selectedTeamMembers.length !== 1 ? 's' : ''}
+                  </p>
                 )}
               </div>
-              {selectedTeamMembers && selectedTeamMembers.length > 0 && (
-                <p className="text-sm text-muted-foreground">
-                  Selected: {selectedTeamMembers.length} member{selectedTeamMembers.length !== 1 ? 's' : ''}
-                </p>
-              )}
-            </div>
+            )}
 
-            {/* Notes */}
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="notes">Notes</Label>
-                <Textarea id="notes" {...register('notes')} placeholder="General notes..." rows={2} />
+            {/* Notes - show for work and travel */}
+            {eventType !== 'off' && (
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="notes">Notes</Label>
+                  <Textarea id="notes" {...register('notes')} placeholder="General notes..." rows={2} />
+                </div>
+                {eventType === 'work' && (
+                  <div>
+                    <Label htmlFor="special_notes">Special Notes (highlighted in red)</Label>
+                    <Textarea id="special_notes" {...register('special_notes')} placeholder="Important special instructions..." rows={2} />
+                  </div>
+                )}
               </div>
-              <div>
-                <Label htmlFor="special_notes">Special Notes (highlighted in red)</Label>
-                <Textarea id="special_notes" {...register('special_notes')} placeholder="Important special instructions..." rows={2} />
-              </div>
-            </div>
+            )}
 
             {/* Actions */}
             <div className="flex justify-end gap-2 pt-4">
