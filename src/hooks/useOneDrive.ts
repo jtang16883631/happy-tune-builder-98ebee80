@@ -73,7 +73,7 @@ export function useOneDrive() {
         .single();
 
       if (error) {
-        if (error.code !== 'PGRST116') { // Not found is ok
+      if (error.code !== 'PGRST116') { // Not found is ok
           console.error('Failed to load company OneDrive tokens:', error);
         }
         setIsConnected(false);
@@ -95,7 +95,16 @@ export function useOneDrive() {
           // Try to refresh
           const refreshed = await refreshAccessToken(record.refresh_token, record.id);
           if (!refreshed) {
+            // Refresh failed (e.g. password changed) — remove stale record so connect screen shows
+            console.warn('[OneDrive] Refresh failed, clearing stale token record');
+            await supabase
+              .from('onedrive_company_tokens')
+              .delete()
+              .eq('id', record.id);
             setIsConnected(false);
+            setTokens(null);
+            setUser(null);
+            setTokenRecordId(null);
             return;
           }
         } else {
