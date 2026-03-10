@@ -407,6 +407,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     // Clear local state first
+    sessionEstablishedRef.current = false;
     setUser(null);
     setSession(null);
     setRoles([]);
