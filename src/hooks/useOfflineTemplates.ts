@@ -219,15 +219,18 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
   // Initialize sql.js and load database
   useEffect(() => {
     const init = async () => {
+      console.log('[OfflineDB] useEffect init starting (component mount)');
       setIsLoading(true);
       initPromiseRef.current = doInit();
-      await initPromiseRef.current;
+      const result = await initPromiseRef.current;
+      console.log(`[OfflineDB] useEffect init complete, db=${result ? 'loaded' : 'null'}`);
       setIsLoading(false);
     };
 
     init();
 
     return () => {
+      console.log('[OfflineDB] useEffect cleanup (component unmount)');
       dbRef.current?.close();
     };
   }, []);
