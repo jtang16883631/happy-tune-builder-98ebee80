@@ -121,17 +121,18 @@ export function getExcelCellStyle(color: ValidationColor): object | null {
   switch (color) {
     case 'yellow':
       return {
-        fill: { fgColor: { rgb: 'FFFF99' }, patternType: 'solid' },
+        fill: { fgColor: { rgb: 'FFFF00' }, patternType: 'solid' },
         border: blackBorder,
       };
     case 'red':
       return {
-        fill: { fgColor: { rgb: 'FF6666' }, patternType: 'solid' },
+        fill: { fgColor: { rgb: 'FF0000' }, patternType: 'solid' },
         border: blackBorder,
+        font: { color: { rgb: 'FFFFFF' } },
       };
     case 'gray':
       return {
-        fill: { fgColor: { rgb: 'D3D3D3' }, patternType: 'solid' },
+        fill: { fgColor: { rgb: 'AEAAAA' }, patternType: 'solid' },
         border: blackBorder,
       };
     case 'orange':
