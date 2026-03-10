@@ -2286,6 +2286,9 @@ const Scan = () => {
     const activeElement = document.activeElement;
     if (!activeElement || !(activeElement instanceof HTMLInputElement)) return;
     
+    // Don't intercept paste in dialogs (e.g. Cost Data Lookup search bar)
+    if (activeElement.closest('[role="dialog"]')) return;
+    
     // Try to extract row/col from the focused element's data attribute or ref key
     const focusedKey = Array.from(cellInputRefs.current.entries()).find(([_, el]) => el === activeElement)?.[0];
     let focusedRow = activeRowIndex;
