@@ -31,11 +31,10 @@ export function OfflineRedirect() {
 // Internal full hook – returns { isOnline, isChecking }
 // -----------------------------------------------------------------------
 function useOnlineStatusFull(): { isOnline: boolean; isChecking: boolean } {
-  // Start in "checking" state so we don't incorrectly assume online.
-  // isOnline is initialised to false so that, while we verify, nothing
-  // assumes connectivity that doesn't exist.
+  // If navigator.onLine is false at mount time, skip async checking entirely.
+  const navigatorOffline = !navigator.onLine;
   const [isOnline, setIsOnline] = useState<boolean>(false);
-  const [isChecking, setIsChecking] = useState<boolean>(true);
+  const [isChecking, setIsChecking] = useState<boolean>(!navigatorOffline);
   const lastCheckAtRef = useRef<number>(0);
   const failureCountRef = useRef<number>(0);
   const hasCompletedFirstCheck = useRef<boolean>(false);

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, ReactNode, useCallback } from 'react';
 import { User, Session, RealtimeChannel } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -36,6 +36,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [rolesLoaded, setRolesLoaded] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [presenceChannel, setPresenceChannel] = useState<RealtimeChannel | null>(null);
+  // Track whether we've ever successfully established a session in this app lifecycle.
+  // Prevents cold-start SIGNED_OUT events (from failed token refresh) from clearing cached state.
+  const sessionEstablishedRef = useRef(false);
 
   const readCachedRoles = useCallback((userId: string): AppRole[] => {
     try {
@@ -224,6 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(existingSession?.user ?? null);
 
         if (existingSession?.user) {
+          sessionEstablishedRef.current = true;
           // Cache user ID for offline flash drive import
           localStorage.setItem('cached_user_id', existingSession.user.id);
 
@@ -293,6 +297,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Session still valid — update state normally
           setSession(newSession);
           setUser(newSession.user);
+          sessionEstablishedRef.current = true;
 
           // If offline, use cached roles and skip network calls.
           if (!navigator.onLine) {
@@ -334,23 +339,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           }, 0);
         } else {
-          // Session is null — could be a real logout OR a token refresh failure when offline.
+          // Session is null — could be a real logout OR a token refresh failure when offline/lie-fi.
           // CRITICAL: If offline and we have a cached user, DO NOT clear state.
           // A SIGNED_OUT event can fire when the token refresh request fails due to no network.
           // Clearing the user here would redirect to /auth even though the user is genuinely logged in.
-          if (!navigator.onLine) {
-            const cachedUserId = localStorage.getItem('cached_user_id');
-            if (cachedUserId) {
-              console.log('[Auth] Offline SIGNED_OUT ignored – preserving cached session');
-              const cached = readCachedRoles(cachedUserId);
-              setRoles(cached);
-              setRolesLoaded(true);
-              setIsLoading(false);
-              // DO NOT clear user/session — keep whatever we had
-              return;
-            }
+          const cachedUserId = localStorage.getItem('cached_user_id');
+
+          if (!navigator.onLine && cachedUserId) {
+            console.log('[Auth] Offline SIGNED_OUT ignored – preserving cached session');
+            const cached = readCachedRoles(cachedUserId);
+            setRoles(cached);
+            setRolesLoaded(true);
+            setIsLoading(false);
+            return;
           }
+
+          // Lie-fi guard: navigator says online but we never established a real session
+          // in this app lifecycle. This means the SIGNED_OUT is from a failed token refresh
+          // during cold start, NOT from a real user-initiated logout.
+          if (!sessionEstablishedRef.current && cachedUserId) {
+            console.log('[Auth] Cold-start SIGNED_OUT ignored (session never established, likely lie-fi)');
+            const cached = readCachedRoles(cachedUserId);
+            setRoles(cached);
+            setRolesLoaded(true);
+            setIsLoading(false);
+            return;
+          }
+
           // Online real logout — clear everything
+          sessionEstablishedRef.current = false;
           setSession(null);
           setUser(null);
           setRoles([]);
@@ -390,6 +407,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     // Clear local state first
+    sessionEstablishedRef.current = false;
     setUser(null);
     setSession(null);
     setRoles([]);
