@@ -2836,6 +2836,16 @@ const Scan = () => {
             syncProgress={syncProgress}
           />
 
+          {/* Manage Device Dialog */}
+          <ManageDeviceDialog
+            open={manageDeviceDialogOpen}
+            onOpenChange={setManageDeviceDialogOpen}
+            localTemplates={offlineTemplates}
+            getTemplateCostItemCount={getTemplateCostItemCount}
+            onDelete={deleteLocalTemplate}
+            onRefresh={() => {}}
+          />
+
           {/* Flash Drive Transfer Dialog */}
           <FlashDriveTransferDialog
             open={flashDriveDialogOpen}
