@@ -1350,6 +1350,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      delete_template_cascade: { Args: { _template_id: string }; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
