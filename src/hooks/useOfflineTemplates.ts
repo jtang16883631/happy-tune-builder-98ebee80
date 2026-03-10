@@ -260,28 +260,44 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         database = new SQL.Database(savedDb);
         if (savedMeta) setSyncMeta(savedMeta);
         // Migrate: recreate templates table without user_id NOT NULL constraint
-        try {
-          database.run(`
-            CREATE TABLE IF NOT EXISTS templates_new (
-              id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
-              inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
-              job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
-              created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
-            )
-          `);
-          database.run(`INSERT OR IGNORE INTO templates_new SELECT * FROM templates`);
-          database.run(`DROP TABLE templates`);
-          database.run(`ALTER TABLE templates_new RENAME TO templates`);
-          console.log('[OfflineDB] Migrated templates table (user_id now nullable)');
-        } catch (migErr) {
-          console.log('[OfflineDB] Migration skipped (already migrated or no data)');
+        // Only run if migration hasn't been applied yet (check for migration marker)
+        const migrationDone = await loadFromIndexedDB<boolean>('migration_v1_done');
+        if (!migrationDone) {
+          try {
+            database.run(`
+              CREATE TABLE IF NOT EXISTS templates_new (
+                id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
+                inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
+                job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
+              )
+            `);
+            database.run(`INSERT OR IGNORE INTO templates_new SELECT * FROM templates`);
+            database.run(`DROP TABLE templates`);
+            database.run(`ALTER TABLE templates_new RENAME TO templates`);
+            // Recreate indexes lost by DROP TABLE
+            database.run(`CREATE INDEX IF NOT EXISTS idx_templates_date ON templates(inv_date DESC)`);
+            database.run(`CREATE INDEX IF NOT EXISTS idx_templates_cloud ON templates(cloud_id)`);
+            // Save migrated DB and mark migration complete
+            const dbData = database.export();
+            await saveToIndexedDB(DB_KEY, new Uint8Array(dbData));
+            await saveToIndexedDB('migration_v1_done', true);
+            console.log('[OfflineDB] Migrated templates table (user_id now nullable)');
+          } catch (migErr) {
+            // Migration not needed or failed — mark done to avoid retrying
+            await saveToIndexedDB('migration_v1_done', true);
+            console.log('[OfflineDB] Migration skipped (already migrated or no data)');
+          }
         }
+        // Ensure schema is up-to-date (creates tables/indexes IF NOT EXISTS)
+        createSchema(database);
         console.log('[OfflineDB] Restored existing database from IndexedDB');
       } else {
         database = new SQL.Database();
         createSchema(database);
         const dbData = database.export();
         await saveToIndexedDB(DB_KEY, new Uint8Array(dbData));
+        await saveToIndexedDB('migration_v1_done', true);
         console.log('[OfflineDB] Created fresh database');
       }
 
