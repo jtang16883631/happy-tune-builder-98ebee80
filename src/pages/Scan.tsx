@@ -2030,7 +2030,8 @@ const Scan = () => {
         XLSX.utils.book_append_sheet(workbook, sectionSheets[name], name);
       });
 
-      const filename = `${selectedTemplate.name}_${dateStr}_merged_scan.xlsx`;
+      const mergedScannerSuffix = userShortName ? `_${userShortName}` : '';
+      const filename = `${selectedTemplate.name}_${dateStr}${mergedScannerSuffix}_merged_scan.xlsx`;
 
       // Inject logo into Summary sheet (index 0)
       const logoData = await fetchLogoImageData();
