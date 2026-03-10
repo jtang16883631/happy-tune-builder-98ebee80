@@ -16,7 +16,6 @@ serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Verify caller is privileged
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -53,19 +52,51 @@ serve(async (req) => {
 
     console.log(`[delete-template] User ${user.id} deleting template ${templateId}`);
 
-    // Single server-side SQL call — deletes everything instantly
-    const { data, error } = await supabase.rpc('delete_template_cascade', {
-      _template_id: templateId,
-    });
+    // Delete large tables in chunks (50K per call to avoid statement timeout)
+    const chunkSize = 50000;
+    let totalScans = 0;
+    let totalCost = 0;
 
-    if (error) {
-      console.error('[delete-template] RPC error:', error);
-      throw error;
+    // Chunk-delete scan_records
+    for (let i = 0; i < 100; i++) {
+      const { data, error } = await supabase.rpc('delete_template_chunk', {
+        _template_id: templateId,
+        _table_name: 'scan_records',
+        _chunk_size: chunkSize,
+      });
+      if (error) { console.error('[delete-template] scan chunk error:', error); throw error; }
+      totalScans += (data as number) || 0;
+      if ((data as number) < chunkSize) break;
+      console.log(`[delete-template] Scans deleted so far: ${totalScans}`);
     }
 
-    console.log(`[delete-template] Done:`, data);
+    // Chunk-delete cost_items
+    for (let i = 0; i < 100; i++) {
+      const { data, error } = await supabase.rpc('delete_template_chunk', {
+        _template_id: templateId,
+        _table_name: 'template_cost_items',
+        _chunk_size: chunkSize,
+      });
+      if (error) { console.error('[delete-template] cost chunk error:', error); throw error; }
+      totalCost += (data as number) || 0;
+      if ((data as number) < chunkSize) break;
+      console.log(`[delete-template] Cost items deleted so far: ${totalCost}`);
+    }
 
-    return new Response(JSON.stringify({ success: true, deleted: data }), {
+    // Small tables - direct delete
+    await supabase.rpc('delete_template_chunk', { _template_id: templateId, _table_name: 'template_sections', _chunk_size: chunkSize });
+    await supabase.rpc('delete_template_chunk', { _template_id: templateId, _table_name: 'template_issues', _chunk_size: chunkSize });
+    
+    // Delete template itself
+    const { data: delResult, error: delErr } = await supabase.rpc('delete_template_chunk', { 
+      _template_id: templateId, _table_name: 'data_templates', _chunk_size: 1 
+    });
+    if (delErr) throw delErr;
+
+    const result = { scan_records: totalScans, cost_items: totalCost };
+    console.log(`[delete-template] Done:`, result);
+
+    return new Response(JSON.stringify({ success: true, deleted: result }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
