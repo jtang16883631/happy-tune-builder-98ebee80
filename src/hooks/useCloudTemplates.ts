@@ -637,44 +637,24 @@ export function useCloudTemplates() {
     []
   );
 
-  // Delete a template
+  // Delete a template via backend function (service role bypasses RLS)
   const deleteTemplate = useCallback(
     async (templateId: string): Promise<{ success: boolean; error?: string }> => {
       try {
-        // First check if template exists (to differentiate RLS block from not found)
-        const { data: existing } = await supabase
-          .from('data_templates')
-          .select('id')
-          .eq('id', templateId)
-          .maybeSingle();
+        const { data, error } = await supabase.functions.invoke('delete-template', {
+          body: { templateId },
+        });
 
-        if (!existing) {
-          return { success: false, error: 'Template not found' };
+        if (error) {
+          console.error('[deleteTemplate] Edge function error:', error);
+          return { success: false, error: error.message || 'Delete failed' };
         }
 
-        // Delete related data in batches to avoid statement timeout
-        await deleteBatched('scan_records', templateId);
-        await deleteBatched('template_cost_items', templateId);
-        await deleteBatched('template_sections', templateId);
-
-        const { error: deleteError } = await supabase
-          .from('data_templates')
-          .delete()
-          .eq('id', templateId);
-
-        if (deleteError) throw deleteError;
-
-        // Verify deletion actually happened (RLS might silently block)
-        const { data: stillExists } = await supabase
-          .from('data_templates')
-          .select('id')
-          .eq('id', templateId)
-          .maybeSingle();
-
-        if (stillExists) {
-          return { success: false, error: 'Permission denied - only privileged users can delete templates' };
+        if (data?.error) {
+          return { success: false, error: data.error };
         }
 
+        console.log('[deleteTemplate] Deleted:', data?.deleted);
         await fetchTemplates();
         return { success: true };
       } catch (err: any) {
@@ -683,7 +663,7 @@ export function useCloudTemplates() {
         return { success: false, error: msg };
       }
     },
-    [fetchTemplates, deleteBatched]
+    [fetchTemplates]
   );
 
   // Get sections for a template
