@@ -23,6 +23,7 @@ import { DeviceSyncDialog } from '@/components/scanner/DeviceSyncDialog';
 import { OuterNDCSelectionDialog, OuterNDCOption } from '@/components/scanner/OuterNDCSelectionDialog';
 import { CostDataLookupDialog } from '@/components/scanner/CostDataLookupDialog';
 import { ScanSummaryTab } from '@/components/scanner/ScanSummaryTab';
+import { FlashDriveTransferDialog } from '@/components/scanner/FlashDriveTransferDialog';
 import { SectionPasswordDialog } from '@/components/scanner/SectionPasswordDialog';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
@@ -216,6 +217,8 @@ const Scan = () => {
 
   // State for download to device dialog
   const [deviceSyncDialogOpen, setDeviceSyncDialogOpen] = useState(false);
+  // State for flash drive transfer dialog
+  const [flashDriveDialogOpen, setFlashDriveDialogOpen] = useState(false);
 
   // State for outer NDC selection dialog
   const [outerNDCDialogOpen, setOuterNDCDialogOpen] = useState(false);
@@ -2736,6 +2739,15 @@ const Scan = () => {
           <div className="text-center py-4 relative">
             {/* Sync buttons in top right */}
             <div className="absolute right-0 top-0 flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFlashDriveDialogOpen(true)}
+                className="gap-2"
+              >
+                <HardDrive className="h-4 w-4" />
+                <span className="hidden sm:inline">Flash Drive</span>
+              </Button>
               {isOnline && (
                 <Button
                   variant="outline"
@@ -2807,6 +2819,12 @@ const Scan = () => {
             syncProgress={syncProgress}
           />
 
+          {/* Flash Drive Transfer Dialog */}
+          <FlashDriveTransferDialog
+            open={flashDriveDialogOpen}
+            onOpenChange={setFlashDriveDialogOpen}
+            isOnline={isOnline}
+          />
 
           {sortedTemplates.length === 0 ? (
             <Card className="border-dashed max-w-md mx-auto">

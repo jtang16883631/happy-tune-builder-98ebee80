@@ -43,11 +43,13 @@ interface ImportPreviewTemplate {
 interface FlashDriveTransferDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  isOnline?: boolean;
 }
 
 export function FlashDriveTransferDialog({
   open,
   onOpenChange,
+  isOnline = navigator.onLine,
 }: FlashDriveTransferDialogProps) {
   const [activeTab, setActiveTab] = useState<'export' | 'import'>('export');
   const [isExporting, setIsExporting] = useState(false);
@@ -70,13 +72,28 @@ export function FlashDriveTransferDialog({
   const { 
     templates: offlineTemplates,
     syncedTemplateIds,
+    exportToFlashDrive,
     exportCloudTemplatesToFlashDrive,
     previewFlashDriveImport,
     importFromFlashDrive,
-  } = useOfflineTemplates();
+  } = useOfflineTemplates(isOnline);
 
-  // Cloud templates — source of truth for the export list
+  // Cloud templates — only fetch when online
   const { templates: cloudTemplates, isLoading: isLoadingCloud } = useCloudTemplates();
+
+  // When online: show cloud templates (with on-device badge).
+  // When offline: show only local (on-device) templates.
+  const exportTemplateList = isOnline
+    ? cloudTemplates
+    : offlineTemplates.map(t => ({
+        id: t.id,
+        name: t.name,
+        facility_name: t.facility_name,
+        inv_date: t.inv_date,
+        inv_number: t.inv_number,
+      }));
+
+  const isLoadingExportList = isOnline ? isLoadingCloud : false;
 
   // Build a set of cloud IDs that are already downloaded to device
   const localCloudIds = new Set(syncedTemplateIds);
@@ -89,17 +106,17 @@ export function FlashDriveTransferDialog({
     }
   }, [open]);
 
-  const handleToggleExportTemplate = (cloudId: string) => {
+  const handleToggleExportTemplate = (id: string) => {
     setSelectedExportIds(prev =>
-      prev.includes(cloudId) ? prev.filter(x => x !== cloudId) : [...prev, cloudId]
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     );
   };
 
   const handleSelectAllExport = () => {
-    if (selectedExportIds.length === cloudTemplates.length) {
+    if (selectedExportIds.length === exportTemplateList.length) {
       setSelectedExportIds([]);
     } else {
-      setSelectedExportIds(cloudTemplates.map(t => t.id));
+      setSelectedExportIds(exportTemplateList.map(t => t.id));
     }
   };
 
@@ -114,14 +131,38 @@ export function FlashDriveTransferDialog({
     setExportStatus('Preparing export...');
 
     try {
-      const result = await exportCloudTemplatesToFlashDrive(
-        selectedExportIds,
-        (msg) => { setExportStatus(msg); setExportProgress(prev => Math.min(prev + 15, 85)); }
-      );
+      let exportData: Uint8Array;
+      let exportedCount: number;
+      let costItemCount: number;
+      let exportedTemplatesMeta: Array<{ inv_number?: string | null; facility_name?: string | null }>;
 
-      if (!result || result.exportedTemplates.length === 0) {
-        toast.error('Export failed - no data available');
-        return;
+      if (isOnline) {
+        // Online: use cloud export (can fetch cloud-only templates)
+        const result = await exportCloudTemplatesToFlashDrive(
+          selectedExportIds,
+          (msg) => { setExportStatus(msg); setExportProgress(prev => Math.min(prev + 15, 85)); }
+        );
+        if (!result || result.exportedTemplates.length === 0) {
+          toast.error('Export failed - no data available');
+          return;
+        }
+        exportData = new Uint8Array(result.data);
+        exportedCount = result.exportedTemplates.length;
+        costItemCount = result.costItemCount;
+        exportedTemplatesMeta = result.exportedTemplates;
+      } else {
+        // Offline: export directly from local SQLite
+        setExportStatus('Exporting from device...');
+        setExportProgress(50);
+        const result = exportToFlashDrive(selectedExportIds);
+        if (!result || result.templates.length === 0) {
+          toast.error('Export failed - no local data available');
+          return;
+        }
+        exportData = result.data;
+        exportedCount = result.templates.length;
+        costItemCount = result.costItemCount;
+        exportedTemplatesMeta = result.templates;
       }
 
       setExportProgress(90);
@@ -129,18 +170,18 @@ export function FlashDriveTransferDialog({
 
       // Generate filename
       let filename = 'templates';
-      if (result.exportedTemplates.length === 1) {
-        const t = result.exportedTemplates[0];
+      if (exportedTemplatesMeta.length === 1) {
+        const t = exportedTemplatesMeta[0];
         const parts: string[] = [];
         if (t.inv_number) parts.push(t.inv_number.replace(/[^a-zA-Z0-9]/g, ''));
         if (t.facility_name) parts.push(t.facility_name.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '_'));
         if (parts.length > 0) filename = parts.join('_');
       } else {
-        filename = `templates_${result.exportedTemplates.length}_${new Date().toISOString().split('T')[0]}`;
+        filename = `templates_${exportedCount}_${new Date().toISOString().split('T')[0]}`;
       }
 
       // Gzip compress the SQLite binary for smaller USB transfer
-      const compressed = await gzipCompress(new Uint8Array(result.data));
+      const compressed = await gzipCompress(exportData);
 
       const blob = new Blob([compressed as any], { type: 'application/gzip' });
       const url = URL.createObjectURL(blob);
@@ -155,10 +196,9 @@ export function FlashDriveTransferDialog({
       setExportProgress(100);
       setExportStatus('Complete!');
       
-      const rawSize = formatFileSize(result.data.length);
+      const rawSize = formatFileSize(exportData.length);
       const compressedSize = formatFileSize(compressed.byteLength);
-      const costItemCount = result.costItemCount?.toLocaleString() || '0';
-      toast.success(`Exported ${result.exportedTemplates.length} template(s) (${costItemCount} cost items, ${rawSize} → ${compressedSize} compressed)`);
+      toast.success(`Exported ${exportedCount} template(s) (${costItemCount.toLocaleString()} cost items, ${rawSize} → ${compressedSize} compressed)`);
     } catch (err: any) {
       toast.error(err.message || 'Export failed');
     } finally {
@@ -278,21 +318,22 @@ export function FlashDriveTransferDialog({
             </TabsTrigger>
           </TabsList>
 
-          {/* Export Tab */}
           <TabsContent value="export" className="space-y-4 mt-4">
-            {isLoadingCloud ? (
+            {isLoadingExportList ? (
               <div className="flex items-center justify-center p-8 gap-2 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span className="text-sm">Loading templates...</span>
               </div>
-            ) : cloudTemplates.length === 0 ? (
+            ) : exportTemplateList.length === 0 ? (
               <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="h-4 w-4 text-destructive mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-destructive">No templates available</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Upload templates first before exporting.
+                      {isOnline
+                        ? 'Upload templates first before exporting.'
+                        : 'No templates downloaded to this device. Import from a flash drive or download while online.'}
                     </p>
                   </div>
                 </div>
@@ -306,18 +347,18 @@ export function FlashDriveTransferDialog({
                     onClick={handleSelectAllExport}
                     disabled={isExporting}
                   >
-                    {selectedExportIds.length === cloudTemplates.length ? 'Deselect All' : 'Select All'}
+                    {selectedExportIds.length === exportTemplateList.length ? 'Deselect All' : 'Select All'}
                   </Button>
                   <span className="text-sm text-muted-foreground">
-                    {selectedExportIds.length} of {cloudTemplates.length} selected
+                    {selectedExportIds.length} of {exportTemplateList.length} selected
                   </span>
                 </div>
 
                 <ScrollArea className="h-[200px] border rounded-md p-2 bg-background">
                   <div className="space-y-1">
-                    {cloudTemplates.map(t => {
+                    {exportTemplateList.map(t => {
                       const isSelected = selectedExportIds.includes(t.id);
-                      const isOnDevice = localCloudIds.has(t.id);
+                      const isOnDevice = !isOnline || localCloudIds.has(t.id);
                       return (
                         <div
                           key={t.id}
@@ -360,7 +401,9 @@ export function FlashDriveTransferDialog({
                 </ScrollArea>
 
                 <p className="text-xs text-muted-foreground">
-                  "On Device" templates export instantly. "Cloud" templates will be fetched during export.
+                  {isOnline
+                    ? '"On Device" templates export instantly. "Cloud" templates will be fetched during export.'
+                    : 'All templates shown are on this device and can be exported offline.'}
                 </p>
               </div>
             )}
