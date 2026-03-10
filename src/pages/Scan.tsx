@@ -1587,6 +1587,7 @@ const Scan = () => {
 
         // Apply validation styling to cells
         applyValidationStylesToWorksheet(worksheet, rows, 1);
+        applyExcelHeaderAndDataStyles(worksheet, rows);
         
         // Apply formulas for Unit Cost, Extended, and SUM
         const dataRowCount = rows.length - 1; // Exclude header
