@@ -1351,6 +1351,14 @@ export type Database = {
     }
     Functions: {
       delete_template_cascade: { Args: { _template_id: string }; Returns: Json }
+      delete_template_chunk: {
+        Args: {
+          _chunk_size?: number
+          _table_name: string
+          _template_id: string
+        }
+        Returns: number
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
