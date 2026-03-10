@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useSyncExternalStore } from 'react';
 import initSqlJs, { Database } from 'sql.js';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,7 +14,7 @@ export type TemplateStatus = 'active' | 'working' | 'completed';
 
 export interface OfflineTemplate {
   id: string;
-  cloud_id: string | null; // null if only local
+  cloud_id: string | null;
   user_id: string;
   name: string;
   inv_date: string | null;
@@ -25,7 +25,7 @@ export interface OfflineTemplate {
   status: TemplateStatus | null;
   created_at: string;
   updated_at: string;
-  is_dirty: boolean; // true if local changes not synced
+  is_dirty: boolean;
 }
 
 export interface OfflineSection {
@@ -34,7 +34,7 @@ export interface OfflineSection {
   sect: string;
   description: string | null;
   full_section: string | null;
-  cost_sheet?: string | null; // e.g., "GPO", "340B" (matches cloud template_sections.cost_sheet)
+  cost_sheet?: string | null;
 }
 
 export interface OfflineCostItem {
@@ -45,7 +45,7 @@ export interface OfflineCostItem {
   unit_price: number | null;
   source: string | null;
   material: string | null;
-  sheet_name?: string | null; // e.g., "GPO", "340B" (matches cloud template_cost_items.sheet_name)
+  sheet_name?: string | null;
 }
 
 interface SyncMeta {
@@ -61,7 +61,7 @@ export interface SyncProgress {
   status: 'idle' | 'fetching_template' | 'fetching_sections' | 'fetching_cost_items' | 'saving' | 'complete';
 }
 
-// IndexedDB helpers
+// ─── IndexedDB helpers ────────────────────────────────────────────
 const openIndexedDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);
@@ -102,185 +102,175 @@ const loadFromIndexedDB = async <T>(key: string): Promise<T | null> => {
 
 const generateId = () => crypto.randomUUID();
 
-// Accept isOnline from the authoritative useOnlineStatus hook so there is a
-// single source of truth for connectivity throughout the app.
-export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
-  const { user } = useAuth();
-  const [db, setDb] = useState<Database | null>(null);
-  const dbRef = useRef<Database | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncMeta, setSyncMeta] = useState<SyncMeta>({ lastSyncedAt: null, pendingChanges: 0 });
-  const [error, setError] = useState<string | null>(null);
-  const [syncProgress, setSyncProgress] = useState<SyncProgress>({
-    currentTemplate: null,
-    currentTemplateIndex: 0,
-    totalTemplates: 0,
-    costItemsFetched: 0,
-    status: 'idle',
-  });
-  const sqlRef = useRef<any>(null);
-  const initPromiseRef = useRef<Promise<Database | null> | null>(null);
+// ─── Module-level singleton ───────────────────────────────────────
+// All hook instances share a single SQLite database to prevent race
+// conditions where multiple instances overwrite each other's data.
 
-  const createSchema = (database: Database) => {
-    database.run(`
-      CREATE TABLE IF NOT EXISTS templates (
-        id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
-        inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
-        job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
-        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS sections (
-        id TEXT PRIMARY KEY, template_id TEXT NOT NULL, sect TEXT NOT NULL,
-        description TEXT, full_section TEXT, cost_sheet TEXT,
-        FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
-      );
-      CREATE TABLE IF NOT EXISTS cost_items (
-        id TEXT PRIMARY KEY, template_id TEXT NOT NULL, ndc TEXT,
-        material_description TEXT, unit_price REAL, source TEXT, material TEXT, sheet_name TEXT,
-        FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
-      );
-      CREATE INDEX IF NOT EXISTS idx_templates_date ON templates(inv_date DESC);
-      CREATE INDEX IF NOT EXISTS idx_templates_cloud ON templates(cloud_id);
-      CREATE INDEX IF NOT EXISTS idx_sections_template ON sections(template_id);
-      CREATE INDEX IF NOT EXISTS idx_cost_template ON cost_items(template_id);
-      CREATE INDEX IF NOT EXISTS idx_cost_ndc ON cost_items(ndc);
-      CREATE INDEX IF NOT EXISTS idx_cost_sheet ON cost_items(sheet_name);
-    `);
-  };
+let _db: Database | null = null;
+let _sqlRef: any = null;
+let _initPromise: Promise<Database | null> | null = null;
+let _isInitialised = false;
+let _version = 0; // bumped on every mutation so React re-renders
 
-  const doInit = async (): Promise<Database | null> => {
+const _listeners = new Set<() => void>();
+function _notify() {
+  _version++;
+  _listeners.forEach(fn => fn());
+}
+function _subscribe(fn: () => void) {
+  _listeners.add(fn);
+  return () => { _listeners.delete(fn); };
+}
+function _getSnapshot() { return _version; }
+
+const SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS templates (
+    id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
+    inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
+    job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS sections (
+    id TEXT PRIMARY KEY, template_id TEXT NOT NULL, sect TEXT NOT NULL,
+    description TEXT, full_section TEXT, cost_sheet TEXT,
+    FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS cost_items (
+    id TEXT PRIMARY KEY, template_id TEXT NOT NULL, ndc TEXT,
+    material_description TEXT, unit_price REAL, source TEXT, material TEXT, sheet_name TEXT,
+    FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_templates_date ON templates(inv_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_templates_cloud ON templates(cloud_id);
+  CREATE INDEX IF NOT EXISTS idx_sections_template ON sections(template_id);
+  CREATE INDEX IF NOT EXISTS idx_cost_template ON cost_items(template_id);
+  CREATE INDEX IF NOT EXISTS idx_cost_ndc ON cost_items(ndc);
+  CREATE INDEX IF NOT EXISTS idx_cost_sheet ON cost_items(sheet_name);
+`;
+
+async function _doInit(): Promise<Database | null> {
+  if (_db) return _db;
+  if (_initPromise) return _initPromise;
+
+  _initPromise = (async () => {
     try {
-      console.log('[OfflineDB] Starting sql.js init…');
+      console.log('[OfflineDB] Singleton init starting…');
       const SQL = await initSqlWithCache('OfflineDB');
-      console.log('[OfflineDB] sql.js loaded successfully');
-      sqlRef.current = SQL;
+      _sqlRef = SQL;
 
       const savedDb = await loadFromIndexedDB<Uint8Array>(DB_KEY);
-      console.log(`[OfflineDB] IndexedDB data: ${savedDb ? `${(savedDb.byteLength / 1024).toFixed(0)} KB` : 'null (no saved DB)'}`);
+      console.log(`[OfflineDB] IndexedDB data: ${savedDb ? `${(savedDb.byteLength / 1024).toFixed(0)} KB` : 'null'}`);
 
-      const savedMeta = await loadFromIndexedDB<SyncMeta>(SYNC_META_KEY);
-
-      let database: Database;
       if (savedDb) {
-        database = new SQL.Database(savedDb);
-        if (savedMeta) setSyncMeta(savedMeta);
-        // Migrate: recreate templates table without user_id NOT NULL constraint
-        // Only run if migration hasn't been applied yet (check for migration marker)
+        _db = new SQL.Database(savedDb);
+        // Run v1 migration if needed
         const migrationDone = await loadFromIndexedDB<boolean>('migration_v1_done');
         if (!migrationDone) {
           try {
-            database.run(`
-              CREATE TABLE IF NOT EXISTS templates_new (
-                id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
-                inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
-                job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
-                created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
-              )
-            `);
-            database.run(`INSERT OR IGNORE INTO templates_new SELECT * FROM templates`);
-            database.run(`DROP TABLE templates`);
-            database.run(`ALTER TABLE templates_new RENAME TO templates`);
-            // Recreate indexes lost by DROP TABLE
-            database.run(`CREATE INDEX IF NOT EXISTS idx_templates_date ON templates(inv_date DESC)`);
-            database.run(`CREATE INDEX IF NOT EXISTS idx_templates_cloud ON templates(cloud_id)`);
-            // Save migrated DB and mark migration complete
-            const dbData = database.export();
+            _db.run(`CREATE TABLE IF NOT EXISTS templates_new (
+              id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
+              inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
+              job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
+              created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
+            )`);
+            _db.run(`INSERT OR IGNORE INTO templates_new SELECT * FROM templates`);
+            _db.run(`DROP TABLE templates`);
+            _db.run(`ALTER TABLE templates_new RENAME TO templates`);
+            _db.run(`CREATE INDEX IF NOT EXISTS idx_templates_date ON templates(inv_date DESC)`);
+            _db.run(`CREATE INDEX IF NOT EXISTS idx_templates_cloud ON templates(cloud_id)`);
+            const dbData = _db.export();
             await saveToIndexedDB(DB_KEY, new Uint8Array(dbData));
             await saveToIndexedDB('migration_v1_done', true);
-            console.log('[OfflineDB] Migrated templates table (user_id now nullable)');
-          } catch (migErr) {
-            // Migration not needed or failed — mark done to avoid retrying
+            console.log('[OfflineDB] Migration v1 complete');
+          } catch {
             await saveToIndexedDB('migration_v1_done', true);
-            console.log('[OfflineDB] Migration skipped (already migrated or no data)');
           }
         }
-        // Ensure schema is up-to-date (creates tables/indexes IF NOT EXISTS)
-        createSchema(database);
-        // Count templates right after restore to verify data integrity
+        _db.run(SCHEMA_SQL);
+
         try {
-          const countResult = database.exec('SELECT COUNT(*) FROM templates');
-          const costCountResult = database.exec('SELECT COUNT(*) FROM cost_items');
-          const tCount = countResult.length > 0 ? countResult[0].values[0][0] : 0;
-          const cCount = costCountResult.length > 0 ? costCountResult[0].values[0][0] : 0;
-          console.log(`[OfflineDB] Restored from IndexedDB: ${tCount} templates, ${cCount} cost_items`);
-        } catch (e) {
-          console.log('[OfflineDB] Restored from IndexedDB (could not count tables)');
-        }
+          const tc = _db.exec('SELECT COUNT(*) FROM templates');
+          const cc = _db.exec('SELECT COUNT(*) FROM cost_items');
+          console.log(`[OfflineDB] Restored: ${tc[0]?.values[0][0]} templates, ${cc[0]?.values[0][0]} cost_items`);
+        } catch {}
       } else {
-        database = new SQL.Database();
-        createSchema(database);
-        // DON'T save fresh empty DB to IndexedDB — this would overwrite any
-        // previously synced data if another hook instance already saved templates.
-        // Only explicit sync/save operations should persist to IndexedDB.
-        console.log('[OfflineDB] Created fresh in-memory database (NOT saved to IndexedDB to prevent overwrite)');
+        _db = new SQL.Database();
+        _db.run(SCHEMA_SQL);
+        console.log('[OfflineDB] Created fresh database (not persisted until data is added)');
       }
 
-      dbRef.current = database;
-      setDb(database);
-      setError(null);
-      return database;
+      _isInitialised = true;
+      _notify();
+      return _db;
     } catch (err: any) {
-      console.error('[OfflineDB] Failed to initialize:', err);
-      setError(err.message);
+      console.error('[OfflineDB] Init failed:', err);
       return null;
     }
-  };
+  })();
 
-  // Initialize sql.js and load database
+  return _initPromise;
+}
+
+async function _saveDatabase(database?: Database) {
+  const targetDb = database || _db;
+  if (!targetDb) return;
+  const dbData = targetDb.export();
+  await saveToIndexedDB(DB_KEY, new Uint8Array(dbData));
+}
+
+async function _ensureDb(): Promise<Database | null> {
+  if (_db) return _db;
+  if (_initPromise) {
+    const result = await _initPromise;
+    if (result) return result;
+  }
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    console.log(`[OfflineDB] Retry attempt ${attempt}/3…`);
+    await new Promise(r => setTimeout(r, 500 * attempt));
+    _initPromise = null; // allow re-init
+    const result = await _doInit();
+    if (result) return result;
+  }
+  console.error('[OfflineDB] All init attempts failed');
+  return null;
+}
+
+// ─── Hook ─────────────────────────────────────────────────────────
+
+export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
+  const { user } = useAuth();
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncMeta, setSyncMeta] = useState<SyncMeta>({ lastSyncedAt: null, pendingChanges: 0 });
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(!_isInitialised);
+  const [syncProgress, setSyncProgress] = useState<SyncProgress>({
+    currentTemplate: null, currentTemplateIndex: 0, totalTemplates: 0,
+    costItemsFetched: 0, status: 'idle',
+  });
+
+  // Subscribe to singleton mutations so all hook consumers re-render together
+  useSyncExternalStore(_subscribe, _getSnapshot);
+
+  // Trigger singleton init on first mount (idempotent)
   useEffect(() => {
-    const init = async () => {
-      console.log('[OfflineDB] useEffect init starting (component mount)');
-      setIsLoading(true);
-      initPromiseRef.current = doInit();
-      const result = await initPromiseRef.current;
-      console.log(`[OfflineDB] useEffect init complete, db=${result ? 'loaded' : 'null'}`);
+    if (_isInitialised) {
       setIsLoading(false);
-    };
-
-    init();
-
-    return () => {
-      console.log('[OfflineDB] useEffect cleanup (component unmount)');
-      dbRef.current?.close();
-    };
+      // Load sync meta
+      loadFromIndexedDB<SyncMeta>(SYNC_META_KEY).then(m => { if (m) setSyncMeta(m); });
+      return;
+    }
+    let cancelled = false;
+    _doInit().then(() => {
+      if (!cancelled) {
+        setIsLoading(false);
+        setError(_db ? null : 'Failed to initialise database');
+        loadFromIndexedDB<SyncMeta>(SYNC_META_KEY).then(m => { if (m) setSyncMeta(m); });
+      }
+    });
+    return () => { cancelled = true; };
   }, []);
 
-  // Keep dbRef in sync
-  useEffect(() => {
-    dbRef.current = db;
-  }, [db]);
-
-  // ensureDb: wait for in-flight init or retry up to 3 times
-  const ensureDb = useCallback(async (): Promise<Database | null> => {
-    if (dbRef.current) return dbRef.current;
-
-    // If init is still running, wait for it
-    if (initPromiseRef.current) {
-      const result = await initPromiseRef.current;
-      if (result) return result;
-    }
-
-    // Retry up to 3 times with a small delay
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      console.log(`[OfflineDB] Retry attempt ${attempt}/3…`);
-      await new Promise(r => setTimeout(r, 500 * attempt));
-      initPromiseRef.current = doInit();
-      const result = await initPromiseRef.current;
-      if (result) return result;
-    }
-
-    console.error('[OfflineDB] All init attempts failed');
-    return null;
-  }, []);
-
-  const saveDatabase = useCallback(async (database?: Database) => {
-    const targetDb = database || dbRef.current || db;
-    if (!targetDb) return;
-    
-    const dbData = targetDb.export();
-    await saveToIndexedDB(DB_KEY, new Uint8Array(dbData));
-  }, [db]);
+  const db = _db;
 
   const updateSyncMeta = useCallback(async (meta: Partial<SyncMeta>) => {
     const newMeta = { ...syncMeta, ...meta };
@@ -288,259 +278,149 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     await saveToIndexedDB(SYNC_META_KEY, newMeta);
   }, [syncMeta]);
 
-  // Get all templates from local DB
-  const getTemplates = useCallback((): OfflineTemplate[] => {
-    if (!db) {
-      console.log('[OfflineDB] getTemplates: db is null, returning []');
-      return [];
-    }
+  // ── Read helpers ──────────────────────────────────────────────
 
+  const getTemplates = useCallback((): OfflineTemplate[] => {
+    if (!db) return [];
     try {
       const results = db.exec(`
-        SELECT id, cloud_id, user_id, name, inv_date, facility_name, inv_number, 
+        SELECT id, cloud_id, user_id, name, inv_date, facility_name, inv_number,
                cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty
-        FROM templates
-        ORDER BY inv_date DESC, name
+        FROM templates ORDER BY inv_date DESC, name
       `);
-
-      if (results.length === 0) {
-        console.log('[OfflineDB] getTemplates: query returned 0 rows');
-        return [];
-      }
-
-      const templates = results[0].values.map((row: any[]) => ({
-        id: row[0] as string,
-        cloud_id: row[1] as string | null,
-        user_id: row[2] as string,
-        name: row[3] as string,
-        inv_date: row[4] as string | null,
-        facility_name: row[5] as string | null,
-        inv_number: row[6] as string | null,
-        cost_file_name: row[7] as string | null,
-        job_ticket_file_name: row[8] as string | null,
-        status: row[9] as TemplateStatus | null,
-        created_at: row[10] as string,
-        updated_at: row[11] as string,
-        is_dirty: Boolean(row[12]),
+      if (results.length === 0) return [];
+      return results[0].values.map((row: any[]) => ({
+        id: row[0] as string, cloud_id: row[1] as string | null, user_id: row[2] as string,
+        name: row[3] as string, inv_date: row[4] as string | null,
+        facility_name: row[5] as string | null, inv_number: row[6] as string | null,
+        cost_file_name: row[7] as string | null, job_ticket_file_name: row[8] as string | null,
+        status: row[9] as TemplateStatus | null, created_at: row[10] as string,
+        updated_at: row[11] as string, is_dirty: Boolean(row[12]),
       }));
-      console.log(`[OfflineDB] getTemplates: found ${templates.length} templates`);
-      return templates;
-    } catch (err) {
-      console.error('[OfflineDB] getTemplates error:', err);
-      return [];
-    }
+    } catch (err) { console.error('[OfflineDB] getTemplates error:', err); return []; }
   }, [db]);
 
-  // Get pending changes count
   const getPendingChangesCount = useCallback((): number => {
     if (!db) return 0;
     try {
       const result = db.exec(`SELECT COUNT(*) FROM templates WHERE is_dirty = 1`);
       return result.length > 0 ? (result[0].values[0][0] as number) : 0;
-    } catch {
-      return 0;
-    }
+    } catch { return 0; }
   }, [db]);
 
-  // Update template status locally
-  const updateTemplateStatus = useCallback(async (templateId: string, status: TemplateStatus) => {
-    if (!db) return { success: false, error: 'Database not initialized' };
-
-    try {
-      db.run(`UPDATE templates SET status = ?, is_dirty = 1, updated_at = ? WHERE id = ?`, 
-        [status, new Date().toISOString(), templateId]);
-      await saveDatabase();
-      await updateSyncMeta({ pendingChanges: getPendingChangesCount() });
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
-  }, [db, saveDatabase, updateSyncMeta, getPendingChangesCount]);
-
-  // Get sections for a template
-  const getSections = useCallback(async (templateId: string): Promise<OfflineSection[]> => {
-    if (!db) return [];
-
-    try {
-      const results = db.exec(`
-        SELECT id, template_id, sect, description, full_section, cost_sheet
-        FROM sections
-        WHERE template_id = ?
-        ORDER BY sect
-      `, [templateId]);
-
-      if (results.length === 0) return [];
-
-      return results[0].values.map((row: any[]) => ({
-        id: row[0] as string,
-        template_id: row[1] as string,
-        sect: row[2] as string,
-        description: row[3] as string | null,
-        full_section: row[4] as string | null,
-        cost_sheet: (row[5] as string | null) ?? null,
-      }));
-    } catch (err) {
-      console.error('Get sections error:', err);
-      return [];
-    }
-  }, [db]);
-
-  // Get cost item by NDC
-  // If sheetName is provided, filter by that specific cost sheet (tab)
-  const getCostItemByNDC = useCallback(
-    async (templateId: string, ndc: string, sheetName?: string | null): Promise<OfflineCostItem | null> => {
-      if (!db) return null;
-
-      try {
-        const cleanNdc = ndc.replace(/\D/g, '');
-        
-        // Build query based on whether sheetName filter is provided
-        let query: string;
-        let params: (string | null)[];
-        
-        if (sheetName) {
-          // Filter by specific cost sheet
-          query = `
-            SELECT id, template_id, ndc, material_description, unit_price, source, material, sheet_name
-            FROM cost_items
-            WHERE template_id = ? AND (ndc = ? OR ndc = ?) AND sheet_name = ?
-            LIMIT 1
-          `;
-          params = [templateId, cleanNdc, ndc, sheetName];
-        } else {
-          // No sheet filter - return first match
-          query = `
-            SELECT id, template_id, ndc, material_description, unit_price, source, material, sheet_name
-            FROM cost_items
-            WHERE template_id = ? AND (ndc = ? OR ndc = ?)
-            LIMIT 1
-          `;
-          params = [templateId, cleanNdc, ndc];
-        }
-        
-        const results = db.exec(query, params);
-
-        if (results.length === 0 || results[0].values.length === 0) return null;
-
-        const row = results[0].values[0];
-        return {
-          id: row[0] as string,
-          template_id: row[1] as string,
-          ndc: row[2] as string | null,
-          material_description: row[3] as string | null,
-          unit_price: row[4] as number | null,
-          source: row[5] as string | null,
-          material: row[6] as string | null,
-          sheet_name: row[7] as string | null,
-        };
-      } catch (err) {
-        console.error('Get cost item error:', err);
-        return null;
-      }
-    },
-    [db]
-  );
-
-  // Get all cost items for a template (for export to flash drive)
-  const getAllCostItems = useCallback(
-    async (templateId: string): Promise<Array<{
-      ndc: string | null;
-      material_description: string | null;
-      unit_price: number | null;
-      source: string | null;
-      material: string | null;
-      sheet_name: string | null;
-    }>> => {
-      if (!db) return [];
-
-      try {
-        const results = db.exec(`
-          SELECT ndc, material_description, unit_price, source, material, sheet_name
-          FROM cost_items
-          WHERE template_id = ?
-        `, [templateId]);
-
-        if (results.length === 0) return [];
-
-        return results[0].values.map((row: any[]) => ({
-          ndc: row[0] as string | null,
-          material_description: row[1] as string | null,
-          unit_price: row[2] as number | null,
-          source: row[3] as string | null,
-          material: row[4] as string | null,
-          sheet_name: row[5] as string | null,
-        }));
-      } catch (err) {
-        console.error('Get all cost items error:', err);
-        return [];
-      }
-    },
-    [db]
-  );
-
-  // Get list of synced template cloud IDs
   const getSyncedTemplateIds = useCallback((): string[] => {
     if (!db) return [];
     try {
       const result = db.exec(`SELECT cloud_id FROM templates WHERE cloud_id IS NOT NULL`);
       if (result.length === 0) return [];
       return result[0].values.map(row => row[0] as string);
-    } catch {
-      return [];
-    }
+    } catch { return []; }
   }, [db]);
 
-  // SYNC: Pull specific templates from cloud to local
-  const syncSelectedTemplates = useCallback(async (templateIds: string[]): Promise<{ 
-    success: boolean; 
-    synced: number; 
-    error?: string 
+  const updateTemplateStatus = useCallback(async (templateId: string, status: TemplateStatus) => {
+    if (!db) return { success: false, error: 'Database not initialized' };
+    try {
+      db.run(`UPDATE templates SET status = ?, is_dirty = 1, updated_at = ? WHERE id = ?`,
+        [status, new Date().toISOString(), templateId]);
+      await _saveDatabase();
+      _notify();
+      await updateSyncMeta({ pendingChanges: getPendingChangesCount() });
+      return { success: true };
+    } catch (err: any) { return { success: false, error: err.message }; }
+  }, [db, updateSyncMeta, getPendingChangesCount]);
+
+  const getSections = useCallback(async (templateId: string): Promise<OfflineSection[]> => {
+    if (!db) return [];
+    try {
+      const results = db.exec(`
+        SELECT id, template_id, sect, description, full_section, cost_sheet
+        FROM sections WHERE template_id = ? ORDER BY sect
+      `, [templateId]);
+      if (results.length === 0) return [];
+      return results[0].values.map((row: any[]) => ({
+        id: row[0] as string, template_id: row[1] as string, sect: row[2] as string,
+        description: row[3] as string | null, full_section: row[4] as string | null,
+        cost_sheet: (row[5] as string | null) ?? null,
+      }));
+    } catch (err) { console.error('Get sections error:', err); return []; }
+  }, [db]);
+
+  const getCostItemByNDC = useCallback(
+    async (templateId: string, ndc: string, sheetName?: string | null): Promise<OfflineCostItem | null> => {
+      if (!db) return null;
+      try {
+        const cleanNdc = ndc.replace(/\D/g, '');
+        let query: string;
+        let params: (string | null)[];
+        if (sheetName) {
+          query = `SELECT id, template_id, ndc, material_description, unit_price, source, material, sheet_name
+                   FROM cost_items WHERE template_id = ? AND (ndc = ? OR ndc = ?) AND sheet_name = ? LIMIT 1`;
+          params = [templateId, cleanNdc, ndc, sheetName];
+        } else {
+          query = `SELECT id, template_id, ndc, material_description, unit_price, source, material, sheet_name
+                   FROM cost_items WHERE template_id = ? AND (ndc = ? OR ndc = ?) LIMIT 1`;
+          params = [templateId, cleanNdc, ndc];
+        }
+        const results = db.exec(query, params);
+        if (results.length === 0 || results[0].values.length === 0) return null;
+        const row = results[0].values[0];
+        return {
+          id: row[0] as string, template_id: row[1] as string, ndc: row[2] as string | null,
+          material_description: row[3] as string | null, unit_price: row[4] as number | null,
+          source: row[5] as string | null, material: row[6] as string | null,
+          sheet_name: row[7] as string | null,
+        };
+      } catch (err) { console.error('Get cost item error:', err); return null; }
+    }, [db]);
+
+  const getAllCostItems = useCallback(
+    async (templateId: string): Promise<Array<{
+      ndc: string | null; material_description: string | null; unit_price: number | null;
+      source: string | null; material: string | null; sheet_name: string | null;
+    }>> => {
+      if (!db) return [];
+      try {
+        const results = db.exec(`
+          SELECT ndc, material_description, unit_price, source, material, sheet_name
+          FROM cost_items WHERE template_id = ?
+        `, [templateId]);
+        if (results.length === 0) return [];
+        return results[0].values.map((row: any[]) => ({
+          ndc: row[0] as string | null, material_description: row[1] as string | null,
+          unit_price: row[2] as number | null, source: row[3] as string | null,
+          material: row[4] as string | null, sheet_name: row[5] as string | null,
+        }));
+      } catch (err) { console.error('Get all cost items error:', err); return []; }
+    }, [db]);
+
+  // ── Sync: download selected templates from cloud ──────────────
+
+  const syncSelectedTemplates = useCallback(async (templateIds: string[]): Promise<{
+    success: boolean; synced: number; error?: string;
   }> => {
-    const activeDb = db || await ensureDb();
+    const activeDb = db || await _ensureDb();
     if (!activeDb || !user || !isOnline) {
-      const reason = !activeDb ? 'Local database not ready — please reload the page' : !user ? 'Not authenticated — please sign in' : 'No internet connection';
-      console.warn('[syncSelectedTemplates] blocked:', { db: !!activeDb, user: !!user, isOnline });
+      const reason = !activeDb ? 'Local database not ready — please reload' : !user ? 'Not authenticated' : 'No internet connection';
       return { success: false, synced: 0, error: reason };
     }
 
     setIsSyncing(true);
-    setSyncProgress({
-      currentTemplate: null,
-      currentTemplateIndex: 0,
-      totalTemplates: templateIds.length,
-      costItemsFetched: 0,
-      status: 'idle',
-    });
+    setSyncProgress({ currentTemplate: null, currentTemplateIndex: 0, totalTemplates: templateIds.length, costItemsFetched: 0, status: 'idle' });
 
     try {
-      // Get currently synced templates
       const currentlySynced = getSyncedTemplateIds();
-      
-      // Only ADD templates that aren't already downloaded — never remove existing ones
       const toAdd = templateIds.filter(id => !currentlySynced.includes(id));
-
-      // Add newly selected templates
       let synced = 0;
+
       for (let i = 0; i < toAdd.length; i++) {
         const cloudId = toAdd[i];
-        
-        // Update progress - fetching template
-        setSyncProgress(prev => ({
-          ...prev,
-          currentTemplateIndex: i + 1,
-          status: 'fetching_template',
-          costItemsFetched: 0,
-        }));
+        setSyncProgress(prev => ({ ...prev, currentTemplateIndex: i + 1, status: 'fetching_template', costItemsFetched: 0 }));
 
-        // Fetch template + count in parallel
         const [templateResult, countResult] = await Promise.all([
-          supabase
-            .from('data_templates')
+          supabase.from('data_templates')
             .select('id, user_id, name, inv_date, facility_name, inv_number, cost_file_name, job_ticket_file_name, status, created_at, updated_at')
-            .eq('id', cloudId)
-            .single(),
-          supabase
-            .from('template_cost_items')
+            .eq('id', cloudId).single(),
+          supabase.from('template_cost_items')
             .select('id', { count: 'exact', head: true })
             .eq('template_id', cloudId),
         ]);
@@ -548,47 +428,29 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         const { data: ct, error: fetchError } = templateResult;
         if (fetchError || !ct) continue;
 
-        setSyncProgress(prev => ({
-          ...prev,
-          currentTemplate: ct.name || ct.facility_name || 'Template',
-        }));
+        setSyncProgress(prev => ({ ...prev, currentTemplate: ct.name || ct.facility_name || 'Template' }));
 
-        // Use cloud ID as local ID so localStorage scan records stay consistent
         const localId = ct.id;
-
-        // --- BEGIN TRANSACTION for all inserts of this template ---
         activeDb.run('BEGIN TRANSACTION');
-
         try {
           activeDb.run(`
-            INSERT OR REPLACE INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, inv_number, 
+            INSERT OR REPLACE INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, inv_number,
                                    cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-          `, [
-            localId, ct.id, ct.user_id, ct.name, ct.inv_date, ct.facility_name, ct.inv_number,
-            ct.cost_file_name, ct.job_ticket_file_name, ct.status || 'active', ct.created_at, ct.updated_at
-          ]);
+          `, [localId, ct.id, ct.user_id, ct.name, ct.inv_date, ct.facility_name, ct.inv_number,
+              ct.cost_file_name, ct.job_ticket_file_name, ct.status || 'active', ct.created_at, ct.updated_at]);
 
-          // Update progress - fetching sections
           setSyncProgress(prev => ({ ...prev, status: 'fetching_sections' }));
-
-          // Fetch sections
-          const { data: sections } = await supabase
-            .from('template_sections')
+          const { data: sections } = await supabase.from('template_sections')
             .select('id, template_id, sect, description, full_section, cost_sheet')
             .eq('template_id', ct.id);
 
           for (const s of sections || []) {
-            activeDb.run(`
-              INSERT OR REPLACE INTO sections (id, template_id, sect, description, full_section, cost_sheet)
-              VALUES (?, ?, ?, ?, ?, ?)
-            `, [s.id, localId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]);
+            activeDb.run(`INSERT OR REPLACE INTO sections (id, template_id, sect, description, full_section, cost_sheet) VALUES (?, ?, ?, ?, ?, ?)`,
+              [s.id, localId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]);
           }
 
-          // Update progress - fetching cost items
           setSyncProgress(prev => ({ ...prev, status: 'fetching_cost_items', costItemsFetched: 0 }));
-
-          // Parallel fetch cost item pages
           const PAGE_SIZE = 1000;
           const totalCount = countResult.count || 0;
           const totalPages = Math.ceil(totalCount / PAGE_SIZE);
@@ -596,20 +458,16 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
 
           const pageResults = await Promise.all(
             pageNumbers.map(page =>
-              supabase
-                .from('template_cost_items')
+              supabase.from('template_cost_items')
                 .select('id, ndc, material_description, unit_price, source, material, sheet_name')
                 .eq('template_id', ct.id)
-                .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
-            )
+                .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1))
           );
 
-          // Bulk insert with prepared statement
           const costStmt = activeDb.prepare(`
             INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `);
-
           let totalCostItemsFetched = 0;
           for (const { data: costItems, error: costError } of pageResults) {
             if (costError) { console.error('Cost items fetch error:', costError); continue; }
@@ -620,348 +478,218 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
             setSyncProgress(prev => ({ ...prev, costItemsFetched: totalCostItemsFetched }));
           }
           costStmt.free();
-
           activeDb.run('COMMIT');
         } catch (txErr) {
           activeDb.run('ROLLBACK');
           throw txErr;
         }
 
-        // Update progress - saving
         setSyncProgress(prev => ({ ...prev, status: 'saving' }));
-
         synced++;
       }
 
-      // Verify data before saving
+      // Persist to IndexedDB
       try {
-        const verifyCount = activeDb.exec('SELECT COUNT(*) FROM templates');
-        const verifyCost = activeDb.exec('SELECT COUNT(*) FROM cost_items');
-        console.log(`[OfflineDB] Pre-save verification: ${verifyCount[0]?.values[0][0]} templates, ${verifyCost[0]?.values[0][0]} cost_items`);
+        const vc = activeDb.exec('SELECT COUNT(*) FROM templates');
+        const vcc = activeDb.exec('SELECT COUNT(*) FROM cost_items');
+        console.log(`[OfflineDB] Pre-save: ${vc[0]?.values[0][0]} templates, ${vcc[0]?.values[0][0]} cost_items`);
       } catch {}
-      
-      await saveDatabase(activeDb);
-      
-      // Verify IndexedDB save by reloading
+
+      await _saveDatabase(activeDb);
+
       try {
         const savedCheck = await loadFromIndexedDB<Uint8Array>(DB_KEY);
-        console.log(`[OfflineDB] Post-save IndexedDB size: ${savedCheck ? `${(savedCheck.byteLength / 1024).toFixed(0)} KB` : 'SAVE FAILED - null!'}`);
+        console.log(`[OfflineDB] Post-save IndexedDB: ${savedCheck ? `${(savedCheck.byteLength / 1024).toFixed(0)} KB` : 'FAILED'}`);
       } catch {}
-      
+
       await updateSyncMeta({ lastSyncedAt: new Date().toISOString() });
-      
-      // Mark sync complete
-      setSyncProgress(prev => ({ 
-        ...prev, 
-        status: 'complete',
-        currentTemplate: null,
-      }));
-      
+      _notify(); // notify all subscribers
+
+      setSyncProgress(prev => ({ ...prev, status: 'complete', currentTemplate: null }));
       return { success: true, synced: synced + (templateIds.length - toAdd.length) };
     } catch (err: any) {
       console.error('Sync selected templates error:', err);
       return { success: false, synced: 0, error: err.message };
     } finally {
       setIsSyncing(false);
-      // Reset progress after a short delay
       setTimeout(() => {
-        setSyncProgress({
-          currentTemplate: null,
-          currentTemplateIndex: 0,
-          totalTemplates: 0,
-          costItemsFetched: 0,
-          status: 'idle',
-        });
+        setSyncProgress({ currentTemplate: null, currentTemplateIndex: 0, totalTemplates: 0, costItemsFetched: 0, status: 'idle' });
       }, 2000);
     }
-  }, [db, user, isOnline, ensureDb, saveDatabase, updateSyncMeta, getSyncedTemplateIds]);
+  }, [db, user, isOnline, getSyncedTemplateIds, updateSyncMeta]);
 
-  // SYNC: Pull from cloud to local (all templates)
+  // ── Pull all from cloud ───────────────────────────────────────
+
   const pullFromCloud = useCallback(async (): Promise<{ success: boolean; pulled: number; error?: string }> => {
     if (!db || !user || !isOnline) {
-      const reason = !db ? 'Local database not ready' : !user ? 'Not authenticated — please sign in' : 'No internet connection';
+      const reason = !db ? 'Local database not ready' : !user ? 'Not authenticated' : 'No internet connection';
       return { success: false, pulled: 0, error: reason };
     }
-
     try {
-      // Fetch all cloud templates (selective columns)
       const { data: cloudTemplates, error: fetchError } = await supabase
         .from('data_templates')
         .select('id, user_id, name, inv_date, facility_name, inv_number, cost_file_name, job_ticket_file_name, status, created_at, updated_at')
         .order('inv_date', { ascending: false });
-
       if (fetchError) throw fetchError;
 
       let pulled = 0;
-
       for (const ct of cloudTemplates || []) {
-        // Check if exists locally by cloud_id
         const existing = db.exec(`SELECT id FROM templates WHERE cloud_id = ?`, [ct.id]);
-        
         if (existing.length === 0 || existing[0].values.length === 0) {
           const localId = ct.id;
-
-          // --- BEGIN TRANSACTION for all inserts of this template ---
           db.run('BEGIN TRANSACTION');
-
           try {
-            db.run(`
-              INSERT OR REPLACE INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, inv_number, 
-                                     cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-            `, [
-              localId, ct.id, ct.user_id, ct.name, ct.inv_date, ct.facility_name, ct.inv_number,
-              ct.cost_file_name, ct.job_ticket_file_name, ct.status || 'active', ct.created_at, ct.updated_at
-            ]);
+            db.run(`INSERT OR REPLACE INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, inv_number,
+                     cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+              [localId, ct.id, ct.user_id, ct.name, ct.inv_date, ct.facility_name, ct.inv_number,
+               ct.cost_file_name, ct.job_ticket_file_name, ct.status || 'active', ct.created_at, ct.updated_at]);
 
-            // Fetch sections and cost item count in parallel
             const [sectionsResult, countResult] = await Promise.all([
-              supabase
-                .from('template_sections')
-                .select('id, template_id, sect, description, full_section, cost_sheet')
-                .eq('template_id', ct.id),
-              supabase
-                .from('template_cost_items')
-                .select('id', { count: 'exact', head: true })
-                .eq('template_id', ct.id),
+              supabase.from('template_sections').select('id, template_id, sect, description, full_section, cost_sheet').eq('template_id', ct.id),
+              supabase.from('template_cost_items').select('id', { count: 'exact', head: true }).eq('template_id', ct.id),
             ]);
-
             for (const s of sectionsResult.data || []) {
-              db.run(`
-                INSERT OR REPLACE INTO sections (id, template_id, sect, description, full_section, cost_sheet)
-                VALUES (?, ?, ?, ?, ?, ?)
-              `, [s.id, localId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]);
+              db.run(`INSERT OR REPLACE INTO sections (id, template_id, sect, description, full_section, cost_sheet) VALUES (?, ?, ?, ?, ?, ?)`,
+                [s.id, localId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]);
             }
 
-            // Parallel fetch cost item pages
             const PAGE_SIZE = 1000;
             const totalCount = countResult.count || 0;
             const totalPages = Math.ceil(totalCount / PAGE_SIZE);
             const pageNumbers = Array.from({ length: Math.max(totalPages, 1) }, (_, i) => i);
-
             const pageResults = await Promise.all(
               pageNumbers.map(page =>
-                supabase
-                  .from('template_cost_items')
+                supabase.from('template_cost_items')
                   .select('id, ndc, material_description, unit_price, source, material, sheet_name')
                   .eq('template_id', ct.id)
-                  .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
-              )
+                  .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1))
             );
-
-            // Bulk insert with prepared statement
-            const costStmt = db.prepare(`
-              INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-
+            const costStmt = db.prepare(`INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
             for (const { data: costItems, error: costError } of pageResults) {
-              if (costError) { console.error('Cost items fetch error:', costError); continue; }
+              if (costError) continue;
               for (const c of costItems || []) {
                 costStmt.run([c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null]);
               }
             }
             costStmt.free();
-
             db.run('COMMIT');
-          } catch (txErr) {
-            db.run('ROLLBACK');
-            throw txErr;
-          }
-
+          } catch (txErr) { db.run('ROLLBACK'); throw txErr; }
           pulled++;
         } else {
-          // Update existing if not dirty
           const localId = existing[0].values[0][0] as string;
           const isDirty = db.exec(`SELECT is_dirty FROM templates WHERE id = ?`, [localId]);
-          
           if (isDirty.length > 0 && !isDirty[0].values[0][0]) {
-            db.run(`
-              UPDATE templates SET name = ?, inv_date = ?, facility_name = ?, inv_number = ?,
-                                   cost_file_name = ?, job_ticket_file_name = ?, status = ?, updated_at = ?
-              WHERE id = ?
-            `, [ct.name, ct.inv_date, ct.facility_name, ct.inv_number, 
-                ct.cost_file_name, ct.job_ticket_file_name, ct.status, ct.updated_at, localId]);
+            db.run(`UPDATE templates SET name = ?, inv_date = ?, facility_name = ?, inv_number = ?,
+                     cost_file_name = ?, job_ticket_file_name = ?, status = ?, updated_at = ? WHERE id = ?`,
+              [ct.name, ct.inv_date, ct.facility_name, ct.inv_number, ct.cost_file_name, ct.job_ticket_file_name, ct.status, ct.updated_at, localId]);
           }
         }
       }
 
-      await saveDatabase();
+      await _saveDatabase();
+      _notify();
       await updateSyncMeta({ lastSyncedAt: new Date().toISOString() });
-      
       return { success: true, pulled };
     } catch (err: any) {
       console.error('Pull from cloud error:', err);
       return { success: false, pulled: 0, error: err.message };
     }
-  }, [db, user, isOnline, saveDatabase, updateSyncMeta]);
+  }, [db, user, isOnline, updateSyncMeta]);
 
-  // SYNC: Push local changes to cloud
+  // ── Push local changes to cloud ───────────────────────────────
+
   const pushToCloud = useCallback(async (): Promise<{ success: boolean; pushed: number; error?: string }> => {
     if (!db || !user || !isOnline) {
-      const reason = !db ? 'Local database not ready' : !user ? 'Not authenticated — please sign in' : 'No internet connection';
+      const reason = !db ? 'Local database not ready' : !user ? 'Not authenticated' : 'No internet connection';
       return { success: false, pushed: 0, error: reason };
     }
-
     try {
-      // Get dirty templates
       const dirtyResult = db.exec(`SELECT * FROM templates WHERE is_dirty = 1`);
-      
-      if (dirtyResult.length === 0 || dirtyResult[0].values.length === 0) {
-        return { success: true, pushed: 0 };
-      }
+      if (dirtyResult.length === 0 || dirtyResult[0].values.length === 0) return { success: true, pushed: 0 };
 
       let pushed = 0;
       const columns = dirtyResult[0].columns;
-      
       for (const row of dirtyResult[0].values) {
         const template: any = {};
         columns.forEach((col, i) => template[col] = row[i]);
 
         if (template.cloud_id) {
-          // Update existing cloud record
-          const { error: updateError } = await supabase
-            .from('data_templates')
-            .update({
-              name: template.name,
-              inv_date: template.inv_date,
-              facility_name: template.facility_name,
-              status: template.status,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', template.cloud_id);
-
+          const { error: updateError } = await supabase.from('data_templates').update({
+            name: template.name, inv_date: template.inv_date, facility_name: template.facility_name,
+            status: template.status, updated_at: new Date().toISOString(),
+          }).eq('id', template.cloud_id);
           if (updateError) throw updateError;
         } else {
-          // Create new cloud record
-          const { data: newTemplate, error: insertError } = await supabase
-            .from('data_templates')
-            .insert({
-              user_id: user.id,
-              name: template.name,
-              inv_date: template.inv_date,
-              facility_name: template.facility_name,
-              inv_number: template.inv_number,
-              cost_file_name: template.cost_file_name,
-              job_ticket_file_name: template.job_ticket_file_name,
-              status: template.status,
-            })
-            .select()
-            .single();
-
+          const { data: newTemplate, error: insertError } = await supabase.from('data_templates').insert({
+            user_id: user.id, name: template.name, inv_date: template.inv_date,
+            facility_name: template.facility_name, inv_number: template.inv_number,
+            cost_file_name: template.cost_file_name, job_ticket_file_name: template.job_ticket_file_name,
+            status: template.status,
+          }).select().single();
           if (insertError) throw insertError;
 
-          // Update local with cloud_id
           db.run(`UPDATE templates SET cloud_id = ? WHERE id = ?`, [newTemplate.id, template.id]);
 
-          // Push sections
-          const sectionsResult = db.exec(
-            `SELECT sect, description, full_section, cost_sheet FROM sections WHERE template_id = ?`,
-            [template.id]
-          );
+          const sectionsResult = db.exec(`SELECT sect, description, full_section, cost_sheet FROM sections WHERE template_id = ?`, [template.id]);
           if (sectionsResult.length > 0) {
             const sectionInserts = sectionsResult[0].values.map((s: any[]) => ({
-              template_id: newTemplate.id,
-              sect: s[0],
-              description: s[1],
-              full_section: s[2],
-              cost_sheet: s[3] ?? null,
+              template_id: newTemplate.id, sect: s[0], description: s[1], full_section: s[2], cost_sheet: s[3] ?? null,
             }));
             await supabase.from('template_sections').insert(sectionInserts);
           }
 
-          // Push cost items in batches
-          const costResult = db.exec(
-            `SELECT ndc, material_description, unit_price, source, material, sheet_name FROM cost_items WHERE template_id = ?`,
-            [template.id]
-          );
+          const costResult = db.exec(`SELECT ndc, material_description, unit_price, source, material, sheet_name FROM cost_items WHERE template_id = ?`, [template.id]);
           if (costResult.length > 0) {
             const costInserts = costResult[0].values.map((c: any[]) => ({
-              template_id: newTemplate.id,
-              ndc: c[0],
-              material_description: c[1],
-              unit_price: c[2],
-              source: c[3],
-              material: c[4],
-              sheet_name: c[5] ?? null,
+              template_id: newTemplate.id, ndc: c[0], material_description: c[1], unit_price: c[2],
+              source: c[3], material: c[4], sheet_name: c[5] ?? null,
             }));
-            
-            // Batch insert
             const batchSize = 500;
             for (let i = 0; i < costInserts.length; i += batchSize) {
-              const batch = costInserts.slice(i, i + batchSize);
-              await supabase.from('template_cost_items').insert(batch);
+              await supabase.from('template_cost_items').insert(costInserts.slice(i, i + batchSize));
             }
           }
         }
-
-        // Mark as clean
         db.run(`UPDATE templates SET is_dirty = 0 WHERE id = ?`, [template.id]);
         pushed++;
       }
 
-      await saveDatabase();
-      await updateSyncMeta({ 
-        lastSyncedAt: new Date().toISOString(),
-        pendingChanges: 0 
-      });
-      
+      await _saveDatabase();
+      _notify();
+      await updateSyncMeta({ lastSyncedAt: new Date().toISOString(), pendingChanges: 0 });
       return { success: true, pushed };
     } catch (err: any) {
       console.error('Push to cloud error:', err);
       return { success: false, pushed: 0, error: err.message };
     }
-  }, [db, user, isOnline, saveDatabase, updateSyncMeta]);
+  }, [db, user, isOnline, updateSyncMeta]);
 
-  // Full sync: push then pull
-  const syncWithCloud = useCallback(async (): Promise<{ 
-    success: boolean; 
-    pushed: number; 
-    pulled: number; 
-    error?: string 
-  }> => {
-    if (!isOnline) {
-      return { success: false, pushed: 0, pulled: 0, error: 'No internet connection' };
-    }
-
+  const syncWithCloud = useCallback(async (): Promise<{ success: boolean; pushed: number; pulled: number; error?: string }> => {
+    if (!isOnline) return { success: false, pushed: 0, pulled: 0, error: 'No internet connection' };
     setIsSyncing(true);
-    
     try {
-      // Push local changes first
       const pushResult = await pushToCloud();
-      if (!pushResult.success) {
-        return { ...pushResult, pulled: 0 };
-      }
-
-      // Then pull cloud data
+      if (!pushResult.success) return { ...pushResult, pulled: 0 };
       const pullResult = await pullFromCloud();
-      
-      return {
-        success: pullResult.success,
-        pushed: pushResult.pushed,
-        pulled: pullResult.pulled,
-        error: pullResult.error,
-      };
-    } finally {
-      setIsSyncing(false);
-    }
+      return { success: pullResult.success, pushed: pushResult.pushed, pulled: pullResult.pulled, error: pullResult.error };
+    } finally { setIsSyncing(false); }
   }, [isOnline, pushToCloud, pullFromCloud]);
 
-  // Delete a locally downloaded template (and its sections/cost items)
+  // ── Delete local template ─────────────────────────────────────
+
   const deleteLocalTemplate = useCallback(async (templateId: string): Promise<{ success: boolean; error?: string }> => {
     if (!db) return { success: false, error: 'Database not initialized' };
     try {
       db.run(`DELETE FROM cost_items WHERE template_id = ?`, [templateId]);
       db.run(`DELETE FROM sections WHERE template_id = ?`, [templateId]);
       db.run(`DELETE FROM templates WHERE id = ?`, [templateId]);
-      await saveDatabase();
+      await _saveDatabase();
+      _notify();
       return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
-  }, [db, saveDatabase]);
+    } catch (err: any) { return { success: false, error: err.message }; }
+  }, [db]);
 
-  // Get cost item count per template
   const getTemplateCostItemCount = useCallback((templateId: string): number => {
     if (!db) return 0;
     try {
@@ -970,100 +698,58 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     } catch { return 0; }
   }, [db]);
 
-  // Check if we have local data
   const hasLocalData = useCallback((): boolean => {
     if (!db) return false;
     try {
       const result = db.exec(`SELECT COUNT(*) FROM templates`);
       return result.length > 0 && (result[0].values[0][0] as number) > 0;
-    } catch {
-      return false;
-    }
+    } catch { return false; }
   }, [db]);
 
-  // Export offline database to binary format for flash drive transfer
-  // If selectedIds is provided, only export those templates; otherwise export all.
-  const exportToFlashDrive = useCallback((selectedIds?: string[]): { 
-    data: Uint8Array; 
-    templates: OfflineTemplate[];
-    sectionCount: number;
-    costItemCount: number;
+  // ── Flash drive: export ───────────────────────────────────────
+
+  const exportToFlashDrive = useCallback((selectedIds?: string[]): {
+    data: Uint8Array; templates: OfflineTemplate[]; sectionCount: number; costItemCount: number;
   } | null => {
-    if (!db || !sqlRef.current) return null;
-    
+    if (!db || !_sqlRef) return null;
     try {
       const allTemplates = getTemplates();
-      const templatesToExport = selectedIds && selectedIds.length > 0
-        ? allTemplates.filter(t => selectedIds.includes(t.id))
-        : allTemplates;
-
+      const templatesToExport = selectedIds?.length ? allTemplates.filter(t => selectedIds.includes(t.id)) : allTemplates;
       if (templatesToExport.length === 0) return null;
 
-      // Build a filtered in-memory SQLite DB with only the selected templates
-      const exportDb = new sqlRef.current.Database();
+      const exportDb = new _sqlRef.Database();
       exportDb.run(`
-        CREATE TABLE templates (
-          id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
+        CREATE TABLE templates (id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
           inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
           job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
-          created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
-        );
-        CREATE TABLE sections (
-          id TEXT PRIMARY KEY, template_id TEXT NOT NULL, sect TEXT NOT NULL,
-          description TEXT, full_section TEXT, cost_sheet TEXT
-        );
-        CREATE TABLE cost_items (
-          id TEXT PRIMARY KEY, template_id TEXT NOT NULL, ndc TEXT,
-          material_description TEXT, unit_price REAL, source TEXT, material TEXT, sheet_name TEXT
-        );
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0);
+        CREATE TABLE sections (id TEXT PRIMARY KEY, template_id TEXT NOT NULL, sect TEXT NOT NULL,
+          description TEXT, full_section TEXT, cost_sheet TEXT);
+        CREATE TABLE cost_items (id TEXT PRIMARY KEY, template_id TEXT NOT NULL, ndc TEXT,
+          material_description TEXT, unit_price REAL, source TEXT, material TEXT, sheet_name TEXT);
       `);
 
-      let sectionCount = 0;
-      let costItemCount = 0;
-
+      let sectionCount = 0, costItemCount = 0;
       for (const t of templatesToExport) {
-        exportDb.run(
-          `INSERT INTO templates VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [t.id, t.cloud_id, t.user_id, t.name, t.inv_date, t.facility_name,
-           t.inv_number, t.cost_file_name, t.job_ticket_file_name,
-           t.status, t.created_at, t.updated_at, 0]
-        );
+        exportDb.run(`INSERT INTO templates VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [t.id, t.cloud_id, t.user_id, t.name, t.inv_date, t.facility_name, t.inv_number,
+           t.cost_file_name, t.job_ticket_file_name, t.status, t.created_at, t.updated_at, 0]);
 
         const sectResult = db.exec(`SELECT id, template_id, sect, description, full_section, cost_sheet FROM sections WHERE template_id = ?`, [t.id]);
-        if (sectResult.length > 0) {
-          for (const row of sectResult[0].values) {
-            exportDb.run(`INSERT INTO sections VALUES (?,?,?,?,?,?)`, row as any[]);
-            sectionCount++;
-          }
-        }
+        if (sectResult.length > 0) { for (const row of sectResult[0].values) { exportDb.run(`INSERT INTO sections VALUES (?,?,?,?,?,?)`, row as any[]); sectionCount++; } }
 
         const costResult = db.exec(`SELECT id, template_id, ndc, material_description, unit_price, source, material, sheet_name FROM cost_items WHERE template_id = ?`, [t.id]);
-        if (costResult.length > 0) {
-          for (const row of costResult[0].values) {
-            exportDb.run(`INSERT INTO cost_items VALUES (?,?,?,?,?,?,?,?)`, row as any[]);
-            costItemCount++;
-          }
-        }
+        if (costResult.length > 0) { for (const row of costResult[0].values) { exportDb.run(`INSERT INTO cost_items VALUES (?,?,?,?,?,?,?,?)`, row as any[]); costItemCount++; } }
       }
 
       const dbData = exportDb.export();
       exportDb.close();
-
-      return { 
-        data: new Uint8Array(dbData), 
-        templates: templatesToExport,
-        sectionCount,
-        costItemCount,
-      };
-    } catch (err) {
-      console.error('Export to flash drive error:', err);
-      return null;
-    }
+      return { data: new Uint8Array(dbData), templates: templatesToExport, sectionCount, costItemCount };
+    } catch (err) { console.error('Export to flash drive error:', err); return null; }
   }, [db, getTemplates]);
 
-  // Export any cloud templates (by their cloud IDs) to a flash drive file.
-  // For templates already on device, uses local data. For cloud-only templates,
-  // fetches data directly from Supabase without saving to device.
+  // ── Flash drive: export cloud templates ────────────────────────
+
   const exportCloudTemplatesToFlashDrive = useCallback(async (
     cloudTemplateIds: string[],
     onStatus?: (msg: string) => void,
@@ -1072,29 +758,21 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     exportedTemplates: Array<{ id: string; name: string; inv_date: string | null; facility_name: string | null; inv_number: string | null }>;
     costItemCount: number;
   } | null> => {
-    if (!sqlRef.current) return null;
-
+    if (!_sqlRef) return null;
     try {
       const localTemplates = db ? getTemplates() : [];
-      // Map cloud_id → local template
       const localByCloudId = new Map(localTemplates.filter(t => t.cloud_id).map(t => [t.cloud_id!, t]));
 
-      const exportDb = new sqlRef.current.Database();
+      const exportDb = new _sqlRef.Database();
       exportDb.run(`
-        CREATE TABLE templates (
-          id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
+        CREATE TABLE templates (id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
           inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
           job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
-          created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
-        );
-        CREATE TABLE sections (
-          id TEXT PRIMARY KEY, template_id TEXT NOT NULL, sect TEXT NOT NULL,
-          description TEXT, full_section TEXT, cost_sheet TEXT
-        );
-        CREATE TABLE cost_items (
-          id TEXT PRIMARY KEY, template_id TEXT NOT NULL, ndc TEXT,
-          material_description TEXT, unit_price REAL, source TEXT, material TEXT, sheet_name TEXT
-        );
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0);
+        CREATE TABLE sections (id TEXT PRIMARY KEY, template_id TEXT NOT NULL, sect TEXT NOT NULL,
+          description TEXT, full_section TEXT, cost_sheet TEXT);
+        CREATE TABLE cost_items (id TEXT PRIMARY KEY, template_id TEXT NOT NULL, ndc TEXT,
+          material_description TEXT, unit_price REAL, source TEXT, material TEXT, sheet_name TEXT);
       `);
 
       let costItemCount = 0;
@@ -1105,161 +783,91 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         const local = localByCloudId.get(cloudId);
 
         if (local && db) {
-          // Use local data
           onStatus?.(`Exporting ${local.name} (from device)...`);
-          exportDb.run(
-            `INSERT INTO templates VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-            [local.id, local.cloud_id, local.user_id, local.name, local.inv_date,
-             local.facility_name, local.inv_number, local.cost_file_name,
-             local.job_ticket_file_name, local.status, local.created_at, local.updated_at, 0]
-          );
+          exportDb.run(`INSERT INTO templates VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            [local.id, local.cloud_id, local.user_id, local.name, local.inv_date, local.facility_name,
+             local.inv_number, local.cost_file_name, local.job_ticket_file_name, local.status, local.created_at, local.updated_at, 0]);
 
           const sectResult = db.exec(`SELECT id, template_id, sect, description, full_section, cost_sheet FROM sections WHERE template_id = ?`, [local.id]);
-          if (sectResult.length > 0) {
-            for (const row of sectResult[0].values) {
-              exportDb.run(`INSERT INTO sections VALUES (?,?,?,?,?,?)`, row as any[]);
-            }
-          }
+          if (sectResult.length > 0) { for (const row of sectResult[0].values) { exportDb.run(`INSERT INTO sections VALUES (?,?,?,?,?,?)`, row as any[]); } }
 
           const costResult = db.exec(`SELECT id, template_id, ndc, material_description, unit_price, source, material, sheet_name FROM cost_items WHERE template_id = ?`, [local.id]);
-          if (costResult.length > 0) {
-            for (const row of costResult[0].values) {
-              exportDb.run(`INSERT INTO cost_items VALUES (?,?,?,?,?,?,?,?)`, row as any[]);
-              costItemCount++;
-            }
-          }
+          if (costResult.length > 0) { for (const row of costResult[0].values) { exportDb.run(`INSERT INTO cost_items VALUES (?,?,?,?,?,?,?,?)`, row as any[]); costItemCount++; } }
 
           exportedTemplates.push({ id: local.id, name: local.name, inv_date: local.inv_date, facility_name: local.facility_name, inv_number: local.inv_number });
         } else {
-          // Fetch from cloud
           onStatus?.(`Downloading template ${i + 1}/${cloudTemplateIds.length} from cloud...`);
-
-          const { data: tData } = await supabase
-            .from('data_templates')
-            .select('*')
-            .eq('id', cloudId)
-            .single();
-
+          const { data: tData } = await supabase.from('data_templates').select('*').eq('id', cloudId).single();
           if (!tData) continue;
 
           const exportId = generateId();
-          exportDb.run(
-            `INSERT INTO templates VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-            [exportId, tData.id, tData.user_id, tData.name, tData.inv_date,
-             tData.facility_name, tData.inv_number, tData.cost_file_name,
-             tData.job_ticket_file_name, tData.status ?? 'active',
-             tData.created_at, tData.updated_at, 0]
-          );
+          exportDb.run(`INSERT INTO templates VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+            [exportId, tData.id, tData.user_id, tData.name, tData.inv_date, tData.facility_name,
+             tData.inv_number, tData.cost_file_name, tData.job_ticket_file_name, tData.status ?? 'active',
+             tData.created_at, tData.updated_at, 0]);
 
-          // Fetch sections
-          const { data: sections } = await supabase
-            .from('template_sections')
-            .select('*')
-            .eq('template_id', cloudId);
-
+          const { data: sections } = await supabase.from('template_sections').select('*').eq('template_id', cloudId);
           for (const s of sections ?? []) {
-            exportDb.run(
-              `INSERT INTO sections VALUES (?,?,?,?,?,?)`,
-              [generateId(), exportId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]
-            );
+            exportDb.run(`INSERT INTO sections VALUES (?,?,?,?,?,?)`,
+              [generateId(), exportId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]);
           }
 
-          // Fetch cost items in parallel pages
           const PAGE_SIZE = 1000;
-          const { count: totalCount } = await supabase
-            .from('template_cost_items')
-            .select('id', { count: 'exact', head: true })
-            .eq('template_id', cloudId);
-
+          const { count: totalCount } = await supabase.from('template_cost_items').select('id', { count: 'exact', head: true }).eq('template_id', cloudId);
           const totalPages = Math.ceil((totalCount || 0) / PAGE_SIZE);
           const pages = Array.from({ length: Math.max(totalPages, 1) }, (_, p) => p);
-
           const pageResults = await Promise.all(
-            pages.map(p =>
-              supabase
-                .from('template_cost_items')
-                .select('*')
-                .eq('template_id', cloudId)
-                .range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1)
-            )
+            pages.map(p => supabase.from('template_cost_items').select('*').eq('template_id', cloudId).range(p * PAGE_SIZE, (p + 1) * PAGE_SIZE - 1))
           );
-
           for (const { data: items } of pageResults) {
             for (const c of items ?? []) {
-              exportDb.run(
-                `INSERT INTO cost_items VALUES (?,?,?,?,?,?,?,?)`,
-                [generateId(), exportId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null]
-              );
+              exportDb.run(`INSERT INTO cost_items VALUES (?,?,?,?,?,?,?,?)`,
+                [generateId(), exportId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null]);
               costItemCount++;
             }
           }
-
           exportedTemplates.push({ id: exportId, name: tData.name, inv_date: tData.inv_date, facility_name: tData.facility_name, inv_number: tData.inv_number });
         }
       }
 
       const dbData = exportDb.export();
       exportDb.close();
-
       return { data: new Uint8Array(dbData), exportedTemplates, costItemCount };
-    } catch (err) {
-      console.error('Export cloud templates to flash drive error:', err);
-      return null;
-    }
+    } catch (err) { console.error('Export cloud templates error:', err); return null; }
   }, [db, getTemplates]);
 
-  // Preview import from flash drive file
+  // ── Flash drive: preview import ───────────────────────────────
+
   const previewFlashDriveImport = useCallback(async (
     file: File
-  ): Promise<{ 
-    success: boolean; 
-    error?: string; 
+  ): Promise<{
+    success: boolean; error?: string;
     templates?: Array<{ id: string; name: string; inv_date: string | null; facility_name: string | null; costItemCount?: number }>;
   }> => {
-    if (!sqlRef.current) return { success: false, error: 'SQL.js not initialized' };
-
+    if (!_sqlRef) {
+      await _ensureDb();
+      if (!_sqlRef) return { success: false, error: 'SQL.js not initialized' };
+    }
     try {
       const arrayBuffer = await file.arrayBuffer();
       let data = new Uint8Array(arrayBuffer);
-      
-      // Auto-detect and decompress gzip
-      if (isGzipped(data)) {
-        data = await gzipDecompress(data) as any;
-      }
-      
-      const tempDb = new sqlRef.current.Database(data as any);
-      
-      // Query templates
-      const templatesResult = tempDb.exec(`
-        SELECT id, cloud_id, name, inv_date, facility_name 
-        FROM templates 
-        ORDER BY inv_date DESC, name
-      `);
-      
-      if (templatesResult.length === 0) {
-        tempDb.close();
-        return { success: false, error: 'No templates found in file' };
-      }
-      
+      if (isGzipped(data)) { data = await gzipDecompress(data) as any; }
+      const tempDb = new _sqlRef.Database(data as any);
+
+      const templatesResult = tempDb.exec(`SELECT id, cloud_id, name, inv_date, facility_name FROM templates ORDER BY inv_date DESC, name`);
+      if (templatesResult.length === 0) { tempDb.close(); return { success: false, error: 'No templates found in file' }; }
+
       const templates = templatesResult[0].values.map((row: any[]) => {
         const templateId = row[0];
-        
-        // Count cost items for this template
         const costCountResult = tempDb.exec(`SELECT COUNT(*) FROM cost_items WHERE template_id = ?`, [templateId]);
         const costItemCount = costCountResult[0]?.values[0]?.[0] as number || 0;
-        
         return {
-          id: String(templateId),
-          cloud_id: row[1] as string | null,
-          name: row[2] as string,
-          inv_date: row[3] as string | null,
-          facility_name: row[4] as string | null,
-          costItemCount,
+          id: String(templateId), cloud_id: row[1] as string | null, name: row[2] as string,
+          inv_date: row[3] as string | null, facility_name: row[4] as string | null, costItemCount,
         };
       });
-      
+
       tempDb.close();
-      
       return { success: true, templates };
     } catch (err: any) {
       console.error('Preview flash drive import error:', err);
@@ -1267,145 +875,92 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     }
   }, []);
 
-  // Import selected templates from flash drive file into offline database
+  // ── Flash drive: import ───────────────────────────────────────
+
   const importFromFlashDrive = useCallback(async (
-    file: File,
-    selectedIds: string[],
-    onProgress?: (progress: number) => void
+    file: File, selectedIds: string[], onProgress?: (progress: number) => void
   ): Promise<{ success: boolean; error?: string; imported: number }> => {
-    if (!sqlRef.current || !db) return { success: false, error: 'Database not initialized', imported: 0 };
-    
-    // Use cached user ID for offline mode fallback
+    if (!_sqlRef || !db) return { success: false, error: 'Database not initialized', imported: 0 };
     const userId = user?.id || localStorage.getItem('cached_user_id') || 'offline_user';
 
     try {
       const arrayBuffer = await file.arrayBuffer();
       let data = new Uint8Array(arrayBuffer);
-      
-      // Auto-detect and decompress gzip
-      if (isGzipped(data)) {
-        data = await gzipDecompress(data) as any;
-      }
-      
-      const sourceDb = new sqlRef.current.Database(data as any);
-      
+      if (isGzipped(data)) { data = await gzipDecompress(data) as any; }
+      const sourceDb = new _sqlRef.Database(data as any);
+
       let imported = 0;
       const total = selectedIds.length;
-      
+
       for (let i = 0; i < selectedIds.length; i++) {
         const sourceId = selectedIds[i];
         onProgress?.(Math.round(((i + 0.5) / total) * 100));
-        
-        // Get template from source
-        const templateResult = sourceDb.exec(`
-          SELECT cloud_id, name, inv_date, facility_name, inv_number, cost_file_name, job_ticket_file_name
-          FROM templates WHERE id = ?
-        `, [sourceId]);
-        
+
+        const templateResult = sourceDb.exec(`SELECT cloud_id, name, inv_date, facility_name, inv_number, cost_file_name, job_ticket_file_name FROM templates WHERE id = ?`, [sourceId]);
         if (templateResult.length === 0 || templateResult[0].values.length === 0) continue;
-        
+
         const tRow = templateResult[0].values[0];
         const templateName = tRow[1] as string;
         const cloudId = tRow[0] as string | null;
-        
-        // Check if already exists by name
+
         const existing = db.exec(`SELECT id FROM templates WHERE name = ?`, [templateName]);
-        if (existing.length > 0 && existing[0].values.length > 0) {
-          // Skip duplicates
-          continue;
-        }
-        
-        // Generate new local ID
+        if (existing.length > 0 && existing[0].values.length > 0) continue;
+
         const newLocalId = generateId();
-        
-        // Insert template
-        db.run(`
-          INSERT INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, inv_number, 
-                                 cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, 0)
-        `, [
-          newLocalId, 
-          cloudId, 
-          userId, 
-          templateName, 
-          tRow[2], 
-          tRow[3], 
-          tRow[4], 
-          tRow[5], 
-          tRow[6], 
-          new Date().toISOString(), 
-          new Date().toISOString()
-        ]);
-        
-        // Copy sections
-        const sectionsResult = sourceDb.exec(`
-          SELECT sect, description, full_section, cost_sheet FROM sections WHERE template_id = ?
-        `, [sourceId]);
-        
+        db.run(`INSERT INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, inv_number,
+                 cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, 0)`,
+          [newLocalId, cloudId, userId, templateName, tRow[2], tRow[3], tRow[4], tRow[5], tRow[6],
+           new Date().toISOString(), new Date().toISOString()]);
+
+        const sectionsResult = sourceDb.exec(`SELECT sect, description, full_section, cost_sheet FROM sections WHERE template_id = ?`, [sourceId]);
         if (sectionsResult.length > 0) {
           for (const sRow of sectionsResult[0].values) {
-            db.run(`
-              INSERT INTO sections (id, template_id, sect, description, full_section, cost_sheet)
-              VALUES (?, ?, ?, ?, ?, ?)
-            `, [generateId(), newLocalId, sRow[0], sRow[1], sRow[2], sRow[3]]);
+            db.run(`INSERT INTO sections (id, template_id, sect, description, full_section, cost_sheet) VALUES (?, ?, ?, ?, ?, ?)`,
+              [generateId(), newLocalId, sRow[0], sRow[1], sRow[2], sRow[3]]);
           }
         }
-        
-        // Copy cost items
-        const costResult = sourceDb.exec(`
-          SELECT ndc, material_description, unit_price, source, material, sheet_name
-          FROM cost_items WHERE template_id = ?
-        `, [sourceId]);
-        
+
+        const costResult = sourceDb.exec(`SELECT ndc, material_description, unit_price, source, material, sheet_name FROM cost_items WHERE template_id = ?`, [sourceId]);
         if (costResult.length > 0) {
           for (const cRow of costResult[0].values) {
-            db.run(`
-              INSERT INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `, [generateId(), newLocalId, cRow[0], cRow[1], cRow[2], cRow[3], cRow[4], cRow[5]]);
+            db.run(`INSERT INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              [generateId(), newLocalId, cRow[0], cRow[1], cRow[2], cRow[3], cRow[4], cRow[5]]);
           }
         }
-        
+
         imported++;
         onProgress?.(Math.round(((i + 1) / total) * 100));
       }
-      
+
       sourceDb.close();
-      await saveDatabase();
-      
+      await _saveDatabase();
+      _notify();
       return { success: true, imported };
     } catch (err: any) {
       console.error('Import from flash drive error:', err);
       return { success: false, error: err.message, imported: 0 };
     }
-  }, [db, user, saveDatabase]);
+  }, [db, user]);
 
-  // Offline section management: Add a new section locally
+  // ── Section management ────────────────────────────────────────
+
   const addSection = useCallback(async (
-    templateId: string,
-    sect: string,
-    description: string | null,
-    fullSection: string | null,
-    costSheet: string | null
+    templateId: string, sect: string, description: string | null, fullSection: string | null, costSheet: string | null
   ): Promise<{ success: boolean; error?: string; id?: string }> => {
     if (!db) return { success: false, error: 'Database not initialized' };
     try {
       const id = generateId();
-      db.run(`
-        INSERT INTO sections (id, template_id, sect, description, full_section, cost_sheet)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `, [id, templateId, sect, description, fullSection, costSheet]);
-      await saveDatabase();
+      db.run(`INSERT INTO sections (id, template_id, sect, description, full_section, cost_sheet) VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, templateId, sect, description, fullSection, costSheet]);
+      await _saveDatabase();
+      _notify();
       return { success: true, id };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
-  }, [db, saveDatabase]);
+    } catch (err: any) { return { success: false, error: err.message }; }
+  }, [db]);
 
-  // Offline section management: Update an existing section
   const updateSection = useCallback(async (
-    sectionId: string,
-    updates: { description?: string; full_section?: string; cost_sheet?: string | null }
+    sectionId: string, updates: { description?: string; full_section?: string; cost_sheet?: string | null }
   ): Promise<{ success: boolean; error?: string }> => {
     if (!db) return { success: false, error: 'Database not initialized' };
     try {
@@ -1417,26 +972,23 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       if (setClauses.length === 0) return { success: true };
       params.push(sectionId);
       db.run(`UPDATE sections SET ${setClauses.join(', ')} WHERE id = ?`, params);
-      await saveDatabase();
+      await _saveDatabase();
+      _notify();
       return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
-  }, [db, saveDatabase]);
+    } catch (err: any) { return { success: false, error: err.message }; }
+  }, [db]);
 
-  // Offline section management: Delete a section
-  const deleteSection = useCallback(async (
-    sectionId: string
-  ): Promise<{ success: boolean; error?: string }> => {
+  const deleteSection = useCallback(async (sectionId: string): Promise<{ success: boolean; error?: string }> => {
     if (!db) return { success: false, error: 'Database not initialized' };
     try {
       db.run(`DELETE FROM sections WHERE id = ?`, [sectionId]);
-      await saveDatabase();
+      await _saveDatabase();
+      _notify();
       return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
-  }, [db, saveDatabase]);
+    } catch (err: any) { return { success: false, error: err.message }; }
+  }, [db]);
+
+  // ── Return ────────────────────────────────────────────────────
 
   return {
     templates: db ? getTemplates() : [],
@@ -1449,27 +1001,23 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     hasLocalData: hasLocalData(),
     pendingChanges: getPendingChangesCount(),
     syncedTemplateIds: getSyncedTemplateIds(),
-    
-    // Local operations
+
     updateTemplateStatus,
     getSections,
     getCostItemByNDC,
     getAllCostItems,
     deleteLocalTemplate,
     getTemplateCostItemCount,
-    
-    // Offline section management
+
     addSection,
     updateSection,
     deleteSection,
-    
-    // Sync operations
+
     syncWithCloud,
     pullFromCloud,
     pushToCloud,
     syncSelectedTemplates,
-    
-    // Flash drive operations
+
     exportToFlashDrive,
     exportCloudTemplatesToFlashDrive,
     previewFlashDriveImport,
