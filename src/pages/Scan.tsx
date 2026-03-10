@@ -217,6 +217,8 @@ const Scan = () => {
 
   // State for download to device dialog
   const [deviceSyncDialogOpen, setDeviceSyncDialogOpen] = useState(false);
+  // State for flash drive transfer dialog
+  const [flashDriveDialogOpen, setFlashDriveDialogOpen] = useState(false);
 
   // State for outer NDC selection dialog
   const [outerNDCDialogOpen, setOuterNDCDialogOpen] = useState(false);
