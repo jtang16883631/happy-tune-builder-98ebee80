@@ -157,6 +157,8 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       sqlRef.current = SQL;
 
       const savedDb = await loadFromIndexedDB<Uint8Array>(DB_KEY);
+      console.log(`[OfflineDB] IndexedDB data: ${savedDb ? `${(savedDb.byteLength / 1024).toFixed(0)} KB` : 'null (no saved DB)'}`);
+
       const savedMeta = await loadFromIndexedDB<SyncMeta>(SYNC_META_KEY);
 
       let database: Database;
@@ -195,14 +197,23 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         }
         // Ensure schema is up-to-date (creates tables/indexes IF NOT EXISTS)
         createSchema(database);
-        console.log('[OfflineDB] Restored existing database from IndexedDB');
+        // Count templates right after restore to verify data integrity
+        try {
+          const countResult = database.exec('SELECT COUNT(*) FROM templates');
+          const costCountResult = database.exec('SELECT COUNT(*) FROM cost_items');
+          const tCount = countResult.length > 0 ? countResult[0].values[0][0] : 0;
+          const cCount = costCountResult.length > 0 ? costCountResult[0].values[0][0] : 0;
+          console.log(`[OfflineDB] Restored from IndexedDB: ${tCount} templates, ${cCount} cost_items`);
+        } catch (e) {
+          console.log('[OfflineDB] Restored from IndexedDB (could not count tables)');
+        }
       } else {
         database = new SQL.Database();
         createSchema(database);
-        const dbData = database.export();
-        await saveToIndexedDB(DB_KEY, new Uint8Array(dbData));
-        await saveToIndexedDB('migration_v1_done', true);
-        console.log('[OfflineDB] Created fresh database');
+        // DON'T save fresh empty DB to IndexedDB — this would overwrite any
+        // previously synced data if another hook instance already saved templates.
+        // Only explicit sync/save operations should persist to IndexedDB.
+        console.log('[OfflineDB] Created fresh in-memory database (NOT saved to IndexedDB to prevent overwrite)');
       }
 
       dbRef.current = database;
@@ -622,7 +633,21 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         synced++;
       }
 
+      // Verify data before saving
+      try {
+        const verifyCount = activeDb.exec('SELECT COUNT(*) FROM templates');
+        const verifyCost = activeDb.exec('SELECT COUNT(*) FROM cost_items');
+        console.log(`[OfflineDB] Pre-save verification: ${verifyCount[0]?.values[0][0]} templates, ${verifyCost[0]?.values[0][0]} cost_items`);
+      } catch {}
+      
       await saveDatabase(activeDb);
+      
+      // Verify IndexedDB save by reloading
+      try {
+        const savedCheck = await loadFromIndexedDB<Uint8Array>(DB_KEY);
+        console.log(`[OfflineDB] Post-save IndexedDB size: ${savedCheck ? `${(savedCheck.byteLength / 1024).toFixed(0)} KB` : 'SAVE FAILED - null!'}`);
+      } catch {}
+      
       await updateSyncMeta({ lastSyncedAt: new Date().toISOString() });
       
       // Mark sync complete
