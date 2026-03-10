@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const BUILD_VERSION = '1.1.0';
+const BUILD_VERSION = '1.2.0';
 const BUILD_DATE = '2026-03-10';
 
 export interface AppVersionInfo {
