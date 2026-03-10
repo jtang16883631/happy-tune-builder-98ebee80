@@ -297,6 +297,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Session still valid — update state normally
           setSession(newSession);
           setUser(newSession.user);
+          sessionEstablishedRef.current = true;
 
           // If offline, use cached roles and skip network calls.
           if (!navigator.onLine) {
