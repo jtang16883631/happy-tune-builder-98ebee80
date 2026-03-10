@@ -218,6 +218,8 @@ const Scan = () => {
 
   // State for download to device dialog
   const [deviceSyncDialogOpen, setDeviceSyncDialogOpen] = useState(false);
+  // State for manage device dialog
+  const [manageDeviceDialogOpen, setManageDeviceDialogOpen] = useState(false);
   // State for flash drive transfer dialog
   const [flashDriveDialogOpen, setFlashDriveDialogOpen] = useState(false);
 
