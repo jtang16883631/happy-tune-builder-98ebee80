@@ -36,6 +36,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [rolesLoaded, setRolesLoaded] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [presenceChannel, setPresenceChannel] = useState<RealtimeChannel | null>(null);
+  // Track whether we've ever successfully established a session in this app lifecycle.
+  // Prevents cold-start SIGNED_OUT events (from failed token refresh) from clearing cached state.
+  const sessionEstablishedRef = useRef(false);
 
   const readCachedRoles = useCallback((userId: string): AppRole[] => {
     try {
