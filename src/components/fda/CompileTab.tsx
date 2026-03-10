@@ -218,6 +218,7 @@ export function CompileTab() {
         
         // Apply validation styling to cells
         applyValidationStylesToWorksheet(ws, sheetData, 1);
+        applyExcelHeaderAndDataStyles(ws, sheetData);
         
         // Apply formulas for Unit Cost, Extended, and SUM
         const dataRowCount = processedData.length;
