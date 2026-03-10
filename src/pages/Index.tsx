@@ -749,10 +749,23 @@ const Index = () => {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Templates?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {isDeleting 
-                ? 'Deleting template data... This may take a moment for large templates.'
-                : `This will permanently delete ${selectedTemplates.size} template(s) and all associated data.`}
+            <AlertDialogDescription asChild>
+              <div>
+                {isDeleting ? (
+                  <div className="space-y-3">
+                    <p>Deleting template data... This may take a moment for large templates.</p>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="truncate max-w-[200px]">{deleteProgress.name}</span>
+                        <span>{deleteProgress.current} / {deleteProgress.total}</span>
+                      </div>
+                      <Progress value={deleteProgress.total > 0 ? (deleteProgress.current / deleteProgress.total) * 100 : 0} className="h-2" />
+                    </div>
+                  </div>
+                ) : (
+                  <p>This will permanently delete {selectedTemplates.size} template(s) and all associated data.</p>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
