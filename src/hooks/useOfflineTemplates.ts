@@ -197,7 +197,16 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         }
         // Ensure schema is up-to-date (creates tables/indexes IF NOT EXISTS)
         createSchema(database);
-        console.log('[OfflineDB] Restored existing database from IndexedDB');
+        // Count templates right after restore to verify data integrity
+        try {
+          const countResult = database.exec('SELECT COUNT(*) FROM templates');
+          const costCountResult = database.exec('SELECT COUNT(*) FROM cost_items');
+          const tCount = countResult.length > 0 ? countResult[0].values[0][0] : 0;
+          const cCount = costCountResult.length > 0 ? costCountResult[0].values[0][0] : 0;
+          console.log(`[OfflineDB] Restored from IndexedDB: ${tCount} templates, ${cCount} cost_items`);
+        } catch (e) {
+          console.log('[OfflineDB] Restored from IndexedDB (could not count tables)');
+        }
       } else {
         database = new SQL.Database();
         createSchema(database);
