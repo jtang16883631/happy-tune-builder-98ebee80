@@ -227,6 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(existingSession?.user ?? null);
 
         if (existingSession?.user) {
+          sessionEstablishedRef.current = true;
           // Cache user ID for offline flash drive import
           localStorage.setItem('cached_user_id', existingSession.user.id);
 
