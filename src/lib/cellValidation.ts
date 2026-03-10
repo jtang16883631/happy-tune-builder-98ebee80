@@ -92,11 +92,11 @@ export function getCellValidationColor(
 export function getCellValidationClasses(color: ValidationColor): string {
   switch (color) {
     case 'yellow':
-      return 'bg-yellow-200 dark:bg-yellow-900/50 border border-black dark:border-yellow-700';
+      return 'bg-[#FFFF00] dark:bg-[#FFFF00]/70 border border-black dark:border-yellow-700';
     case 'red':
-      return 'bg-red-500 dark:bg-red-600 border border-black dark:border-red-800';
+      return 'bg-[#FF0000] text-white dark:bg-[#FF0000]/80 border border-black dark:border-red-800';
     case 'gray':
-      return 'bg-gray-200 dark:bg-gray-700/50 border border-black dark:border-gray-600';
+      return 'bg-[#AEAAAA] dark:bg-[#AEAAAA]/70 border border-black dark:border-gray-600';
     case 'orange':
       return 'bg-orange-200 dark:bg-orange-900/50 border border-black dark:border-orange-700 font-medium';
     case 'green':
