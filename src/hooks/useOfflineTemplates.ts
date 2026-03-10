@@ -210,10 +210,10 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       } else {
         database = new SQL.Database();
         createSchema(database);
-        const dbData = database.export();
-        await saveToIndexedDB(DB_KEY, new Uint8Array(dbData));
-        await saveToIndexedDB('migration_v1_done', true);
-        console.log('[OfflineDB] Created fresh database');
+        // DON'T save fresh empty DB to IndexedDB — this would overwrite any
+        // previously synced data if another hook instance already saved templates.
+        // Only explicit sync/save operations should persist to IndexedDB.
+        console.log('[OfflineDB] Created fresh in-memory database (NOT saved to IndexedDB to prevent overwrite)');
       }
 
       dbRef.current = database;
