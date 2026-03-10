@@ -318,21 +318,22 @@ export function FlashDriveTransferDialog({
             </TabsTrigger>
           </TabsList>
 
-          {/* Export Tab */}
           <TabsContent value="export" className="space-y-4 mt-4">
-            {isLoadingCloud ? (
+            {isLoadingExportList ? (
               <div className="flex items-center justify-center p-8 gap-2 text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span className="text-sm">Loading templates...</span>
               </div>
-            ) : cloudTemplates.length === 0 ? (
+            ) : exportTemplateList.length === 0 ? (
               <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="h-4 w-4 text-destructive mt-0.5" />
                   <div>
                     <p className="text-sm font-medium text-destructive">No templates available</p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Upload templates first before exporting.
+                      {isOnline
+                        ? 'Upload templates first before exporting.'
+                        : 'No templates downloaded to this device. Import from a flash drive or download while online.'}
                     </p>
                   </div>
                 </div>
@@ -346,18 +347,18 @@ export function FlashDriveTransferDialog({
                     onClick={handleSelectAllExport}
                     disabled={isExporting}
                   >
-                    {selectedExportIds.length === cloudTemplates.length ? 'Deselect All' : 'Select All'}
+                    {selectedExportIds.length === exportTemplateList.length ? 'Deselect All' : 'Select All'}
                   </Button>
                   <span className="text-sm text-muted-foreground">
-                    {selectedExportIds.length} of {cloudTemplates.length} selected
+                    {selectedExportIds.length} of {exportTemplateList.length} selected
                   </span>
                 </div>
 
                 <ScrollArea className="h-[200px] border rounded-md p-2 bg-background">
                   <div className="space-y-1">
-                    {cloudTemplates.map(t => {
+                    {exportTemplateList.map(t => {
                       const isSelected = selectedExportIds.includes(t.id);
-                      const isOnDevice = localCloudIds.has(t.id);
+                      const isOnDevice = !isOnline || localCloudIds.has(t.id);
                       return (
                         <div
                           key={t.id}
@@ -400,7 +401,9 @@ export function FlashDriveTransferDialog({
                 </ScrollArea>
 
                 <p className="text-xs text-muted-foreground">
-                  "On Device" templates export instantly. "Cloud" templates will be fetched during export.
+                  {isOnline
+                    ? '"On Device" templates export instantly. "Cloud" templates will be fetched during export.'
+                    : 'All templates shown are on this device and can be exported offline.'}
                 </p>
               </div>
             )}
