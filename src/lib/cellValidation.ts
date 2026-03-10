@@ -151,6 +151,75 @@ export function getExcelCellStyle(color: ValidationColor): object | null {
 }
 
 /**
+ * Header color mapping by column index (0-based).
+ */
+function getHeaderFillColor(colIndex: number): string {
+  if ((colIndex >= 0 && colIndex <= 6) || colIndex === 9 || colIndex === 10 || colIndex === 23 || colIndex === 24) {
+    return '4472C4';
+  }
+  if (colIndex === 7 || colIndex === 8 || (colIndex >= 11 && colIndex <= 22)) {
+    return 'A9D08E';
+  }
+  if (colIndex === 25 || colIndex === 26) {
+    return '548235';
+  }
+  if (colIndex === 27) {
+    return 'FFFF00';
+  }
+  if (colIndex === 28) {
+    return '000000';
+  }
+  if (colIndex >= 29 && colIndex <= 33) {
+    return 'FFD966';
+  }
+  return '4472C4';
+}
+
+/**
+ * Apply styled headers and default data font to an Excel worksheet.
+ */
+export function applyExcelHeaderAndDataStyles(ws: any, rows: any[][]): void {
+  const headerCount = rows[0]?.length || 0;
+
+  for (let col = 0; col < headerCount; col++) {
+    const colLetter = getExcelColumnLetter(col);
+    const cellRef = `${colLetter}1`;
+    const fillColor = getHeaderFillColor(col);
+    const fontColor = fillColor === 'FFFF00' ? '000000' : 'FFFFFF';
+    const headerStyle = {
+      font: { bold: true, color: { rgb: fontColor }, name: 'Arial', sz: 10 },
+      fill: { fgColor: { rgb: fillColor }, patternType: 'solid' },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border: {
+        top: { style: 'thin', color: { rgb: '000000' } },
+        bottom: { style: 'thin', color: { rgb: '000000' } },
+        left: { style: 'thin', color: { rgb: '000000' } },
+        right: { style: 'thin', color: { rgb: '000000' } },
+      },
+    };
+    if (ws[cellRef]) {
+      ws[cellRef].s = headerStyle;
+    } else {
+      ws[cellRef] = { t: 's', v: rows[0][col] ?? '', s: headerStyle };
+    }
+  }
+
+  const defaultDataFont = { name: 'Arial', sz: 10, color: { rgb: '000000' } };
+  for (let rowIdx = 1; rowIdx < rows.length; rowIdx++) {
+    for (let col = 0; col < headerCount; col++) {
+      const colLetter = getExcelColumnLetter(col);
+      const cellRef = `${colLetter}${rowIdx + 1}`;
+      if (ws[cellRef]) {
+        ws[cellRef].s = {
+          ...(ws[cellRef].s || {}),
+          font: ws[cellRef].s?.font?.bold ? { ...defaultDataFont, ...ws[cellRef].s.font, name: 'Arial', sz: 10 } : defaultDataFont,
+        };
+      }
+    }
+  }
+}
+
+/**
  * Apply validation styling to an Excel worksheet
  */
 export function applyValidationStylesToWorksheet(

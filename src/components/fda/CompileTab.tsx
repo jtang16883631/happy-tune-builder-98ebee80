@@ -5,7 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, FileSpreadsheet, CheckCircle, XCircle, Trash2, Download, FolderOpen, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
-import { applyValidationStylesToWorksheet } from '@/lib/cellValidation';
+import { applyValidationStylesToWorksheet, applyExcelHeaderAndDataStyles } from '@/lib/cellValidation';
 import { applyExcelFormulas, applySummaryFormulas, COLUMN_INDICES, getColLetter } from '@/lib/excelFormulas';
 import { buildValidationData, createValidationWorksheet, addSummaryHyperlinks } from '@/lib/excelValidationTab';
 
@@ -218,6 +218,7 @@ export function CompileTab() {
         
         // Apply validation styling to cells
         applyValidationStylesToWorksheet(ws, sheetData, 1);
+        applyExcelHeaderAndDataStyles(ws, sheetData);
         
         // Apply formulas for Unit Cost, Extended, and SUM
         const dataRowCount = processedData.length;
@@ -273,6 +274,7 @@ export function CompileTab() {
       const masterWs = XLSX.utils.aoa_to_sheet(masterSheetData);
       // Apply validation styling to master sheet
       applyValidationStylesToWorksheet(masterWs, masterSheetData, 1);
+      applyExcelHeaderAndDataStyles(masterWs, masterSheetData);
       // Apply formulas to master sheet
       const masterDataRowCount = masterData.length;
       applyExcelFormulas(masterWs, masterDataRowCount, 1);

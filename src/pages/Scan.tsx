@@ -8,7 +8,7 @@ import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, Aler
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import * as XLSX from 'xlsx-js-style';
-import { getCellValidationColor, getCellValidationClasses, applyValidationStylesToWorksheet } from '@/lib/cellValidation';
+import { getCellValidationColor, getCellValidationClasses, applyValidationStylesToWorksheet, applyExcelHeaderAndDataStyles } from '@/lib/cellValidation';
 import { applyExcelFormulas, applySummaryFormulas, COLUMN_INDICES, getColLetter } from '@/lib/excelFormulas';
 import { buildValidationData, createValidationWorksheet, addSummaryHyperlinks } from '@/lib/excelValidationTab';
 import { createStyledSummarySheet } from '@/lib/excelSummarySheet';
@@ -1587,6 +1587,7 @@ const Scan = () => {
 
         // Apply validation styling to cells
         applyValidationStylesToWorksheet(worksheet, rows, 1);
+        applyExcelHeaderAndDataStyles(worksheet, rows);
         
         // Apply formulas for Unit Cost, Extended, and SUM
         const dataRowCount = rows.length - 1; // Exclude header
@@ -1639,7 +1640,8 @@ const Scan = () => {
       });
 
       // Generate filename with template name and date
-      const filename = `${selectedTemplate.name}_${dateStr}_scan.xlsx`;
+      const scannerSuffix = userShortName ? `_${userShortName}` : '';
+      const filename = `${selectedTemplate.name}_${dateStr}${scannerSuffix}_scan.xlsx`;
 
       // Inject logo into Summary sheet (index 0)
       const logoData = await fetchLogoImageData();
@@ -1953,6 +1955,7 @@ const Scan = () => {
         const worksheet = XLSX.utils.aoa_to_sheet(rows);
         // Apply validation styling to cells
         applyValidationStylesToWorksheet(worksheet, rows, 1);
+        applyExcelHeaderAndDataStyles(worksheet, rows);
         // Apply formulas for Unit Cost, Extended, and SUM
         const dataRowCount = rows.length - 1;
         applyExcelFormulas(worksheet, dataRowCount, 1);
@@ -1987,6 +1990,7 @@ const Scan = () => {
       const masterWorksheet = XLSX.utils.aoa_to_sheet(masterRows);
       // Apply validation styling to master sheet
       applyValidationStylesToWorksheet(masterWorksheet, masterRows, 1);
+      applyExcelHeaderAndDataStyles(masterWorksheet, masterRows);
       // Apply formulas to master sheet
       const masterDataRowCount = masterRows.length - 1;
       applyExcelFormulas(masterWorksheet, masterDataRowCount, 1);
@@ -2026,7 +2030,8 @@ const Scan = () => {
         XLSX.utils.book_append_sheet(workbook, sectionSheets[name], name);
       });
 
-      const filename = `${selectedTemplate.name}_${dateStr}_merged_scan.xlsx`;
+      const mergedScannerSuffix = userShortName ? `_${userShortName}` : '';
+      const filename = `${selectedTemplate.name}_${dateStr}${mergedScannerSuffix}_merged_scan.xlsx`;
 
       // Inject logo into Summary sheet (index 0)
       const logoData = await fetchLogoImageData();
