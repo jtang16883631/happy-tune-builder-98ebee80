@@ -1955,6 +1955,7 @@ const Scan = () => {
         const worksheet = XLSX.utils.aoa_to_sheet(rows);
         // Apply validation styling to cells
         applyValidationStylesToWorksheet(worksheet, rows, 1);
+        applyExcelHeaderAndDataStyles(worksheet, rows);
         // Apply formulas for Unit Cost, Extended, and SUM
         const dataRowCount = rows.length - 1;
         applyExcelFormulas(worksheet, dataRowCount, 1);
