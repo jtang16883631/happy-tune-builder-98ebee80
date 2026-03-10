@@ -227,12 +227,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Cache user ID for offline flash drive import
           localStorage.setItem('cached_user_id', existingSession.user.id);
 
-          await ensureProfileExists(existingSession.user);
-          const userRoles = await fetchUserRoles(existingSession.user.id);
-          if (isMounted) {
-            setRoles(userRoles);
-            setRolesLoaded(true);
-            writeCachedRoles(existingSession.user.id, userRoles);
+          // Wrap profile/role fetches in a timeout so they don't hang
+          // indefinitely when navigator.onLine is true but there's no real internet.
+          const profileRoleTimeout = new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('Profile/role fetch timeout')), 6000)
+          );
+          try {
+            await Promise.race([
+              (async () => {
+                await ensureProfileExists(existingSession.user);
+                const userRoles = await fetchUserRoles(existingSession.user.id);
+                if (isMounted) {
+                  setRoles(userRoles);
+                  setRolesLoaded(true);
+                  writeCachedRoles(existingSession.user.id, userRoles);
+                }
+              })(),
+              profileRoleTimeout,
+            ]);
+          } catch (profileErr) {
+            console.warn('[Auth] Profile/role fetch timed out, using cache:', profileErr);
+            if (isMounted) {
+              const cached = readCachedRoles(existingSession.user.id);
+              setRoles(cached);
+              setRolesLoaded(true);
+            }
           }
         } else {
           // No session = no roles to load
