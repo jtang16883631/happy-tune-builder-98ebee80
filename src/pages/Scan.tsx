@@ -8,7 +8,7 @@ import { Loader2, ScanBarcode, ArrowLeft, Plus, Trash2, Calendar, FileText, Aler
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import * as XLSX from 'xlsx-js-style';
-import { getCellValidationColor, getCellValidationClasses, applyValidationStylesToWorksheet } from '@/lib/cellValidation';
+import { getCellValidationColor, getCellValidationClasses, applyValidationStylesToWorksheet, applyExcelHeaderAndDataStyles } from '@/lib/cellValidation';
 import { applyExcelFormulas, applySummaryFormulas, COLUMN_INDICES, getColLetter } from '@/lib/excelFormulas';
 import { buildValidationData, createValidationWorksheet, addSummaryHyperlinks } from '@/lib/excelValidationTab';
 import { createStyledSummarySheet } from '@/lib/excelSummarySheet';
