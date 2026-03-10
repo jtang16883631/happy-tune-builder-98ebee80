@@ -5,7 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, FileSpreadsheet, CheckCircle, XCircle, Trash2, Download, FolderOpen, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx-js-style';
-import { applyValidationStylesToWorksheet } from '@/lib/cellValidation';
+import { applyValidationStylesToWorksheet, applyExcelHeaderAndDataStyles } from '@/lib/cellValidation';
 import { applyExcelFormulas, applySummaryFormulas, COLUMN_INDICES, getColLetter } from '@/lib/excelFormulas';
 import { buildValidationData, createValidationWorksheet, addSummaryHyperlinks } from '@/lib/excelValidationTab';
 
