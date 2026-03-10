@@ -306,18 +306,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setTimeout(async () => {
             if (!isMounted) return;
 
+            const roleTimeout = new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Auth state change timeout')), 6000)
+            );
             try {
-              await ensureProfileExists(newSession.user);
-              const userRoles = await fetchUserRoles(newSession.user.id);
-              if (isMounted) {
-                setRoles(userRoles);
-                setRolesLoaded(true);
-                writeCachedRoles(newSession.user.id, userRoles);
-                setIsLoading(false);
-              }
+              await Promise.race([
+                (async () => {
+                  await ensureProfileExists(newSession.user);
+                  const userRoles = await fetchUserRoles(newSession.user.id);
+                  if (isMounted) {
+                    setRoles(userRoles);
+                    setRolesLoaded(true);
+                    writeCachedRoles(newSession.user.id, userRoles);
+                    setIsLoading(false);
+                  }
+                })(),
+                roleTimeout,
+              ]);
             } catch (err) {
-              console.error('Error in auth state change:', err);
+              console.warn('Auth state change: profile/role fetch failed or timed out:', err);
               if (isMounted) {
+                const cached = readCachedRoles(newSession.user.id);
+                setRoles(cached.length > 0 ? cached : roles);
                 setRolesLoaded(true);
                 setIsLoading(false);
               }
