@@ -3,108 +3,12 @@ import initSqlJs, { Database } from 'sql.js';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { gzipDecompress, isGzipped } from '@/lib/compression';
+import { initSqlWithCache } from '@/lib/wasmLoader';
 
 const DB_NAME = 'offline_templates_db';
 const DB_STORE = 'sqlite_store';
 const DB_KEY = 'templates_db';
 const SYNC_META_KEY = 'sync_meta';
-
-const CDN_WASM_URL = 'https://sql.js.org/dist/sql-wasm.wasm';
-const WASM_CACHE_STORE = 'wasm_cache';
-const WASM_CACHE_KEY = 'sql_wasm_binary';
-
-// Cache WASM binary in IndexedDB so offline restarts always work
-const openWasmCacheDB = (): Promise<IDBDatabase> => {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open('sql_wasm_cache', 1);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
-    request.onupgradeneeded = (event) => {
-      const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(WASM_CACHE_STORE)) {
-        db.createObjectStore(WASM_CACHE_STORE);
-      }
-    };
-  });
-};
-
-const saveWasmToCache = async (binary: ArrayBuffer): Promise<void> => {
-  try {
-    const db = await openWasmCacheDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(WASM_CACHE_STORE, 'readwrite');
-      tx.objectStore(WASM_CACHE_STORE).put(binary, WASM_CACHE_KEY);
-      tx.oncomplete = () => { db.close(); resolve(); };
-      tx.onerror = () => { db.close(); reject(tx.error); };
-    });
-  } catch (err) {
-    console.warn('[WASM Cache] Failed to save:', err);
-  }
-};
-
-const loadWasmFromCache = async (): Promise<ArrayBuffer | null> => {
-  try {
-    const db = await openWasmCacheDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(WASM_CACHE_STORE, 'readonly');
-      const req = tx.objectStore(WASM_CACHE_STORE).get(WASM_CACHE_KEY);
-      req.onsuccess = () => { db.close(); resolve(req.result ?? null); };
-      req.onerror = () => { db.close(); reject(req.error); };
-    });
-  } catch {
-    return null;
-  }
-};
-
-const initSqlSimple = async () => {
-  const localPath = `${import.meta.env.BASE_URL}sql-wasm.wasm`;
-  
-  // 1. Try local file (works when SW caches it or app is served locally)
-  try {
-    const SQL = await initSqlJs({ locateFile: () => localPath });
-    // Cache the WASM binary for future offline use
-    try {
-      const resp = await fetch(localPath);
-      if (resp.ok) {
-        const buf = await resp.arrayBuffer();
-        await saveWasmToCache(buf);
-        console.log('[sql.js] WASM cached to IndexedDB for offline use');
-      }
-    } catch { /* non-critical */ }
-    return SQL;
-  } catch (localErr) {
-    console.warn('[sql.js] Local WASM failed, trying IndexedDB cache…', localErr);
-  }
-
-  // 2. Try IndexedDB cached binary (works offline even without SW)
-  try {
-    const cached = await loadWasmFromCache();
-    if (cached) {
-      console.log('[sql.js] Loading WASM from IndexedDB cache');
-      const SQL = await initSqlJs({ wasmBinary: new Uint8Array(cached) });
-      return SQL;
-    }
-  } catch (cacheErr) {
-    console.warn('[sql.js] IndexedDB WASM cache failed:', cacheErr);
-  }
-
-  // 3. CDN fallback (online only)
-  try {
-    const SQL = await initSqlJs({ locateFile: () => CDN_WASM_URL });
-    // Cache for future offline use
-    try {
-      const resp = await fetch(CDN_WASM_URL);
-      if (resp.ok) {
-        const buf = await resp.arrayBuffer();
-        await saveWasmToCache(buf);
-      }
-    } catch { /* non-critical */ }
-    return SQL;
-  } catch (cdnErr) {
-    console.error('[sql.js] All WASM sources failed (local, cache, CDN):', cdnErr);
-    throw cdnErr;
-  }
-};
 
 export type TemplateStatus = 'active' | 'working' | 'completed';
 
