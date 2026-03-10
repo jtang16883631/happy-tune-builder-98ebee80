@@ -244,6 +244,7 @@ const Scan = () => {
 
   // Use cloud templates when online, offline templates when offline
   const templates = isOnline ? cloudTemplates : offlineTemplates as unknown as CloudTemplate[];
+  console.log(`[Scan] isOnline=${isOnline}, offlineLoading=${offlineLoading}, offlineDbReady=${offlineDbReady}, templates.length=${templates.length}, source=${isOnline ? 'cloud' : 'offline'}`);
   const getCostItemByNDC = isOnline ? cloudGetCostItemByNDC : offlineGetCostItemByNDC as typeof cloudGetCostItemByNDC;
   const getSections = isOnline ? cloudGetSections : offlineGetSections as typeof cloudGetSections;
   const updateTemplateStatus = isOnline ? cloudUpdateTemplateStatus : offlineUpdateTemplateStatus as typeof cloudUpdateTemplateStatus;
