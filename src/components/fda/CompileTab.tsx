@@ -274,6 +274,7 @@ export function CompileTab() {
       const masterWs = XLSX.utils.aoa_to_sheet(masterSheetData);
       // Apply validation styling to master sheet
       applyValidationStylesToWorksheet(masterWs, masterSheetData, 1);
+      applyExcelHeaderAndDataStyles(masterWs, masterSheetData);
       // Apply formulas to master sheet
       const masterDataRowCount = masterData.length;
       applyExcelFormulas(masterWs, masterDataRowCount, 1);
