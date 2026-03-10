@@ -681,8 +681,14 @@ export function useLocalFDA() {
     file: File,
     onProgress?: (status: string) => void
   ): Promise<boolean> => {
+    // Lazy-init sql.js if not ready yet
     if (!sqlRef.current) {
-      throw new Error('SQL.js not initialized');
+      try {
+        const SQL = await initSqlSimple();
+        sqlRef.current = SQL;
+      } catch (e) {
+        throw new Error('SQL.js not initialized');
+      }
     }
 
     try {
