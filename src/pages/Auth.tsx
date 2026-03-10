@@ -19,6 +19,15 @@ const Auth = () => {
   }, [user, isLoading, navigate]);
 
   const handleGoogleLogin = async () => {
+    if (!navigator.onLine) {
+      toast({
+        title: 'No Internet Connection',
+        description: 'Google sign-in requires an internet connection. Redirecting to offline mode...',
+        variant: 'destructive',
+      });
+      setTimeout(() => navigate('/offline-scan', { replace: true }), 1500);
+      return;
+    }
     const { error } = await signInWithGoogle();
     if (error) {
       toast({
