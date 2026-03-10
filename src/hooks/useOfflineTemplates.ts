@@ -633,7 +633,21 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         synced++;
       }
 
+      // Verify data before saving
+      try {
+        const verifyCount = activeDb.exec('SELECT COUNT(*) FROM templates');
+        const verifyCost = activeDb.exec('SELECT COUNT(*) FROM cost_items');
+        console.log(`[OfflineDB] Pre-save verification: ${verifyCount[0]?.values[0][0]} templates, ${verifyCost[0]?.values[0][0]} cost_items`);
+      } catch {}
+      
       await saveDatabase(activeDb);
+      
+      // Verify IndexedDB save by reloading
+      try {
+        const savedCheck = await loadFromIndexedDB<Uint8Array>(DB_KEY);
+        console.log(`[OfflineDB] Post-save IndexedDB size: ${savedCheck ? `${(savedCheck.byteLength / 1024).toFixed(0)} KB` : 'SAVE FAILED - null!'}`);
+      } catch {}
+      
       await updateSyncMeta({ lastSyncedAt: new Date().toISOString() });
       
       // Mark sync complete
