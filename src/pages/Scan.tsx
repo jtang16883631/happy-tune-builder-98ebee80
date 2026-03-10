@@ -2739,6 +2739,15 @@ const Scan = () => {
           <div className="text-center py-4 relative">
             {/* Sync buttons in top right */}
             <div className="absolute right-0 top-0 flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFlashDriveDialogOpen(true)}
+                className="gap-2"
+              >
+                <HardDrive className="h-4 w-4" />
+                <span className="hidden sm:inline">Flash Drive</span>
+              </Button>
               {isOnline && (
                 <Button
                   variant="outline"
