@@ -99,12 +99,12 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
   // Create worksheet
   const ws = XLSX.utils.aoa_to_sheet(rows);
 
-  // -- Column widths --
+  // -- Column widths (match template: A=5.57, B=39.86, C=17) --
   ws['!cols'] = [
-    { wch: 45 },  // A: Sections
-    { wch: 5 },   // B: spacer
-    { wch: 18 },  // C: Value
-    { wch: 5 },   // D: spacer
+    { wch: 5.57 },  // A: empty spacer
+    { wch: 39.86 }, // B: Sections
+    { wch: 17 },    // C: Value ($)
+    { wch: 17 },    // D: Value (number)
   ];
 
   // -- Merge cells --
