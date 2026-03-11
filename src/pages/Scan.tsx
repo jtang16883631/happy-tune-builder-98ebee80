@@ -1539,13 +1539,13 @@ const Scan = () => {
                 sectionTotal += record.extended;
               }
               
-              rows.push([
+               rows.push([
                 record.loc || '',
                 record.device || '',
                 record.rec || '',
                 record.time || '',
-                record.ndc || '',
                 record.scannedNdc || '',
+                record.ndc || '',
                 record.qty ?? '',
                 record.misDivisor ?? '',
                 record.misCountMethod || '',
@@ -1574,6 +1574,8 @@ const Scan = () => {
                 record.auditorInitials || '',
                 record.results || '',
                 record.additionalNotes || '',
+                record.expirationDate || '',
+                record.lotNumber || '',
               ]);
             });
         }
