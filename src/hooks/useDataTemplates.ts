@@ -373,7 +373,7 @@ export function useDataTemplates() {
       sections.push({ sect: '0000', description: 'Default', costSheet: null });
     }
 
-    return { invDate, invNumber, facilityName, sections };
+    return { invDate, invNumber, facilityName, address, sections };
   };
 
   // Import a template pair (cost data + job ticket)
