@@ -81,10 +81,13 @@ const saveToIndexedDB = async (key: string, data: any): Promise<void> => {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(DB_STORE, 'readwrite');
     const store = transaction.objectStore(DB_STORE);
-    const request = store.put(data, key);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve();
-    transaction.oncomplete = () => db.close();
+    store.put(data, key);
+    // CRITICAL: resolve on transaction.oncomplete, NOT request.onsuccess
+    // This ensures the data is fully committed to disk before we proceed.
+    // Resolving on onsuccess could lose data if the app closes before commit.
+    transaction.oncomplete = () => { db.close(); resolve(); };
+    transaction.onerror = () => { db.close(); reject(transaction.error); };
+    transaction.onabort = () => { db.close(); reject(new Error('IndexedDB transaction aborted')); };
   });
 };
 
@@ -215,7 +218,20 @@ async function _saveDatabase(database?: Database) {
   const targetDb = database || _db;
   if (!targetDb) return;
   const dbData = targetDb.export();
-  await saveToIndexedDB(DB_KEY, new Uint8Array(dbData));
+  const bytes = new Uint8Array(dbData);
+  console.log(`[OfflineDB] Saving ${(bytes.byteLength / 1024).toFixed(0)} KB to IndexedDB…`);
+  await saveToIndexedDB(DB_KEY, bytes);
+  // Verify write succeeded by reading back size
+  try {
+    const readBack = await loadFromIndexedDB<Uint8Array>(DB_KEY);
+    if (!readBack || readBack.byteLength !== bytes.byteLength) {
+      console.error(`[OfflineDB] SAVE VERIFICATION FAILED! Wrote ${bytes.byteLength} but read back ${readBack?.byteLength ?? 0}`);
+    } else {
+      console.log(`[OfflineDB] Save verified: ${(readBack.byteLength / 1024).toFixed(0)} KB confirmed in IndexedDB`);
+    }
+  } catch (verifyErr) {
+    console.error('[OfflineDB] Save verification error:', verifyErr);
+  }
 }
 
 async function _ensureDb(): Promise<Database | null> {
