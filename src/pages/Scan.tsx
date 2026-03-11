@@ -2711,7 +2711,7 @@ const Scan = () => {
   // Hideable columns for settings dropdown
   const hideableColumns = useMemo(() => columns.filter(col => col.hideable), [columns]);
 
-  if ((isOnline && authLoading) || (isOnline && templatesLoading) || offlineLoading) {
+  if ((isOnline && authLoading) || (isOnline && templatesLoading && (offlineTemplates as unknown as CloudTemplate[]).length === 0) || offlineLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
