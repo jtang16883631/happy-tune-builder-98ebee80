@@ -159,19 +159,15 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
       },
     };
 
-    // Column C: $ sign area (keep background)
-    ws[`C${rowNum}`] = { t: 's', v: '$', s: baseCellStyle };
-
-    // Value formula with accounting format (column D)
+    // Value formula with accounting format (column C - $ left, number right in same cell)
     const valueFormula = `'${escapedName}'!${getColLetter(COLUMN_INDICES.SUM_COLUMN)}1`;
-    ws[`D${rowNum}`] = {
+    ws[`C${rowNum}`] = {
       t: 'n',
       f: valueFormula,
       z: ACCOUNTING_FMT,
       s: {
         ...baseCellStyle,
         numFmt: ACCOUNTING_FMT,
-        alignment: { horizontal: 'right' as const },
       },
     };
   });
