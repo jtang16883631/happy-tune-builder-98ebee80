@@ -1910,8 +1910,8 @@ const Scan = () => {
               record.device || '',
               record.rec || '',
               record.time || '',
-              record.ndc || '',
               record.scanned_ndc || '',
+              record.ndc || '',
               record.qty ?? '',
               record.mis_divisor ?? '',
               record.mis_count_method || '',
@@ -1940,6 +1940,8 @@ const Scan = () => {
               record.auditor_initials || '',
               record.results || '',
               record.additional_notes || '',
+              '', // Expiration Date (not in cloud schema yet)
+              '', // Lot # (not in cloud schema yet)
             ];
             rows.push(rowData);
             allMasterRows.push(rowData);
