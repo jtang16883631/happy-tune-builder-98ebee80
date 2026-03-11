@@ -108,12 +108,10 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
 
   // -- Merge cells --
   ws['!merges'] = [
-    // Row 13-15: facility/address/date span B-D
-    { s: { r: 12, c: 1 }, e: { r: 12, c: 3 } },
-    { s: { r: 13, c: 1 }, e: { r: 13, c: 3 } },
-    { s: { r: 14, c: 1 }, e: { r: 14, c: 3 } },
-    // Row 16 header: "Sections" spans B-C
-    { s: { r: 15, c: 1 }, e: { r: 15, c: 2 } },
+    // Row 13-15: facility/address/date span B-C
+    { s: { r: 12, c: 1 }, e: { r: 12, c: 2 } },
+    { s: { r: 13, c: 1 }, e: { r: 13, c: 2 } },
+    { s: { r: 14, c: 1 }, e: { r: 14, c: 2 } },
   ];
 
   // -- Style: Row 13 Facility name (bold Arial 10) --
@@ -133,8 +131,7 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
     border: thinBorder(BLACK),
   };
   ws['B16'] = { t: 's', v: 'Sections', s: headerStyle };
-  ws['C16'] = { t: 's', v: '', s: headerStyle }; // merged with B
-  ws['D16'] = { t: 's', v: 'Value', s: { ...headerStyle, alignment: { horizontal: 'center' as const } } };
+  ws['C16'] = { t: 's', v: 'Value', s: { ...headerStyle, alignment: { horizontal: 'center' as const } } };
 
   // -- Section rows --
   sectionSheetNames.forEach((sheetName, index) => {
