@@ -170,7 +170,7 @@ function getHeaderFillColor(colIndex: number): string {
   if (colIndex === 28) {
     return '000000';
   }
-  if (colIndex >= 29 && colIndex <= 33) {
+  if (colIndex >= 29 && colIndex <= 35) {
     return 'FFD966';
   }
   return '4472C4';
