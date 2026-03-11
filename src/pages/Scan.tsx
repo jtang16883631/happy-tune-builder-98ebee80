@@ -247,9 +247,20 @@ const Scan = () => {
     sectionName: string;
   } | null>(null);
 
-  // Use cloud templates when online, offline templates when offline
-  const templates = isOnline ? cloudTemplates : offlineTemplates as unknown as CloudTemplate[];
-  console.log(`[Scan] isOnline=${isOnline}, offlineLoading=${offlineLoading}, offlineDbReady=${offlineDbReady}, templates.length=${templates.length}, source=${isOnline ? 'cloud' : 'offline'}`);
+  // Use cloud templates when online, offline templates when offline.
+  // IMPORTANT: When online but cloud templates are still loading/empty (e.g. auth in progress),
+  // fall back to offline templates to prevent flash of empty state on cold start.
+  const templates = useMemo(() => {
+    if (!isOnline) return offlineTemplates as unknown as CloudTemplate[];
+    if (cloudTemplates.length > 0) return cloudTemplates;
+    // Online but cloud empty — use offline templates as fallback while loading
+    if ((offlineTemplates as unknown as CloudTemplate[]).length > 0) {
+      return offlineTemplates as unknown as CloudTemplate[];
+    }
+    return cloudTemplates;
+  }, [isOnline, cloudTemplates, offlineTemplates]);
+  const templateSource = isOnline && cloudTemplates.length > 0 ? 'cloud' : (offlineTemplates as unknown as CloudTemplate[]).length > 0 ? 'offline' : 'cloud';
+  console.log(`[Scan] isOnline=${isOnline}, offlineLoading=${offlineLoading}, offlineDbReady=${offlineDbReady}, templates.length=${templates.length}, source=${templateSource}`);
   const getCostItemByNDC = isOnline ? cloudGetCostItemByNDC : offlineGetCostItemByNDC as typeof cloudGetCostItemByNDC;
   const getSections = isOnline ? cloudGetSections : offlineGetSections as typeof cloudGetSections;
   const updateTemplateStatus = isOnline ? cloudUpdateTemplateStatus : offlineUpdateTemplateStatus as typeof cloudUpdateTemplateStatus;
@@ -437,8 +448,11 @@ const Scan = () => {
 
   // Check for last scan location on initial load (passive display only)
   useEffect(() => {
-    // Only check once when templates are loaded and no template is selected yet
-    if (templatesLoading || selectedTemplate) return;
+    // Wait for BOTH cloud and offline loading to complete before checking
+    const isStillLoading = (isOnline && (templatesLoading || authLoading)) || offlineLoading;
+    if (isStillLoading || selectedTemplate) return;
+    // Also wait until templates are actually populated (prevents premature empty check)
+    if (templates.length === 0) return;
     
     const savedLocation = localStorage.getItem('last_scan_location');
     if (savedLocation) {
@@ -453,7 +467,7 @@ const Scan = () => {
         // Ignore parse errors
       }
     }
-  }, [templatesLoading, selectedTemplate, templates]);
+  }, [templatesLoading, authLoading, offlineLoading, isOnline, selectedTemplate, templates]);
 
   // Update LOC field when section changes (for empty rows only)
   useEffect(() => {
@@ -2697,7 +2711,7 @@ const Scan = () => {
   // Hideable columns for settings dropdown
   const hideableColumns = useMemo(() => columns.filter(col => col.hideable), [columns]);
 
-  if ((isOnline && authLoading) || (isOnline && templatesLoading) || offlineLoading) {
+  if ((isOnline && authLoading) || (isOnline && templatesLoading && (offlineTemplates as unknown as CloudTemplate[]).length === 0) || offlineLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

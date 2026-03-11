@@ -194,12 +194,36 @@ async function _doInit(): Promise<Database | null> {
         try {
           const tc = _db.exec('SELECT COUNT(*) FROM templates');
           const cc = _db.exec('SELECT COUNT(*) FROM cost_items');
-          console.log(`[OfflineDB] Restored: ${tc[0]?.values[0][0]} templates, ${cc[0]?.values[0][0]} cost_items`);
+          const templateCount = tc[0]?.values[0][0] as number;
+          const costCount = cc[0]?.values[0][0] as number;
+          console.log(`[OfflineDB] Restored: ${templateCount} templates, ${costCount} cost_items`);
+          
+          // Verify against manifest
+          try {
+            const manifest = localStorage.getItem('offline_manifest');
+            if (manifest) {
+              const parsed = JSON.parse(manifest);
+              if (parsed.templateCount && templateCount < parsed.templateCount) {
+                console.warn(`[OfflineDB] Template count mismatch! Expected ${parsed.templateCount}, got ${templateCount}. IndexedDB may have lost data.`);
+              }
+            }
+          } catch {}
         } catch {}
       } else {
         _db = new SQL.Database();
         _db.run(SCHEMA_SQL);
         console.log('[OfflineDB] Created fresh database (not persisted until data is added)');
+        
+        // Check if manifest says we should have data
+        try {
+          const manifest = localStorage.getItem('offline_manifest');
+          if (manifest) {
+            const parsed = JSON.parse(manifest);
+            if (parsed.offlineReady && parsed.templateCount > 0) {
+              console.error(`[OfflineDB] CRITICAL: Manifest says ${parsed.templateCount} templates should exist, but IndexedDB returned empty! Data may have been lost.`);
+            }
+          }
+        } catch {}
       }
 
       _isInitialised = true;
@@ -520,6 +544,23 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
 
       await updateSyncMeta({ lastSyncedAt: new Date().toISOString() });
       _notify(); // notify all subscribers
+
+      // Save offline manifest to localStorage for cold start verification
+      try {
+        const allTemplates = activeDb.exec('SELECT id, name FROM templates');
+        if (allTemplates.length > 0) {
+          const manifest = {
+            templateCount: allTemplates[0].values.length,
+            templateIds: allTemplates[0].values.map(r => r[0]),
+            lastSyncedAt: new Date().toISOString(),
+            offlineReady: true,
+          };
+          localStorage.setItem('offline_manifest', JSON.stringify(manifest));
+          console.log(`[OfflineDB] Offline manifest saved: ${manifest.templateCount} templates`);
+        }
+      } catch (manifestErr) {
+        console.warn('[OfflineDB] Failed to save offline manifest:', manifestErr);
+      }
 
       setSyncProgress(prev => ({ ...prev, status: 'complete', currentTemplate: null }));
       return { success: true, synced: synced + (templateIds.length - toAdd.length) };
