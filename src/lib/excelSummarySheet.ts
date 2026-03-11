@@ -61,7 +61,7 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
   rows.push(['', dateStr]);
 
   // Row 16: Table header (col B=Sections, C=Value)
-  rows.push(['', 'Sections', '', 'Value']);
+  rows.push(['', 'Sections', 'Value']);
 
   // Row 17+: Section rows (placeholders)
   const sectionStartRow = 17;
