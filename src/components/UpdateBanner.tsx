@@ -18,7 +18,10 @@ export function UpdateBanner() {
     const authKeys: [string, string | null][] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)!;
-      if (key.startsWith('sb-') || key === 'cached_user_id') {
+      // Preserve auth tokens, cached user data, and offline-critical keys
+      if (key.startsWith('sb-') || key === 'cached_user_id' || key === 'cached_user_short_name'
+          || key === 'last_scan_location' || key.startsWith('last_scan_section_')
+          || key === 'offline_manifest') {
         authKeys.push([key, localStorage.getItem(key)]);
       }
     }
