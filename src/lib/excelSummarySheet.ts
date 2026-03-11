@@ -53,15 +53,15 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
   // Rows 1-12: Logo area + spacer (12 empty rows)
   for (let i = 0; i < 12; i++) rows.push([]);
 
-  // Row 13: Facility name
-  rows.push([facilityName || templateName]);
-  // Row 14: Address
-  rows.push([address || templateName]);
-  // Row 15: Date
-  rows.push([dateStr]);
+  // Row 13: Facility name (col B)
+  rows.push(['', facilityName || templateName]);
+  // Row 14: Address (col B)
+  rows.push(['', address || templateName]);
+  // Row 15: Date (col B)
+  rows.push(['', dateStr]);
 
-  // Row 16: Table header
-  rows.push(['Sections', '', 'Value']);
+  // Row 16: Table header (col B=Sections, C=Value)
+  rows.push(['', 'Sections', '', 'Value']);
 
   // Row 17+: Section rows (placeholders)
   const sectionStartRow = 17;
