@@ -53,15 +53,15 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
   // Rows 1-12: Logo area + spacer (12 empty rows)
   for (let i = 0; i < 12; i++) rows.push([]);
 
-  // Row 13: Facility name
-  rows.push([facilityName || templateName]);
-  // Row 14: Address
-  rows.push([address || templateName]);
-  // Row 15: Date
-  rows.push([dateStr]);
+  // Row 13: Facility name (col B)
+  rows.push(['', facilityName || templateName]);
+  // Row 14: Address (col B)
+  rows.push(['', address || templateName]);
+  // Row 15: Date (col B)
+  rows.push(['', dateStr]);
 
-  // Row 16: Table header
-  rows.push(['Sections', '', 'Value']);
+  // Row 16: Table header (col B=Sections, C=Value)
+  rows.push(['', 'Sections', '', 'Value']);
 
   // Row 17+: Section rows (placeholders)
   const sectionStartRow = 17;
@@ -83,48 +83,48 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
 
   // Certification block
   const certStartRow = totalRow + 6;
-  rows.push([`This is to certify that the inventory of`]);
-  rows.push([` ${facilityName || templateName} ,`]);
-  rows.push([address ? ` ${address}` : '']);
-  rows.push([` taken on the date of ${dateStr}`]);
-  rows.push([` calculated actual cost, totaled to`]);
+  rows.push(['', `This is to certify that the inventory of`]);
+  rows.push(['', ` ${facilityName || templateName} ,`]);
+  rows.push(['', address ? ` ${address}` : '']);
+  rows.push(['', ` taken on the date of ${dateStr}`]);
+  rows.push(['', ` calculated actual cost, totaled to`]);
   rows.push([]);
   rows.push([]);
 
   // Signature
-  rows.push(['Christopher Green']);
-  rows.push(['Chris Green, CEO/CFO']);
-  rows.push(['cgreen@meridianinventory.com']);
+  rows.push(['', 'Christopher Green']);
+  rows.push(['', 'Chris Green, CEO/CFO']);
+  rows.push(['', 'cgreen@meridianinventory.com']);
 
   // Create worksheet
   const ws = XLSX.utils.aoa_to_sheet(rows);
 
-  // -- Column widths --
+  // -- Column widths (match template: A=5.57, B=39.86, C=17) --
   ws['!cols'] = [
-    { wch: 45 },  // A: Sections
-    { wch: 5 },   // B: spacer
-    { wch: 18 },  // C: Value
-    { wch: 5 },   // D: spacer
+    { wch: 5.57 },  // A: empty spacer
+    { wch: 39.86 }, // B: Sections
+    { wch: 17 },    // C: Value ($)
+    { wch: 17 },    // D: Value (number)
   ];
 
   // -- Merge cells --
   ws['!merges'] = [
-    // Row 13-15: facility/address/date span A-C
-    { s: { r: 12, c: 0 }, e: { r: 12, c: 2 } },
-    { s: { r: 13, c: 0 }, e: { r: 13, c: 2 } },
-    { s: { r: 14, c: 0 }, e: { r: 14, c: 2 } },
-    // Row 16 header: "Sections" spans A-B
-    { s: { r: 15, c: 0 }, e: { r: 15, c: 1 } },
+    // Row 13-15: facility/address/date span B-D
+    { s: { r: 12, c: 1 }, e: { r: 12, c: 3 } },
+    { s: { r: 13, c: 1 }, e: { r: 13, c: 3 } },
+    { s: { r: 14, c: 1 }, e: { r: 14, c: 3 } },
+    // Row 16 header: "Sections" spans B-C
+    { s: { r: 15, c: 1 }, e: { r: 15, c: 2 } },
   ];
 
   // -- Style: Row 13 Facility name (bold Arial 10) --
-  setCellStyle(ws, 'A13', { font: FONT_ARIAL_10_BOLD });
+  setCellStyle(ws, 'B13', { font: FONT_ARIAL_10_BOLD });
 
   // -- Style: Row 14 Address (bold Arial 10) --
-  setCellStyle(ws, 'A14', { font: FONT_ARIAL_10_BOLD });
+  setCellStyle(ws, 'B14', { font: FONT_ARIAL_10_BOLD });
 
   // -- Style: Row 15 Date (bold Arial 10) --
-  setCellStyle(ws, 'A15', { font: FONT_ARIAL_10_BOLD });
+  setCellStyle(ws, 'B15', { font: FONT_ARIAL_10_BOLD });
 
   // -- Style: Row 16 Table header --
   const headerStyle = {
@@ -133,9 +133,9 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
     alignment: { horizontal: 'center' as const },
     border: thinBorder(BLACK),
   };
-  ws['A16'] = { t: 's', v: 'Sections', s: headerStyle };
-  ws['B16'] = { t: 's', v: '', s: headerStyle }; // merged with A
-  ws['C16'] = { t: 's', v: 'Value', s: { ...headerStyle, alignment: { horizontal: 'center' as const } } };
+  ws['B16'] = { t: 's', v: 'Sections', s: headerStyle };
+  ws['C16'] = { t: 's', v: '', s: headerStyle }; // merged with B
+  ws['D16'] = { t: 's', v: 'Value', s: { ...headerStyle, alignment: { horizontal: 'center' as const } } };
 
   // -- Section rows --
   sectionSheetNames.forEach((sheetName, index) => {
@@ -152,8 +152,8 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
       baseCellStyle.fill = { fgColor: { rgb: rowBg } };
     }
 
-    // Section name with hyperlink
-    ws[`A${rowNum}`] = {
+    // Section name with hyperlink (column B)
+    ws[`B${rowNum}`] = {
       t: 's',
       v: sheetName,
       l: { Target: `#'${escapedName}'!A1`, Tooltip: `Go to ${sheetName}` },
@@ -163,12 +163,12 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
       },
     };
 
-    // Spacer B column (keep background)
-    ws[`B${rowNum}`] = { t: 's', v: '', s: baseCellStyle };
+    // Column C: $ sign area (keep background)
+    ws[`C${rowNum}`] = { t: 's', v: '$', s: baseCellStyle };
 
-    // Value formula with accounting format
+    // Value formula with accounting format (column D)
     const valueFormula = `'${escapedName}'!${getColLetter(COLUMN_INDICES.SUM_COLUMN)}1`;
-    ws[`C${rowNum}`] = {
+    ws[`D${rowNum}`] = {
       t: 'n',
       f: valueFormula,
       z: ACCOUNTING_FMT,
@@ -185,7 +185,7 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
   const lastSectionRow = sectionStartRow + sectionSheetNames.length - 1;
 
   const totalStyle: any = {
-    font: { ...FONT_ARIAL_10_BOLD },
+    font: { ...FONT_ARIAL_10 },
     fill: { fgColor: { rgb: TOTAL_BG } },
     numFmt: ACCOUNTING_FMT,
     alignment: { horizontal: 'right' as const },
@@ -197,12 +197,11 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
     },
   };
 
-  // A and B cells of total row get the background too
-  ws[`A${totalRow}`] = { t: 's', v: '', s: { fill: { fgColor: { rgb: TOTAL_BG } } } };
-  ws[`B${totalRow}`] = { t: 's', v: '', s: { fill: { fgColor: { rgb: TOTAL_BG } } } };
-  ws[`C${totalRow}`] = {
+  // Only C and D cells of total row get the background
+  ws[`C${totalRow}`] = { t: 's', v: '$', s: { font: { ...FONT_ARIAL_10 }, fill: { fgColor: { rgb: TOTAL_BG } }, border: { top: { style: 'medium', color: { rgb: BLACK } }, bottom: { style: 'medium', color: { rgb: BLACK } }, left: { style: 'medium', color: { rgb: BLACK } } } } };
+  ws[`D${totalRow}`] = {
     t: 'n',
-    f: `SUM(C${firstSectionRow}:C${lastSectionRow})`,
+    f: `SUM(D${firstSectionRow}:D${lastSectionRow})`,
     z: ACCOUNTING_FMT,
     s: totalStyle,
   };
@@ -210,22 +209,22 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
   // -- Certification text styling (italic, Lucida Handwriting) --
   const certRows = [certStartRow, certStartRow + 1, certStartRow + 2, certStartRow + 3, certStartRow + 4];
   certRows.forEach(r => {
-    setCellStyle(ws, `A${r}`, {
+    setCellStyle(ws, `B${r}`, {
       font: { italic: true, sz: 10, name: 'Lucida Handwriting' },
     });
   });
 
   // Signature name styling
   const sigRow = certStartRow + 7;
-  setCellStyle(ws, `A${sigRow}`, {
+  setCellStyle(ws, `B${sigRow}`, {
     font: { bold: true, sz: 14, name: 'Lucida Handwriting', underline: true },
   });
 
   // Title/role
-  setCellStyle(ws, `A${sigRow + 1}`, { font: { sz: 10 } });
+  setCellStyle(ws, `B${sigRow + 1}`, { font: { sz: 10 } });
 
   // Email with hyperlink
-  const emailCell = `A${sigRow + 2}`;
+  const emailCell = `B${sigRow + 2}`;
   if (ws[emailCell]) {
     ws[emailCell].s = { font: { color: { rgb: LINK_BLUE }, underline: true, sz: 10 } };
     ws[emailCell].l = { Target: 'mailto:cgreen@meridianinventory.com' };
@@ -233,7 +232,7 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
 
   // Update worksheet range
   const lastRow = sigRow + 2;
-  ws['!ref'] = `A1:D${lastRow}`;
+  ws['!ref'] = `A1:E${lastRow}`;
 
   return ws;
 }
