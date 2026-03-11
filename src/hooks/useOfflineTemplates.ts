@@ -81,10 +81,13 @@ const saveToIndexedDB = async (key: string, data: any): Promise<void> => {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(DB_STORE, 'readwrite');
     const store = transaction.objectStore(DB_STORE);
-    const request = store.put(data, key);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve();
-    transaction.oncomplete = () => db.close();
+    store.put(data, key);
+    // CRITICAL: resolve on transaction.oncomplete, NOT request.onsuccess
+    // This ensures the data is fully committed to disk before we proceed.
+    // Resolving on onsuccess could lose data if the app closes before commit.
+    transaction.oncomplete = () => { db.close(); resolve(); };
+    transaction.onerror = () => { db.close(); reject(transaction.error); };
+    transaction.onabort = () => { db.close(); reject(new Error('IndexedDB transaction aborted')); };
   });
 };
 
