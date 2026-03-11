@@ -144,34 +144,39 @@ const Scan = () => {
       }
       
       try {
-        const { data: profile } = await supabase
+        const { data: profile, error } = await supabase
           .from('profiles')
           .select('first_name, last_name, full_name')
           .eq('id', user.id)
           .maybeSingle();
         
-        if (profile) {
-          // Generate short name: FirstNameLastInitial (e.g., "JiaweiT")
-          let shortName = '';
-          if (profile.first_name && profile.last_name) {
-            shortName = `${profile.first_name}${profile.last_name.charAt(0)}`;
-          } else if (profile.full_name) {
-            const parts = profile.full_name.trim().split(' ');
-            if (parts.length >= 2) {
-              shortName = `${parts[0]}${parts[parts.length - 1].charAt(0)}`;
-            } else {
-              shortName = parts[0];
-            }
+        if (error || !profile) {
+          // Query failed or returned null (common offline/lie-fi) — use cache
+          const cached = localStorage.getItem(CACHE_KEY);
+          if (cached) {
+            setUserShortName(cached);
           }
-          setUserShortName(shortName);
-          // Cache for offline use
-          if (shortName) {
-            localStorage.setItem(CACHE_KEY, shortName);
+          return;
+        }
+
+        // Generate short name: FirstNameLastInitial (e.g., "JiaweiT")
+        let shortName = '';
+        if (profile.first_name && profile.last_name) {
+          shortName = `${profile.first_name}${profile.last_name.charAt(0)}`;
+        } else if (profile.full_name) {
+          const parts = profile.full_name.trim().split(' ');
+          if (parts.length >= 2) {
+            shortName = `${parts[0]}${parts[parts.length - 1].charAt(0)}`;
+          } else {
+            shortName = parts[0];
           }
+        }
+        setUserShortName(shortName);
+        if (shortName) {
+          localStorage.setItem(CACHE_KEY, shortName);
         }
       } catch (err) {
         console.error('Error fetching profile:', err);
-        // Fallback to cached value
         const cached = localStorage.getItem(CACHE_KEY);
         if (cached) {
           setUserShortName(cached);
