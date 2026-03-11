@@ -78,22 +78,29 @@ export function applyExcelFormulas(
   const lastDataRow = headerRow + dataRowCount;
   const sumFormula = `SUM(${extendedCol}${firstDataRow}:${extendedCol}${lastDataRow})`;
   
+  // Preserve existing style (e.g. yellow header from applyExcelHeaderAndDataStyles)
+  const existingStyle = worksheet[sumCell]?.s || {};
   worksheet[sumCell] = {
     t: 'n',
     f: sumFormula,
-    z: '"$"#,##0.00', // Currency format
+    z: '"$"#,##0.00',
     s: {
-      font: { bold: true },
+      ...existingStyle,
       numFmt: '"$"#,##0.00'
     }
   };
 
-  // Update worksheet range to include the SUM column
+  // Expand worksheet range to include SUM column, but don't shrink if already wider
   if (worksheet['!ref']) {
     const range = worksheet['!ref'];
     const match = range.match(/^([A-Z]+)(\d+):([A-Z]+)(\d+)$/);
     if (match) {
-      const newEndCol = getColLetter(COLUMN_INDICES.SUM_COLUMN);
+      const currentEndCol = match[3];
+      const sumCol = getColLetter(COLUMN_INDICES.SUM_COLUMN);
+      // Only expand, never shrink
+      const newEndCol = currentEndCol.length > sumCol.length || 
+        (currentEndCol.length === sumCol.length && currentEndCol >= sumCol) 
+        ? currentEndCol : sumCol;
       worksheet['!ref'] = `${match[1]}${match[2]}:${newEndCol}${match[4]}`;
     }
   }
