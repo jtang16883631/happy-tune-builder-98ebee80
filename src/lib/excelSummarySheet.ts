@@ -243,6 +243,9 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
   const lastRow = sigRow + 2;
   ws['!ref'] = `A1:C${lastRow}`;
 
+  // Hide gridlines
+  ws['!sheetViews'] = [{ showGridLines: false }];
+
   return ws;
 }
 
@@ -253,8 +256,13 @@ function setCellStyle(ws: WorkSheet, ref: string, style: any) {
   }
 }
 
+/** Helper: single border side */
+function thinSide(color: string) {
+  return { style: 'thin', color: { rgb: color } };
+}
+
 /** Helper: thin border on all sides */
 function thinBorder(color: string) {
-  const side = { style: 'thin', color: { rgb: color } };
+  const side = thinSide(color);
   return { top: side, bottom: side, left: side, right: side };
 }
