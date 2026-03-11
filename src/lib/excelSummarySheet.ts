@@ -145,18 +145,24 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
     },
   }};
 
-  // -- Section rows (outer border only on the block edges, no internal borders) --
+  // -- Section rows (NO borders on individual rows, outer border via block edges only) --
   const lastIdx = sectionSheetNames.length - 1;
   sectionSheetNames.forEach((sheetName, index) => {
     const rowNum = sectionStartRow + index;
     const escapedName = sheetName.replace(/'/g, "''");
     const isEvenRow = index % 2 === 1;
     const rowBg = isEvenRow ? ALT_ROW_BG : undefined;
+    const isFirst = index === 0;
     const isLast = index === lastIdx;
 
-    // Build border: left on B, right on C, bottom only on last row
-    const borderB: any = { left: thinSide(BLACK) };
-    const borderC: any = { right: thinSide(BLACK) };
+    // Only apply borders on the outer perimeter of the entire section block
+    const borderB: any = {};
+    const borderC: any = {};
+    // Left edge (column B, all rows)
+    borderB.left = thinSide(BLACK);
+    // Right edge (column C, all rows)
+    borderC.right = thinSide(BLACK);
+    // Bottom edge (last row only)
     if (isLast) {
       borderB.bottom = thinSide(BLACK);
       borderC.bottom = thinSide(BLACK);
@@ -242,6 +248,13 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
   // Update worksheet range
   const lastRow = sigRow + 2;
   ws['!ref'] = `A1:C${lastRow}`;
+
+  // Hide certification + signature rows
+  if (!ws['!rows']) ws['!rows'] = [];
+  for (let r = certStartRow - 1; r <= lastRow - 1; r++) {
+    // r is 0-based row index
+    ws['!rows'][r] = { hidden: true };
+  }
 
   // Hide gridlines
   ws['!sheetViews'] = [{ showGridLines: false }];
