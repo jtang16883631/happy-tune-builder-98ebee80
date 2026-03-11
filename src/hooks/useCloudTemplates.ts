@@ -87,12 +87,19 @@ export function useCloudTemplates() {
     invDate: string | null;
     invNumber: string | null;
     facilityName: string | null;
+    address: string | null;
     sections: { sect: string; description: string; costSheet: string | null }[];
   } => {
     let invDate: string | null = null;
     let invNumber: string | null = null;
     let facilityName: string | null = null;
+    let address: string | null = null;
     const sections: { sect: string; description: string; costSheet: string | null }[] = [];
+
+    // Extract address from cell C5 (row index 4, col index 2)
+    if (rawData.length > 4 && rawData[4] && rawData[4].length > 2 && rawData[4][2]) {
+      address = String(rawData[4][2]).trim() || null;
+    }
 
     // Try to extract invoice number from filename first (e.g., "25090182.xlsx" or "25090182 - Client Name.xlsx")
     if (fileName) {
