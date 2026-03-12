@@ -182,6 +182,16 @@ function getHeaderFillColor(colIndex: number): string {
 export function applyExcelHeaderAndDataStyles(ws: any, rows: any[][]): void {
   const headerCount = rows[0]?.length || 0;
 
+  // Accounting number format matching Summary sheet
+  const ACCOUNTING_FMT = '_("$"* #,##0.00_);_("$"* (#,##0.00);_("$"* "-"??_)';
+  const NUMBER_FMT = '#,##0.00';
+
+  // Column indices for special formatting
+  const QTY_COL = 6;          // Column G - QTY
+  const PACK_COST_COL = 24;   // Column Y - Pack Cost
+  const UNIT_COST_COL = 25;   // Column Z - Unit Cost
+  const EXTENDED_COL = 26;    // Column AA - Extended
+
   for (let col = 0; col < headerCount; col++) {
     const colLetter = getExcelColumnLetter(col);
     const cellRef = `${colLetter}1`;
@@ -211,13 +221,27 @@ export function applyExcelHeaderAndDataStyles(ws: any, rows: any[][]): void {
       const colLetter = getExcelColumnLetter(col);
       const cellRef = `${colLetter}${rowIdx + 1}`;
       if (ws[cellRef]) {
-        ws[cellRef].s = {
-          ...(ws[cellRef].s || {}),
-          font: ws[cellRef].s?.font?.bold ? { ...defaultDataFont, ...ws[cellRef].s.font, name: 'Arial', sz: 10 } : defaultDataFont,
-        };
+        const existingStyle = ws[cellRef].s || {};
+        const font = existingStyle.font?.bold
+          ? { ...defaultDataFont, ...existingStyle.font, name: 'Arial', sz: 10 }
+          : defaultDataFont;
+
+        // Apply number formatting for specific columns
+        if (col === QTY_COL) {
+          ws[cellRef].s = { ...existingStyle, font, numFmt: NUMBER_FMT };
+          ws[cellRef].z = NUMBER_FMT;
+        } else if (col === PACK_COST_COL || col === UNIT_COST_COL || col === EXTENDED_COL) {
+          ws[cellRef].s = { ...existingStyle, font, numFmt: ACCOUNTING_FMT };
+          ws[cellRef].z = ACCOUNTING_FMT;
+        } else {
+          ws[cellRef].s = { ...existingStyle, font };
+        }
       }
     }
   }
+
+  // Hide gridlines on section/data sheets
+  ws['!sheetViews'] = [{ showGridLines: false }];
 }
 
 /**
