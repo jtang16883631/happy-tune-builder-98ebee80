@@ -216,7 +216,19 @@ export function applyExcelHeaderAndDataStyles(ws: any, rows: any[][]): void {
   }
 
   const defaultDataFont = { name: 'Arial', sz: 10, color: { rgb: '000000' } };
+  const thinBorderAll = {
+    top: { style: 'thin', color: { rgb: 'D9D9D9' } },
+    bottom: { style: 'thin', color: { rgb: 'D9D9D9' } },
+    left: { style: 'thin', color: { rgb: 'D9D9D9' } },
+    right: { style: 'thin', color: { rgb: 'D9D9D9' } },
+  };
+
   for (let rowIdx = 1; rowIdx < rows.length; rowIdx++) {
+    // Check if this row has any content (non-empty values)
+    const rowData = rows[rowIdx];
+    const hasContent = rowData && rowData.some((cell: any) => cell !== null && cell !== undefined && cell !== '');
+    const borderStyle = hasContent ? thinBorderAll : undefined;
+
     for (let col = 0; col < headerCount; col++) {
       const colLetter = getExcelColumnLetter(col);
       const cellRef = `${colLetter}${rowIdx + 1}`;
@@ -226,21 +238,23 @@ export function applyExcelHeaderAndDataStyles(ws: any, rows: any[][]): void {
           ? { ...defaultDataFont, ...existingStyle.font, name: 'Arial', sz: 10 }
           : defaultDataFont;
 
+        const border = borderStyle ? { border: borderStyle } : {};
+
         // Apply number formatting for specific columns
         if (col === QTY_COL) {
-          ws[cellRef].s = { ...existingStyle, font, numFmt: NUMBER_FMT };
+          ws[cellRef].s = { ...existingStyle, font, numFmt: NUMBER_FMT, ...border };
           ws[cellRef].z = NUMBER_FMT;
         } else if (col === PACK_COST_COL || col === UNIT_COST_COL || col === EXTENDED_COL) {
-          ws[cellRef].s = { ...existingStyle, font, numFmt: ACCOUNTING_FMT };
+          ws[cellRef].s = { ...existingStyle, font, numFmt: ACCOUNTING_FMT, ...border };
           ws[cellRef].z = ACCOUNTING_FMT;
         } else {
-          ws[cellRef].s = { ...existingStyle, font };
+          ws[cellRef].s = { ...existingStyle, font, ...border };
         }
       }
     }
   }
 
-  // Hide gridlines on section/data sheets
+  // Hide gridlines on section/data sheets (actual hiding done via hideGridlinesInXlsx post-processing)
   ws['!sheetViews'] = [{ showGridLines: false }];
 }
 
