@@ -101,13 +101,17 @@ const Scan = () => {
   // Single source of truth for connectivity (uses backend ping, not just navigator.onLine)
   const isOnline = useOnlineStatus();
   
-  // REC is now generated based on row index (1-based), no counter needed
+   // REC is now generated based on row index (1-based), no counter needed
   
   // User's short name for REC (e.g., "JiaweiT")
   // Synchronous init from localStorage so cold-start first render already has the name
   const [userShortName, setUserShortName] = useState(() => {
     return localStorage.getItem('cached_user_short_name') || '';
   });
+  
+  // Prompt user for name if cache is empty (cold start without prior online session)
+  const [showNamePrompt, setShowNamePrompt] = useState(false);
+  const [namePromptValue, setNamePromptValue] = useState('');
   
   // Column visibility state - hide the new columns by default except REC
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set([
@@ -869,7 +873,8 @@ const Scan = () => {
   // Generate REC value based on row index (1-based)
   const generateRecForRow = useCallback((rowIndex: number) => {
     const rowNum = rowIndex + 1; // 1-based row number
-    return `${userShortName}${String(rowNum).padStart(3, '0')}`;
+    const name = userShortName || localStorage.getItem('cached_user_short_name') || '';
+    return `${name}${String(rowNum).padStart(3, '0')}`;
   }, [userShortName]);
 
   // Lookup NDC and update row with mapping (by column position, not name):
@@ -1128,6 +1133,10 @@ const Scan = () => {
   // Step B: If IO == "I", compute outerKey = left9 + "O" and search FDA column AD (ndc9_outer)
   // Step C: Based on AD search count - 0: no popup, keep scanned; 1: auto-use the matched AE (outerpack_ndc); >1: popup to select AE
   const initiateNDCLookup = useCallback(async (scannedNdc: string, rowIndex: number): Promise<boolean> => {
+    // Prompt for name if missing (cold start without prior online session)
+    if (!userShortName && !localStorage.getItem('cached_user_short_name')) {
+      setShowNamePrompt(true);
+    }
     const cleanNdc = (scannedNdc ?? '').replace(/\D/g, '');
 
     // Helper to set TIME, REC, and scannedNdc
@@ -2900,7 +2909,15 @@ const Scan = () => {
             isOnline={isOnline}
           />
 
-          {sortedTemplates.length === 0 ? (
+          {/* Loading state for offline DB */}
+          {offlineLoading && !isOnline && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-muted-foreground">Loading local database...</p>
+            </div>
+          )}
+
+          {!offlineLoading && sortedTemplates.length === 0 ? (
             <Card className="border-dashed max-w-md mx-auto">
               <CardContent className="py-16 text-center">
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
@@ -2908,14 +2925,28 @@ const Scan = () => {
                 </div>
                 <h3 className="font-semibold text-lg">No Data Templates</h3>
                 <p className="text-muted-foreground mt-2 max-w-sm mx-auto">
-                  Please import data templates first from the Data Template page.
+                  {!isOnline 
+                    ? 'No templates found locally. Please connect to the internet and use "Download to Device" first, or import via Flash Drive.'
+                    : 'Please import data templates first from the Data Template page.'
+                  }
                 </p>
-                <Button 
-                  className="mt-4"
-                  onClick={() => navigate('/')}
-                >
-                  Go to Data Templates
-                </Button>
+                {isOnline && (
+                  <Button 
+                    className="mt-4"
+                    onClick={() => navigate('/')}
+                  >
+                    Go to Data Templates
+                  </Button>
+                )}
+                {!isOnline && (
+                  <Button 
+                    className="mt-4" variant="outline"
+                    onClick={() => setFlashDriveDialogOpen(true)}
+                  >
+                    <HardDrive className="h-4 w-4 mr-2" />
+                    Import via Flash Drive
+                  </Button>
+                )}
               </CardContent>
             </Card>
           ) : (
@@ -3853,6 +3884,50 @@ const Scan = () => {
               toast.success(`Column "${trimmed}" added`);
             }}>
               Add Column
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Name Prompt Dialog - shown on cold start when cached name is missing */}
+      <Dialog open={showNamePrompt} onOpenChange={setShowNamePrompt}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Enter Your Name</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Your name is used for REC identification (e.g., "JiaweiT-001"). 
+            This will be saved for future offline sessions.
+          </p>
+          <Input
+            placeholder="e.g., JiaweiT"
+            value={namePromptValue}
+            onChange={(e) => setNamePromptValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && namePromptValue.trim()) {
+                const name = namePromptValue.trim();
+                setUserShortName(name);
+                localStorage.setItem('cached_user_short_name', name);
+                setShowNamePrompt(false);
+                setNamePromptValue('');
+                toast.success(`Name set to "${name}"`);
+              }
+            }}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNamePrompt(false)}>
+              Skip
+            </Button>
+            <Button onClick={() => {
+              const name = namePromptValue.trim();
+              if (!name) return;
+              setUserShortName(name);
+              localStorage.setItem('cached_user_short_name', name);
+              setShowNamePrompt(false);
+              setNamePromptValue('');
+              toast.success(`Name set to "${name}"`);
+            }}>
+              Save
             </Button>
           </DialogFooter>
         </DialogContent>
