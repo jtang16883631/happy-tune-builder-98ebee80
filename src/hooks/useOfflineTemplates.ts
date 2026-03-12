@@ -1005,6 +1005,21 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       sourceDb.close();
       await _saveDatabase();
       _notify();
+
+      // Update offline manifest after flash-drive import too
+      try {
+        const allTemplates = db.exec('SELECT id, name FROM templates');
+        if (allTemplates.length > 0) {
+          const manifest = {
+            templateCount: allTemplates[0].values.length,
+            templateIds: allTemplates[0].values.map(r => r[0]),
+            lastSyncedAt: new Date().toISOString(),
+            offlineReady: true,
+          };
+          localStorage.setItem('offline_manifest', JSON.stringify(manifest));
+        }
+      } catch {}
+
       return { success: true, imported };
     } catch (err: any) {
       console.error('Import from flash drive error:', err);
