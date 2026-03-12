@@ -104,7 +104,10 @@ const Scan = () => {
   // REC is now generated based on row index (1-based), no counter needed
   
   // User's short name for REC (e.g., "JiaweiT")
-  const [userShortName, setUserShortName] = useState('');
+  // Synchronous init from localStorage so cold-start first render already has the name
+  const [userShortName, setUserShortName] = useState(() => {
+    return localStorage.getItem('cached_user_short_name') || '';
+  });
   
   // Column visibility state - hide the new columns by default except REC
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set([
@@ -126,14 +129,19 @@ const Scan = () => {
     const CACHE_KEY = 'cached_user_short_name';
     
     const fetchUserProfile = async () => {
-      // Always try to load cached value first, regardless of online status
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (cached && !userShortName) {
-        setUserShortName(cached);
+      // If we already have a name from synchronous init, skip cache read
+      if (!userShortName) {
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+          setUserShortName(cached);
+        }
       }
 
-      // If we're offline or have no user, the cached value above is sufficient
-      if (!navigator.onLine || !user?.id) return;
+      // If we're offline or have no user, the cached/init value is sufficient
+      if (!navigator.onLine || !user?.id) {
+        console.log(`[Scan] REC cold-start: userShortName="${userShortName}", offline=${!navigator.onLine}`);
+        return;
+      }
       
       try {
         const { data: profile, error } = await supabase
@@ -162,7 +170,6 @@ const Scan = () => {
         }
       } catch (err) {
         console.error('Error fetching profile:', err);
-        // cached value already set above
       }
     };
     
