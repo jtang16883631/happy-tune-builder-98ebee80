@@ -2905,7 +2905,15 @@ const Scan = () => {
             isOnline={isOnline}
           />
 
-          {sortedTemplates.length === 0 ? (
+          {/* Loading state for offline DB */}
+          {offlineLoading && !isOnline && (
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-muted-foreground">Loading local database...</p>
+            </div>
+          )}
+
+          {!offlineLoading && sortedTemplates.length === 0 ? (
             <Card className="border-dashed max-w-md mx-auto">
               <CardContent className="py-16 text-center">
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
@@ -2913,14 +2921,28 @@ const Scan = () => {
                 </div>
                 <h3 className="font-semibold text-lg">No Data Templates</h3>
                 <p className="text-muted-foreground mt-2 max-w-sm mx-auto">
-                  Please import data templates first from the Data Template page.
+                  {!isOnline 
+                    ? 'No templates found locally. Please connect to the internet and use "Download to Device" first, or import via Flash Drive.'
+                    : 'Please import data templates first from the Data Template page.'
+                  }
                 </p>
-                <Button 
-                  className="mt-4"
-                  onClick={() => navigate('/')}
-                >
-                  Go to Data Templates
-                </Button>
+                {isOnline && (
+                  <Button 
+                    className="mt-4"
+                    onClick={() => navigate('/')}
+                  >
+                    Go to Data Templates
+                  </Button>
+                )}
+                {!isOnline && (
+                  <Button 
+                    className="mt-4" variant="outline"
+                    onClick={() => setFlashDriveDialogOpen(true)}
+                  >
+                    <HardDrive className="h-4 w-4 mr-2" />
+                    Import via Flash Drive
+                  </Button>
+                )}
               </CardContent>
             </Card>
           ) : (
