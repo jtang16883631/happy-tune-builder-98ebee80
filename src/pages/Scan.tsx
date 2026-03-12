@@ -26,6 +26,7 @@ import { CostDataLookupDialog } from '@/components/scanner/CostDataLookupDialog'
 import { ScanSummaryTab } from '@/components/scanner/ScanSummaryTab';
 import { FlashDriveTransferDialog } from '@/components/scanner/FlashDriveTransferDialog';
 import { SectionPasswordDialog } from '@/components/scanner/SectionPasswordDialog';
+import { QuickClockPanel } from '@/components/timesheet/QuickClockPanel';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import {
