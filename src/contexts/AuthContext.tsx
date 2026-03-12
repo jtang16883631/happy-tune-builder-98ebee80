@@ -74,6 +74,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return (data || []).map((r) => r.role as AppRole);
   }, []);
 
+  /** Cache the user's short name (e.g. "JiaweiT") so offline/cold-start REC works */
+  const cacheUserShortName = useCallback(async (userId: string) => {
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('first_name, last_name, full_name')
+        .eq('id', userId)
+        .maybeSingle();
+      if (error || !profile) return;
+      let shortName = '';
+      if (profile.first_name && profile.last_name) {
+        shortName = `${profile.first_name}${profile.last_name.charAt(0)}`;
+      } else if (profile.full_name) {
+        const parts = profile.full_name.trim().split(' ');
+        shortName = parts.length >= 2
+          ? `${parts[0]}${parts[parts.length - 1].charAt(0)}`
+          : parts[0];
+      }
+      if (shortName) {
+        localStorage.setItem('cached_user_short_name', shortName);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   const ensureProfileExists = useCallback(async (currentUser: User) => {
     const { data: existingProfile } = await supabase
       .from('profiles')
@@ -246,6 +270,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                   setRolesLoaded(true);
                   writeCachedRoles(existingSession.user.id, userRoles);
                 }
+                // Cache short name for offline REC generation
+                cacheUserShortName(existingSession.user.id);
               })(),
               profileRoleTimeout,
             ]);

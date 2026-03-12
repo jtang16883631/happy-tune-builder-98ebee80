@@ -196,7 +196,19 @@ async function _doInit(): Promise<Database | null> {
           const cc = _db.exec('SELECT COUNT(*) FROM cost_items');
           const templateCount = tc[0]?.values[0][0] as number;
           const costCount = cc[0]?.values[0][0] as number;
-          console.log(`[OfflineDB] Restored: ${templateCount} templates, ${costCount} cost_items`);
+          // Detailed: how many have cloud_id (downloaded online) vs null (flash-drive imported)
+          const cloudCount = _db.exec('SELECT COUNT(*) FROM templates WHERE cloud_id IS NOT NULL');
+          const localCount = _db.exec('SELECT COUNT(*) FROM templates WHERE cloud_id IS NULL');
+          console.log(`[OfflineDB] Restored: ${templateCount} templates (${cloudCount[0]?.values[0][0]} cloud-synced, ${localCount[0]?.values[0][0]} local-only), ${costCount} cost_items`);
+          
+          // Log template names for cold-start debugging
+          try {
+            const names = _db.exec('SELECT name, cloud_id FROM templates LIMIT 10');
+            if (names.length > 0) {
+              const list = names[0].values.map((r: any[]) => `${r[0]}${r[1] ? ' [cloud]' : ' [local]'}`).join(', ');
+              console.log(`[OfflineDB] Templates: ${list}`);
+            }
+          } catch {}
           
           // Verify against manifest
           try {
@@ -993,6 +1005,21 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       sourceDb.close();
       await _saveDatabase();
       _notify();
+
+      // Update offline manifest after flash-drive import too
+      try {
+        const allTemplates = db.exec('SELECT id, name FROM templates');
+        if (allTemplates.length > 0) {
+          const manifest = {
+            templateCount: allTemplates[0].values.length,
+            templateIds: allTemplates[0].values.map(r => r[0]),
+            lastSyncedAt: new Date().toISOString(),
+            offlineReady: true,
+          };
+          localStorage.setItem('offline_manifest', JSON.stringify(manifest));
+        }
+      } catch {}
+
       return { success: true, imported };
     } catch (err: any) {
       console.error('Import from flash drive error:', err);

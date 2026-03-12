@@ -26,6 +26,7 @@ import { CostDataLookupDialog } from '@/components/scanner/CostDataLookupDialog'
 import { ScanSummaryTab } from '@/components/scanner/ScanSummaryTab';
 import { FlashDriveTransferDialog } from '@/components/scanner/FlashDriveTransferDialog';
 import { SectionPasswordDialog } from '@/components/scanner/SectionPasswordDialog';
+import { QuickClockPanel } from '@/components/timesheet/QuickClockPanel';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import {
@@ -125,23 +126,14 @@ const Scan = () => {
     const CACHE_KEY = 'cached_user_short_name';
     
     const fetchUserProfile = async () => {
-      // If we're offline, use cached value immediately
-      if (!navigator.onLine) {
-        const cached = localStorage.getItem(CACHE_KEY);
-        if (cached) {
-          setUserShortName(cached);
-        }
-        return;
+      // Always try to load cached value first, regardless of online status
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached && !userShortName) {
+        setUserShortName(cached);
       }
-      
-      if (!user?.id) {
-        // No user but check for cached name for offline mode
-        const cached = localStorage.getItem(CACHE_KEY);
-        if (cached) {
-          setUserShortName(cached);
-        }
-        return;
-      }
+
+      // If we're offline or have no user, the cached value above is sufficient
+      if (!navigator.onLine || !user?.id) return;
       
       try {
         const { data: profile, error } = await supabase
@@ -150,14 +142,7 @@ const Scan = () => {
           .eq('id', user.id)
           .maybeSingle();
         
-        if (error || !profile) {
-          // Query failed or returned null (common offline/lie-fi) — use cache
-          const cached = localStorage.getItem(CACHE_KEY);
-          if (cached) {
-            setUserShortName(cached);
-          }
-          return;
-        }
+        if (error || !profile) return; // keep cached value
 
         // Generate short name: FirstNameLastInitial (e.g., "JiaweiT")
         let shortName = '';
@@ -177,10 +162,7 @@ const Scan = () => {
         }
       } catch (err) {
         console.error('Error fetching profile:', err);
-        const cached = localStorage.getItem(CACHE_KEY);
-        if (cached) {
-          setUserShortName(cached);
-        }
+        // cached value already set above
       }
     };
     
@@ -2786,9 +2768,22 @@ const Scan = () => {
       }
     };
 
+    const cachedUserId = user?.id || localStorage.getItem('cached_user_id');
+    const cachedUserRole: string | null = (() => {
+      try {
+        const raw = cachedUserId ? localStorage.getItem(`cached_roles:${cachedUserId}`) : null;
+        const r: string[] = raw ? JSON.parse(raw) : [];
+        return r[0] ?? null;
+      } catch { return null; }
+    })();
+
     return (
       <AppLayout>
         <div className="space-y-8" style={{ fontFamily: 'Arial, sans-serif' }}>
+          {/* Quick Clock Panel - always available */}
+          {cachedUserId && (
+            <QuickClockPanel userId={cachedUserId} userRole={cachedUserRole} />
+          )}
           <div className="text-center py-4 relative">
             {/* Sync buttons in top right */}
             <div className="absolute right-0 top-0 flex items-center gap-2">
