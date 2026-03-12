@@ -877,6 +877,22 @@ const Scan = () => {
     return `${name}${String(rowNum).padStart(3, '0')}`;
   }, [userShortName]);
 
+  // Keep REC prefixes synced after cold-start name entry, including late async row updates.
+  useEffect(() => {
+    if (!userShortName) return;
+
+    setScanRows(prev => {
+      const next = prev.map((row, i) => {
+        if (!row.rec) return row;
+        const expected = `${userShortName}${String(i + 1).padStart(3, '0')}`;
+        return row.rec === expected ? row : { ...row, rec: expected };
+      });
+
+      const changed = next.some((row, i) => row !== prev[i]);
+      return changed ? next : prev;
+    });
+  }, [userShortName, scanRows]);
+
   // Lookup NDC and update row with mapping (by column position, not name):
   // TIME = laptop real time
   // MIS Count Method = FDA Column P (count_method)
