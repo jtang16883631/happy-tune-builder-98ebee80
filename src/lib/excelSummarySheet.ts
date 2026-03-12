@@ -145,53 +145,38 @@ export function createStyledSummarySheet(options: SummarySheetOptions): WorkShee
     },
   }};
 
-  // -- Section rows (NO borders on individual rows, outer border via block edges only) --
+  // -- Section rows (NO internal borders at all, clean look) --
   const lastIdx = sectionSheetNames.length - 1;
   sectionSheetNames.forEach((sheetName, index) => {
     const rowNum = sectionStartRow + index;
     const escapedName = sheetName.replace(/'/g, "''");
     const isEvenRow = index % 2 === 1;
     const rowBg = isEvenRow ? ALT_ROW_BG : undefined;
-    const isFirst = index === 0;
-    const isLast = index === lastIdx;
-
-    // Only apply borders on the outer perimeter of the entire section block
-    const borderB: any = {};
-    const borderC: any = {};
-    // Left edge (column B, all rows)
-    borderB.left = thinSide(BLACK);
-    // Right edge (column C, all rows)
-    borderC.right = thinSide(BLACK);
-    // Bottom edge (last row only)
-    if (isLast) {
-      borderB.bottom = thinSide(BLACK);
-      borderC.bottom = thinSide(BLACK);
-    }
 
     const baseFill = rowBg ? { fill: { fgColor: { rgb: rowBg } } } : {};
 
-    // Section name with hyperlink (column B)
+    // Section name with hyperlink (column B) — NO borders
     ws[`B${rowNum}`] = {
       t: 's',
       v: sheetName,
       l: { Target: `#'${escapedName}'!A1`, Tooltip: `Go to ${sheetName}` },
       s: {
         font: { ...FONT_ARIAL_10, color: { rgb: LINK_BLUE }, underline: true },
-        border: borderB,
         ...baseFill,
       },
     };
 
-    // Value formula with accounting format (column C)
+    // Value formula with accounting format (column C) — NO borders
+    // Default v:0 ensures accounting format shows "$ -" when formula result is 0/empty
     const valueFormula = `'${escapedName}'!${getColLetter(COLUMN_INDICES.SUM_COLUMN)}1`;
     ws[`C${rowNum}`] = {
       t: 'n',
+      v: 0,
       f: valueFormula,
       z: ACCOUNTING_FMT,
       s: {
         font: { ...FONT_ARIAL_10 },
         numFmt: ACCOUNTING_FMT,
-        border: borderC,
         ...baseFill,
       },
     };
