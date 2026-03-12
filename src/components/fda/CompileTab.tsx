@@ -361,9 +361,17 @@ export function CompileTab() {
       workbook.Sheets['Master'] = masterWs;
       workbook.Sheets['Validation'] = validationWs;
 
-      // Generate and download
+      // Generate and download with hidden gridlines
       const fileName = `compiled-export-${new Date().toISOString().split('T')[0]}.xlsx`;
-      XLSX.writeFile(workbook, fileName);
+      let xlsxBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      xlsxBuffer = await hideGridlinesInXlsx(xlsxBuffer);
+      const blob = new Blob([xlsxBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
 
       setProgress({
         status: 'complete',
