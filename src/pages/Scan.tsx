@@ -104,7 +104,10 @@ const Scan = () => {
   // REC is now generated based on row index (1-based), no counter needed
   
   // User's short name for REC (e.g., "JiaweiT")
-  const [userShortName, setUserShortName] = useState('');
+  // Synchronous init from localStorage so cold-start first render already has the name
+  const [userShortName, setUserShortName] = useState(() => {
+    return localStorage.getItem('cached_user_short_name') || '';
+  });
   
   // Column visibility state - hide the new columns by default except REC
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set([
