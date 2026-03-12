@@ -47,6 +47,8 @@ export function applyExcelFormulas(
   const qtyCol = getColLetter(COLUMN_INDICES.QTY);               // G
   const extendedCol = getColLetter(COLUMN_INDICES.EXTENDED);     // AA
 
+  const ACCOUNTING_FMT = '_("$"* #,##0.00_);_("$"* (#,##0.00);_("$"* "-"??_)';
+
   // Apply formulas to each data row
   for (let i = 0; i < dataRowCount; i++) {
     const rowNum = headerRow + 1 + i; // Excel row number (1-based)
@@ -55,20 +57,24 @@ export function applyExcelFormulas(
     const unitCostCell = `${unitCostCol}${rowNum}`;
     const unitCostFormula = `IF(OR(${packCostCol}${rowNum}="",${misDivisorCol}${rowNum}="",${misDivisorCol}${rowNum}=0),"",${packCostCol}${rowNum}/${misDivisorCol}${rowNum})`;
     
+    const ucStyle = worksheet[unitCostCell]?.s || {};
     worksheet[unitCostCell] = {
       t: 'n',
       f: unitCostFormula,
-      s: worksheet[unitCostCell]?.s || {} // preserve existing style
+      z: ACCOUNTING_FMT,
+      s: { ...ucStyle, numFmt: ACCOUNTING_FMT }
     };
     
     // Extended formula: =IF(OR(Z{row}="",G{row}=""),"",Z{row}*G{row})
     const extendedCell = `${extendedCol}${rowNum}`;
     const extendedFormula = `IF(OR(${unitCostCol}${rowNum}="",${qtyCol}${rowNum}=""),"",${unitCostCol}${rowNum}*${qtyCol}${rowNum})`;
     
+    const exStyle = worksheet[extendedCell]?.s || {};
     worksheet[extendedCell] = {
       t: 'n',
       f: extendedFormula,
-      s: worksheet[extendedCell]?.s || {} // preserve existing style
+      z: ACCOUNTING_FMT,
+      s: { ...exStyle, numFmt: ACCOUNTING_FMT }
     };
   }
 
@@ -83,10 +89,10 @@ export function applyExcelFormulas(
   worksheet[sumCell] = {
     t: 'n',
     f: sumFormula,
-    z: '"$"#,##0.00',
+    z: ACCOUNTING_FMT,
     s: {
       ...existingStyle,
-      numFmt: '"$"#,##0.00'
+      numFmt: ACCOUNTING_FMT
     }
   };
 
