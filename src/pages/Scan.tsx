@@ -12,7 +12,7 @@ import { getCellValidationColor, getCellValidationClasses, applyValidationStyles
 import { applyExcelFormulas, applySummaryFormulas, COLUMN_INDICES, getColLetter } from '@/lib/excelFormulas';
 import { buildValidationData, createValidationWorksheet, addSummaryHyperlinks } from '@/lib/excelValidationTab';
 import { createStyledSummarySheet } from '@/lib/excelSummarySheet';
-import { injectImageIntoXlsx, fetchLogoImageData } from '@/lib/excelImageInject';
+import { injectImageIntoXlsx, fetchLogoImageData, hideGridlinesInXlsx } from '@/lib/excelImageInject';
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useCloudTemplates, CloudTemplate, CloudSection, TemplateStatus } from '@/hooks/useCloudTemplates';
