@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx-js-style';
 import { applyValidationStylesToWorksheet, applyExcelHeaderAndDataStyles } from '@/lib/cellValidation';
 import { applyExcelFormulas, applySummaryFormulas, COLUMN_INDICES, getColLetter } from '@/lib/excelFormulas';
 import { buildValidationData, createValidationWorksheet, addSummaryHyperlinks } from '@/lib/excelValidationTab';
+import { hideGridlinesInXlsx } from '@/lib/excelImageInject';
 
 interface UploadedFile {
   id: string;
