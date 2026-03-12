@@ -39,21 +39,44 @@ export function applyExcelFormulas(
   dataRowCount: number, 
   headerRow: number = 1
 ): void {
+  const ACCOUNTING_FMT_LOCAL = '_("$"* #,##0.00_);_("$"* (#,##0.00);_("$"* "-"??_)';
+  const extendedCol = getColLetter(COLUMN_INDICES.EXTENDED);     // AA
+
+  // Always create SUM cell in AB1, even with 0 data rows
+  const sumCell = `${getColLetter(COLUMN_INDICES.SUM_COLUMN)}${headerRow}`;
+  if (dataRowCount > 0) {
+    const firstDataRow = headerRow + 1;
+    const lastDataRow = headerRow + dataRowCount;
+    const sumFormula = `SUM(${extendedCol}${firstDataRow}:${extendedCol}${lastDataRow})`;
+    const existingStyle = worksheet[sumCell]?.s || {};
+    worksheet[sumCell] = {
+      t: 'n',
+      f: sumFormula,
+      z: ACCOUNTING_FMT_LOCAL,
+      s: { ...existingStyle, numFmt: ACCOUNTING_FMT_LOCAL }
+    };
+  } else {
+    // No data rows — show $ - (value 0 with accounting format)
+    const existingStyle = worksheet[sumCell]?.s || {};
+    worksheet[sumCell] = {
+      t: 'n',
+      v: 0,
+      z: ACCOUNTING_FMT_LOCAL,
+      s: { ...existingStyle, numFmt: ACCOUNTING_FMT_LOCAL }
+    };
+  }
+
   if (dataRowCount <= 0) return;
 
   const packCostCol = getColLetter(COLUMN_INDICES.PACK_COST);   // Y
   const misDivisorCol = getColLetter(COLUMN_INDICES.MIS_DIVISOR); // H
   const unitCostCol = getColLetter(COLUMN_INDICES.UNIT_COST);   // Z
   const qtyCol = getColLetter(COLUMN_INDICES.QTY);               // G
-  const extendedCol = getColLetter(COLUMN_INDICES.EXTENDED);     // AA
-
-  const ACCOUNTING_FMT = '_("$"* #,##0.00_);_("$"* (#,##0.00);_("$"* "-"??_)';
 
   // Apply formulas to each data row
   for (let i = 0; i < dataRowCount; i++) {
-    const rowNum = headerRow + 1 + i; // Excel row number (1-based)
+    const rowNum = headerRow + 1 + i;
     
-    // Unit Cost formula: =IF(OR(Y{row}="",H{row}="",H{row}=0),"",Y{row}/H{row})
     const unitCostCell = `${unitCostCol}${rowNum}`;
     const unitCostFormula = `IF(OR(${packCostCol}${rowNum}="",${misDivisorCol}${rowNum}="",${misDivisorCol}${rowNum}=0),"",${packCostCol}${rowNum}/${misDivisorCol}${rowNum})`;
     
@@ -61,11 +84,10 @@ export function applyExcelFormulas(
     worksheet[unitCostCell] = {
       t: 'n',
       f: unitCostFormula,
-      z: ACCOUNTING_FMT,
-      s: { ...ucStyle, numFmt: ACCOUNTING_FMT }
+      z: ACCOUNTING_FMT_LOCAL,
+      s: { ...ucStyle, numFmt: ACCOUNTING_FMT_LOCAL }
     };
     
-    // Extended formula: =IF(OR(Z{row}="",G{row}=""),"",Z{row}*G{row})
     const extendedCell = `${extendedCol}${rowNum}`;
     const extendedFormula = `IF(OR(${unitCostCol}${rowNum}="",${qtyCol}${rowNum}=""),"",${unitCostCol}${rowNum}*${qtyCol}${rowNum})`;
     
@@ -73,28 +95,10 @@ export function applyExcelFormulas(
     worksheet[extendedCell] = {
       t: 'n',
       f: extendedFormula,
-      z: ACCOUNTING_FMT,
-      s: { ...exStyle, numFmt: ACCOUNTING_FMT }
+      z: ACCOUNTING_FMT_LOCAL,
+      s: { ...exStyle, numFmt: ACCOUNTING_FMT_LOCAL }
     };
   }
-
-  // Add SUM formula in the header row next to Extended column
-  const sumCell = `${getColLetter(COLUMN_INDICES.SUM_COLUMN)}${headerRow}`;
-  const firstDataRow = headerRow + 1;
-  const lastDataRow = headerRow + dataRowCount;
-  const sumFormula = `SUM(${extendedCol}${firstDataRow}:${extendedCol}${lastDataRow})`;
-  
-  // Preserve existing style (e.g. yellow header from applyExcelHeaderAndDataStyles)
-  const existingStyle = worksheet[sumCell]?.s || {};
-  worksheet[sumCell] = {
-    t: 'n',
-    f: sumFormula,
-    z: ACCOUNTING_FMT,
-    s: {
-      ...existingStyle,
-      numFmt: ACCOUNTING_FMT
-    }
-  };
 
   // Expand worksheet range to include SUM column, but don't shrink if already wider
   if (worksheet['!ref']) {
