@@ -125,23 +125,14 @@ const Scan = () => {
     const CACHE_KEY = 'cached_user_short_name';
     
     const fetchUserProfile = async () => {
-      // If we're offline, use cached value immediately
-      if (!navigator.onLine) {
-        const cached = localStorage.getItem(CACHE_KEY);
-        if (cached) {
-          setUserShortName(cached);
-        }
-        return;
+      // Always try to load cached value first, regardless of online status
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached && !userShortName) {
+        setUserShortName(cached);
       }
-      
-      if (!user?.id) {
-        // No user but check for cached name for offline mode
-        const cached = localStorage.getItem(CACHE_KEY);
-        if (cached) {
-          setUserShortName(cached);
-        }
-        return;
-      }
+
+      // If we're offline or have no user, the cached value above is sufficient
+      if (!navigator.onLine || !user?.id) return;
       
       try {
         const { data: profile, error } = await supabase
@@ -150,14 +141,7 @@ const Scan = () => {
           .eq('id', user.id)
           .maybeSingle();
         
-        if (error || !profile) {
-          // Query failed or returned null (common offline/lie-fi) — use cache
-          const cached = localStorage.getItem(CACHE_KEY);
-          if (cached) {
-            setUserShortName(cached);
-          }
-          return;
-        }
+        if (error || !profile) return; // keep cached value
 
         // Generate short name: FirstNameLastInitial (e.g., "JiaweiT")
         let shortName = '';
@@ -177,10 +161,7 @@ const Scan = () => {
         }
       } catch (err) {
         console.error('Error fetching profile:', err);
-        const cached = localStorage.getItem(CACHE_KEY);
-        if (cached) {
-          setUserShortName(cached);
-        }
+        // cached value already set above
       }
     };
     
