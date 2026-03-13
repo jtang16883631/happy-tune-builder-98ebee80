@@ -190,6 +190,19 @@ async function _doInit(): Promise<Database | null> {
             await saveToIndexedDB('migration_v1_done', true);
           }
         }
+        // Run v2 migration: add address column
+        const migrationV2Done = await loadFromIndexedDB<boolean>('migration_v2_done');
+        if (!migrationV2Done) {
+          try {
+            _db.run(`ALTER TABLE templates ADD COLUMN address TEXT`);
+            const dbData = _db.export();
+            await saveToIndexedDB(DB_KEY, new Uint8Array(dbData));
+            console.log('[OfflineDB] Migration v2 complete (added address column)');
+          } catch {
+            // Column may already exist
+          }
+          await saveToIndexedDB('migration_v2_done', true);
+        }
         _db.run(SCHEMA_SQL);
 
         try {

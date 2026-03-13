@@ -289,6 +289,7 @@ export function OfflineDataTransferDialog({ open, onOpenChange }: OfflineDataTra
         name: ct.name,
         inv_date: ct.inv_date,
         facility_name: ct.facility_name,
+        address: (ct as any).address || null,
         inv_number: ct.inv_number,
         cost_file_name: ct.cost_file_name,
         job_ticket_file_name: ct.job_ticket_file_name,
