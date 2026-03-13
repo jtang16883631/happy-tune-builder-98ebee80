@@ -1,11 +1,21 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
+const fs = require("fs");
 
 // Disable GPU acceleration for better compatibility
 app.disableHardwareAcceleration();
 
 let mainWindow;
+
+// ─── Offline templates folder ──────────────────────────────────
+function getOfflineDir() {
+  const dir = path.join(app.getPath("userData"), "offline_templates");
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -83,7 +93,7 @@ function sendStatusToWindow(text) {
   console.log(text);
 }
 
-// IPC handlers
+// ─── IPC: Auto-updater ──────────────────────────────────────────
 ipcMain.handle("check-for-updates", async () => {
   try {
     return await autoUpdater.checkForUpdates();
@@ -99,6 +109,76 @@ ipcMain.handle("install-update", () => {
 
 ipcMain.handle("get-app-version", () => {
   return app.getVersion();
+});
+
+// ─── IPC: Offline file system ───────────────────────────────────
+
+// Save a SQLite .db file to the offline folder
+ipcMain.handle("offline-save-db", async (_event, fileName, dataBase64) => {
+  try {
+    const filePath = path.join(getOfflineDir(), fileName);
+    const buffer = Buffer.from(dataBase64, "base64");
+    fs.writeFileSync(filePath, buffer);
+    const stats = fs.statSync(filePath);
+    console.log(`[OfflineFS] Saved ${fileName} (${(stats.size / 1024).toFixed(0)} KB)`);
+    return { success: true, size: stats.size };
+  } catch (err) {
+    console.error("[OfflineFS] Save error:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Load a SQLite .db file from the offline folder (returns base64)
+ipcMain.handle("offline-load-db", async (_event, fileName) => {
+  try {
+    const filePath = path.join(getOfflineDir(), fileName);
+    if (!fs.existsSync(filePath)) {
+      return { success: true, data: null };
+    }
+    const buffer = fs.readFileSync(filePath);
+    console.log(`[OfflineFS] Loaded ${fileName} (${(buffer.length / 1024).toFixed(0)} KB)`);
+    return { success: true, data: buffer.toString("base64") };
+  } catch (err) {
+    console.error("[OfflineFS] Load error:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+// List all .db files in the offline folder
+ipcMain.handle("offline-list-dbs", async () => {
+  try {
+    const dir = getOfflineDir();
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".db"));
+    const result = files.map((f) => {
+      const stats = fs.statSync(path.join(dir, f));
+      return { name: f, size: stats.size, modified: stats.mtime.toISOString() };
+    });
+    console.log(`[OfflineFS] Listed ${result.length} db files`);
+    return { success: true, files: result };
+  } catch (err) {
+    console.error("[OfflineFS] List error:", err);
+    return { success: false, files: [], error: err.message };
+  }
+});
+
+// Delete a .db file from the offline folder
+ipcMain.handle("offline-delete-db", async (_event, fileName) => {
+  try {
+    const filePath = path.join(getOfflineDir(), fileName);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      console.log(`[OfflineFS] Deleted ${fileName}`);
+    }
+    return { success: true };
+  } catch (err) {
+    console.error("[OfflineFS] Delete error:", err);
+    return { success: false, error: err.message };
+  }
+});
+
+// Get the offline folder path (for debugging)
+ipcMain.handle("offline-get-path", () => {
+  return getOfflineDir();
 });
 
 // App lifecycle

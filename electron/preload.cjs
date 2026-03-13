@@ -17,6 +17,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.removeAllListeners("update-status");
     ipcRenderer.removeAllListeners("update-downloaded");
   },
+
+  // ─── Offline file system API ────────────────────────────────
+  offlineSaveDb: (fileName, dataBase64) =>
+    ipcRenderer.invoke("offline-save-db", fileName, dataBase64),
+  offlineLoadDb: (fileName) =>
+    ipcRenderer.invoke("offline-load-db", fileName),
+  offlineListDbs: () =>
+    ipcRenderer.invoke("offline-list-dbs"),
+  offlineDeleteDb: (fileName) =>
+    ipcRenderer.invoke("offline-delete-db", fileName),
+  offlineGetPath: () =>
+    ipcRenderer.invoke("offline-get-path"),
 });
 
 window.addEventListener("DOMContentLoaded", () => {
