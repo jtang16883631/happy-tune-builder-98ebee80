@@ -28,10 +28,22 @@ interface CostItem {
   sheet_name: string | null;
 }
 
+interface OfflineCostSearchFns {
+  searchCostItems: (templateId: string, query: string, sheetName?: string) => Promise<Array<{
+    id: string; ndc: string | null; material_description: string | null;
+    unit_price: number | null; source: string | null; material: string | null;
+    sheet_name: string | null;
+  }>>;
+  getCostSheetNames: (templateId: string) => string[];
+  getCostItemCount: (templateId: string, sheetName?: string) => number;
+}
+
 interface CostDataLookupDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   templateId: string | null;
+  isOnline?: boolean;
+  offlineFns?: OfflineCostSearchFns;
 }
 
 interface ColumnDef {
@@ -41,7 +53,8 @@ interface ColumnDef {
   defaultWidth: number;
 }
 
-const COLUMNS: ColumnDef[] = [
+// Online mode shows all columns; offline shows a subset (no billing_date, manufacturer, generic, etc.)
+const ALL_COLUMNS: ColumnDef[] = [
   { key: 'ndc', label: 'NDC', minWidth: 80, defaultWidth: 120 },
   { key: 'material_description', label: 'Product Description', minWidth: 150, defaultWidth: 250 },
   { key: 'unit_price', label: 'Invoice Price', minWidth: 80, defaultWidth: 100 },
@@ -55,10 +68,20 @@ const COLUMNS: ColumnDef[] = [
   { key: 'dose', label: 'Dose', minWidth: 50, defaultWidth: 60 },
 ];
 
+const OFFLINE_COLUMNS: ColumnDef[] = [
+  { key: 'ndc', label: 'NDC', minWidth: 80, defaultWidth: 140 },
+  { key: 'material_description', label: 'Product Description', minWidth: 150, defaultWidth: 350 },
+  { key: 'unit_price', label: 'Invoice Price', minWidth: 80, defaultWidth: 110 },
+  { key: 'source', label: 'Source', minWidth: 60, defaultWidth: 120 },
+  { key: 'material', label: 'ABC 6', minWidth: 60, defaultWidth: 100 },
+];
+
 export function CostDataLookupDialog({
   open,
   onOpenChange,
   templateId,
+  isOnline = true,
+  offlineFns,
 }: CostDataLookupDialogProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredItems, setFilteredItems] = useState<CostItem[]>([]);
@@ -68,9 +91,16 @@ export function CostDataLookupDialog({
   const [selectedSheet, setSelectedSheet] = useState<string>('');
   const [hasSearched, setHasSearched] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+
+  const useOfflineMode = !isOnline && !!offlineFns;
+  const COLUMNS = useOfflineMode ? OFFLINE_COLUMNS : ALL_COLUMNS;
+
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
     const initial: Record<string, number> = {};
-    COLUMNS.forEach(col => {
+    ALL_COLUMNS.forEach(col => {
+      initial[col.key] = col.defaultWidth;
+    });
+    OFFLINE_COLUMNS.forEach(col => {
       initial[col.key] = col.defaultWidth;
     });
     return initial;
@@ -84,46 +114,56 @@ export function CostDataLookupDialog({
     
     setIsLoading(true);
     try {
-      const { count: totalItems } = await supabase
-        .from('template_cost_items')
-        .select('*', { count: 'exact', head: true })
-        .eq('template_id', templateId);
-      
-      setTotalCount(totalItems || 0);
-
-      const sheetSet = new Set<string>();
-      let lastSheet: string | null = null;
-      const maxSheetsToDetect = 50;
-
-      for (let i = 0; i < maxSheetsToDetect; i++) {
-        let q = supabase
+      if (useOfflineMode && offlineFns) {
+        // Offline: use local SQLite
+        const sheets = offlineFns.getCostSheetNames(templateId);
+        const count = offlineFns.getCostItemCount(templateId);
+        setTotalCount(count);
+        setSheetNames(sheets);
+        setSelectedSheet(sheets[0] || '');
+      } else {
+        // Online: use Supabase
+        const { count: totalItems } = await supabase
           .from('template_cost_items')
-          .select('sheet_name')
-          .eq('template_id', templateId)
-          .not('sheet_name', 'is', null)
-          .neq('sheet_name', '')
-          .order('sheet_name')
-          .limit(1);
+          .select('*', { count: 'exact', head: true })
+          .eq('template_id', templateId);
+        
+        setTotalCount(totalItems || 0);
 
-        if (lastSheet) q = q.gt('sheet_name', lastSheet);
+        const sheetSet = new Set<string>();
+        let lastSheet: string | null = null;
+        const maxSheetsToDetect = 50;
 
-        const { data } = await q;
-        const next = (data?.[0]?.sheet_name ?? '').trim();
-        if (!next) break;
+        for (let i = 0; i < maxSheetsToDetect; i++) {
+          let q = supabase
+            .from('template_cost_items')
+            .select('sheet_name')
+            .eq('template_id', templateId)
+            .not('sheet_name', 'is', null)
+            .neq('sheet_name', '')
+            .order('sheet_name')
+            .limit(1);
 
-        sheetSet.add(next);
-        lastSheet = next;
+          if (lastSheet) q = q.gt('sheet_name', lastSheet);
+
+          const { data } = await q;
+          const next = (data?.[0]?.sheet_name ?? '').trim();
+          if (!next) break;
+
+          sheetSet.add(next);
+          lastSheet = next;
+        }
+
+        const uniqueSheets = Array.from(sheetSet).sort((a, b) => a.localeCompare(b));
+        setSheetNames(uniqueSheets);
+        setSelectedSheet(uniqueSheets[0] || '');
       }
-
-      const uniqueSheets = Array.from(sheetSet).sort((a, b) => a.localeCompare(b));
-      setSheetNames(uniqueSheets);
-      setSelectedSheet(uniqueSheets[0] || '');
     } catch (err) {
       console.error('Error loading sheet tabs:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [templateId]);
+  }, [templateId, useOfflineMode, offlineFns]);
 
   useEffect(() => {
     if (open && templateId) {
@@ -149,23 +189,45 @@ export function CostDataLookupDialog({
     setIsLoading(true);
     setHasSearched(true);
     try {
-      const query = `%${searchQuery}%`;
-      let dbQuery = supabase
-        .from('template_cost_items')
-        .select('id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name')
-        .eq('template_id', templateId)
-        .or(`ndc.ilike.${query},generic.ilike.${query},material_description.ilike.${query},manufacturer.ilike.${query}`)
-        .order('source', { ascending: true, nullsFirst: false })
-        .limit(500);
+      if (useOfflineMode && offlineFns) {
+        // Offline: search local SQLite
+        const results = await offlineFns.searchCostItems(templateId, searchQuery, selectedSheet || undefined);
+        // Map to CostItem format (offline items don't have all fields)
+        const mapped: CostItem[] = results.map(r => ({
+          id: r.id,
+          ndc: r.ndc,
+          material_description: r.material_description,
+          unit_price: r.unit_price,
+          source: r.source,
+          material: r.material,
+          billing_date: null,
+          manufacturer: null,
+          generic: null,
+          strength: null,
+          size: null,
+          dose: null,
+          sheet_name: r.sheet_name,
+        }));
+        setFilteredItems(mapped);
+      } else {
+        // Online: search Supabase
+        const query = `%${searchQuery}%`;
+        let dbQuery = supabase
+          .from('template_cost_items')
+          .select('id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name')
+          .eq('template_id', templateId)
+          .or(`ndc.ilike.${query},generic.ilike.${query},material_description.ilike.${query},manufacturer.ilike.${query}`)
+          .order('source', { ascending: true, nullsFirst: false })
+          .limit(500);
 
-      if (selectedSheet) {
-        dbQuery = dbQuery.eq('sheet_name', selectedSheet);
+        if (selectedSheet) {
+          dbQuery = dbQuery.eq('sheet_name', selectedSheet);
+        }
+
+        const { data, error } = await dbQuery;
+        if (error) throw error;
+        setFilteredItems(data || []);
       }
-
-      const { data, error } = await dbQuery;
-
-      if (error) throw error;
-      setFilteredItems(data || []);
     } catch (err) {
       console.error('Error searching cost items:', err);
     } finally {
@@ -227,7 +289,7 @@ export function CostDataLookupDialog({
     
     const { key, startX, startWidth } = resizingRef.current;
     const diff = e.clientX - startX;
-    const colDef = COLUMNS.find(c => c.key === key);
+    const colDef = ALL_COLUMNS.find(c => c.key === key) || OFFLINE_COLUMNS.find(c => c.key === key);
     const minWidth = colDef?.minWidth || 50;
     const newWidth = Math.max(minWidth, startWidth + diff);
     
@@ -257,6 +319,11 @@ export function CostDataLookupDialog({
           <DialogTitle className="flex items-center gap-2">
             <DollarSign className="h-5 w-5" />
             Cost Data Lookup
+            {useOfflineMode && (
+              <span className="text-xs font-normal text-yellow-600 dark:text-yellow-400 bg-yellow-100 dark:bg-yellow-900/30 px-2 py-0.5 rounded">
+                Offline
+              </span>
+            )}
             <span className="text-sm font-normal text-muted-foreground">
               ({totalCount.toLocaleString()} items total)
             </span>
@@ -290,7 +357,9 @@ export function CostDataLookupDialog({
             <div className="relative flex-1">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by NDC, Generic, Description, Manufacturer..."
+                placeholder={useOfflineMode 
+                  ? "Search by NDC, Description, ABC 6..." 
+                  : "Search by NDC, Generic, Description, Manufacturer..."}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleDatabaseSearch()}
