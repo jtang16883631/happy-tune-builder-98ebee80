@@ -9,6 +9,52 @@ const DB_NAME = 'offline_templates_db';
 const DB_STORE = 'sqlite_store';
 const DB_KEY = 'templates_db';
 const SYNC_META_KEY = 'sync_meta';
+const ELECTRON_DB_FILE = 'offline_templates.db';
+
+// ─── Electron file system helpers ─────────────────────────────────
+const _isElectron = (): boolean => !!window.electronAPI?.offlineSaveDb;
+
+const _electronSave = async (data: Uint8Array): Promise<boolean> => {
+  if (!_isElectron()) return false;
+  try {
+    // Convert Uint8Array to base64 for IPC transfer
+    let binary = '';
+    const chunk = 8192;
+    for (let i = 0; i < data.length; i += chunk) {
+      binary += String.fromCharCode(...data.subarray(i, i + chunk));
+    }
+    const base64 = btoa(binary);
+    const result = await window.electronAPI!.offlineSaveDb(ELECTRON_DB_FILE, base64);
+    if (result.success) {
+      console.log(`[OfflineFS] Saved to local file: ${(result.size! / 1024).toFixed(0)} KB`);
+      return true;
+    }
+    console.error('[OfflineFS] Save failed:', result.error);
+    return false;
+  } catch (err) {
+    console.error('[OfflineFS] Save error:', err);
+    return false;
+  }
+};
+
+const _electronLoad = async (): Promise<Uint8Array | null> => {
+  if (!_isElectron()) return null;
+  try {
+    const result = await window.electronAPI!.offlineLoadDb(ELECTRON_DB_FILE);
+    if (!result.success || !result.data) return null;
+    // Convert base64 back to Uint8Array
+    const binary = atob(result.data);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    console.log(`[OfflineFS] Loaded from local file: ${(bytes.byteLength / 1024).toFixed(0)} KB`);
+    return bytes;
+  } catch (err) {
+    console.error('[OfflineFS] Load error:', err);
+    return null;
+  }
+};
 
 export type TemplateStatus = 'active' | 'working' | 'completed';
 
