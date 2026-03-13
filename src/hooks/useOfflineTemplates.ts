@@ -1130,5 +1130,59 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     exportCloudTemplatesToFlashDrive,
     previewFlashDriveImport,
     importFromFlashDrive,
+
+    // Cost data search for offline mode
+    searchCostItems: useCallback(async (
+      templateId: string, query: string, sheetName?: string
+    ): Promise<Array<{
+      id: string; ndc: string | null; material_description: string | null;
+      unit_price: number | null; source: string | null; material: string | null;
+      sheet_name: string | null;
+    }>> => {
+      if (!db) return [];
+      try {
+        const likeQuery = `%${query}%`;
+        let sql = `SELECT rowid as id, ndc, material_description, unit_price, source, material, sheet_name
+                   FROM cost_items WHERE template_id = ?
+                   AND (ndc LIKE ? OR material_description LIKE ? OR material LIKE ?)`;
+        const params: any[] = [templateId, likeQuery, likeQuery, likeQuery];
+        if (sheetName) {
+          sql += ` AND sheet_name = ?`;
+          params.push(sheetName);
+        }
+        sql += ` ORDER BY source ASC LIMIT 500`;
+        const results = db.exec(sql, params);
+        if (results.length === 0) return [];
+        return results[0].values.map((row: any[]) => ({
+          id: String(row[0]), ndc: row[1] as string | null,
+          material_description: row[2] as string | null, unit_price: row[3] as number | null,
+          source: row[4] as string | null, material: row[5] as string | null,
+          sheet_name: row[6] as string | null,
+        }));
+      } catch (err) { console.error('[OfflineDB] searchCostItems error:', err); return []; }
+    }, [db]),
+
+    getCostSheetNames: useCallback((templateId: string): string[] => {
+      if (!db) return [];
+      try {
+        const results = db.exec(
+          `SELECT DISTINCT sheet_name FROM cost_items WHERE template_id = ? AND sheet_name IS NOT NULL AND sheet_name != '' ORDER BY sheet_name`,
+          [templateId]
+        );
+        if (results.length === 0) return [];
+        return results[0].values.map((row: any[]) => row[0] as string);
+      } catch { return []; }
+    }, [db]),
+
+    getCostItemCount: useCallback((templateId: string, sheetName?: string): number => {
+      if (!db) return 0;
+      try {
+        let sql = `SELECT COUNT(*) FROM cost_items WHERE template_id = ?`;
+        const params: any[] = [templateId];
+        if (sheetName) { sql += ` AND sheet_name = ?`; params.push(sheetName); }
+        const result = db.exec(sql, params);
+        return result.length > 0 ? (result[0].values[0][0] as number) : 0;
+      } catch { return 0; }
+    }, [db]),
   };
 }
