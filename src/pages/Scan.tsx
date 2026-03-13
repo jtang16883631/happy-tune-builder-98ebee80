@@ -2355,12 +2355,12 @@ const Scan = () => {
 
   // Handle paste into selected cells or current cell
   const handlePaste = useCallback(async (e: ClipboardEvent) => {
-    // Only handle if focus is within the table
+    // Only handle if focus is within scan grid inputs
     const activeElement = document.activeElement;
     if (!activeElement || !(activeElement instanceof HTMLInputElement)) return;
-    
-    // Don't intercept paste in dialogs (e.g. Cost Data Lookup search bar)
-    if (activeElement.closest('[role="dialog"]')) return;
+
+    // Never intercept paste outside scan cells (e.g. Cost Data Lookup search input)
+    if (activeElement.dataset.scanCell !== 'true') return;
     
     // Try to extract row/col from the focused element's data attribute or ref key
     const focusedKey = Array.from(cellInputRefs.current.entries()).find(([_, el]) => el === activeElement)?.[0];
@@ -3398,7 +3398,7 @@ const Scan = () => {
                   </div>
                 </div>
               )}
-              <div className="min-w-max" style={{ fontFamily: 'Arial, sans-serif' }}>
+              <div className="min-w-max min-h-full pb-8" style={{ fontFamily: 'Arial, sans-serif' }}>
                 <Table style={{ fontFamily: 'Arial, sans-serif' }}>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
@@ -3515,6 +3515,7 @@ const Scan = () => {
                                   <div className="relative group">
                                     <Input
                                       ref={getRef}
+                                      data-scan-cell="true"
                                       value={getQtyDisplayValue(row, realIndex)}
                                       onChange={(e) => handleQtyInputChange(e.target.value, realIndex)}
                                       onBlur={() => handleQtyBlur(realIndex)}
@@ -3567,6 +3568,7 @@ const Scan = () => {
                               >
                                 <Input
                                   ref={getRef}
+                                  data-scan-cell="true"
                                   value={col.type === 'currency' ? (value !== null && value !== undefined ? Number(value).toFixed(2) : '') : (value?.toString() || '')}
                                   onChange={(e) => {
                                     if (col.isNdcInput) {
@@ -3621,11 +3623,11 @@ const Scan = () => {
                   </TableBody>
                 </Table>
               </div>
-              <ScrollBar orientation="horizontal" />
+              <ScrollBar orientation="horizontal" className="mt-2" />
             </ScrollArea>
 
             {/* Stats */}
-            <div className="flex items-center gap-4 mt-8 pt-4 border-t text-sm text-muted-foreground flex-wrap">
+            <div className="flex items-center gap-4 mt-auto pt-6 border-t text-sm text-muted-foreground flex-wrap">
               <span>{scanRows.filter(r => r.ndc || r.scannedNdc).length} scans</span>
               {searchQuery && <span>• {filteredRows.length} shown</span>}
               <span>•</span>
