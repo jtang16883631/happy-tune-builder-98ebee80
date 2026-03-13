@@ -3622,7 +3622,7 @@ const Scan = () => {
             </ScrollArea>
 
             {/* Stats */}
-            <div className="flex items-center gap-4 mt-4 text-sm text-muted-foreground flex-wrap">
+            <div className="flex items-center gap-4 mt-8 pt-4 border-t text-sm text-muted-foreground flex-wrap">
               <span>{scanRows.filter(r => r.ndc || r.scannedNdc).length} scans</span>
               {searchQuery && <span>• {filteredRows.length} shown</span>}
               <span>•</span>
