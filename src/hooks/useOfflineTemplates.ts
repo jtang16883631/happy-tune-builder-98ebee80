@@ -12,7 +12,7 @@ const SYNC_META_KEY = 'sync_meta';
 const ELECTRON_DB_FILE = 'offline_templates.db';
 
 // ─── Electron file system helpers ─────────────────────────────────
-const _isElectron = (): boolean => !!window.electronAPI?.offlineSaveDb;
+const _isElectron = (): boolean => !!(window as any).electronAPI?.offlineSaveDb;
 
 const _electronSave = async (data: Uint8Array): Promise<boolean> => {
   if (!_isElectron()) return false;
