@@ -3398,7 +3398,7 @@ const Scan = () => {
                   </div>
                 </div>
               )}
-              <div className="min-w-max" style={{ fontFamily: 'Arial, sans-serif' }}>
+              <div className="min-w-max min-h-full pb-8" style={{ fontFamily: 'Arial, sans-serif' }}>
                 <Table style={{ fontFamily: 'Arial, sans-serif' }}>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
