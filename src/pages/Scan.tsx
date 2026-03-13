@@ -3515,6 +3515,7 @@ const Scan = () => {
                                   <div className="relative group">
                                     <Input
                                       ref={getRef}
+                                      data-scan-cell="true"
                                       value={getQtyDisplayValue(row, realIndex)}
                                       onChange={(e) => handleQtyInputChange(e.target.value, realIndex)}
                                       onBlur={() => handleQtyBlur(realIndex)}
