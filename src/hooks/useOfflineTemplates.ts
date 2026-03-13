@@ -477,120 +477,156 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     try {
       const currentlySynced = getSyncedTemplateIds();
       const toAdd = templateIds.filter(id => !currentlySynced.includes(id));
+      const alreadySyncedCount = templateIds.length - toAdd.length;
       let synced = 0;
+      const failedTemplates: Array<{ id: string; reason: string }> = [];
 
       for (let i = 0; i < toAdd.length; i++) {
         const cloudId = toAdd[i];
         setSyncProgress(prev => ({ ...prev, currentTemplateIndex: i + 1, status: 'fetching_template', costItemsFetched: 0 }));
 
-        const [templateResult, countResult] = await Promise.all([
-          supabase.from('data_templates')
-            .select('id, user_id, name, inv_date, facility_name, address, inv_number, cost_file_name, job_ticket_file_name, status, created_at, updated_at')
-            .eq('id', cloudId).single(),
-          supabase.from('template_cost_items')
-            .select('id', { count: 'exact', head: true })
-            .eq('template_id', cloudId),
-        ]);
-
-        const { data: ct, error: fetchError } = templateResult;
-        if (fetchError || !ct) continue;
-
-        setSyncProgress(prev => ({ ...prev, currentTemplate: ct.name || ct.facility_name || 'Template' }));
-
-        const localId = ct.id;
-        activeDb.run('BEGIN TRANSACTION');
         try {
-          activeDb.run(`
-            INSERT OR REPLACE INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, address, inv_number,
-                                   cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-          `, [localId, ct.id, ct.user_id, ct.name, ct.inv_date, ct.facility_name, ct.address, ct.inv_number,
-              ct.cost_file_name, ct.job_ticket_file_name, ct.status || 'active', ct.created_at, ct.updated_at]);
+          const [templateResult, countResult] = await Promise.all([
+            supabase.from('data_templates')
+              .select('id, user_id, name, inv_date, facility_name, address, inv_number, cost_file_name, job_ticket_file_name, status, created_at, updated_at')
+              .eq('id', cloudId).single(),
+            supabase.from('template_cost_items')
+              .select('id', { count: 'exact', head: true })
+              .eq('template_id', cloudId),
+          ]);
 
-          setSyncProgress(prev => ({ ...prev, status: 'fetching_sections' }));
-          const { data: sections } = await supabase.from('template_sections')
-            .select('id, template_id, sect, description, full_section, cost_sheet')
-            .eq('template_id', ct.id);
-
-          for (const s of sections || []) {
-            activeDb.run(`INSERT OR REPLACE INTO sections (id, template_id, sect, description, full_section, cost_sheet) VALUES (?, ?, ?, ?, ?, ?)`,
-              [s.id, localId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]);
+          const { data: ct, error: fetchError } = templateResult;
+          if (fetchError || !ct) {
+            const reason = fetchError?.message || 'Template not found in cloud';
+            failedTemplates.push({ id: cloudId, reason });
+            console.error(`[OfflineDB] Failed to fetch template ${cloudId}:`, reason);
+            continue;
           }
 
-          setSyncProgress(prev => ({ ...prev, status: 'fetching_cost_items', costItemsFetched: 0 }));
-          const PAGE_SIZE = 1000;
-          const totalCount = countResult.count || 0;
-          const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-          const pageNumbers = Array.from({ length: Math.max(totalPages, 1) }, (_, i) => i);
+          setSyncProgress(prev => ({ ...prev, currentTemplate: ct.name || ct.facility_name || 'Template' }));
 
-          const pageResults = await Promise.all(
-            pageNumbers.map(page =>
-              supabase.from('template_cost_items')
-                .select('id, ndc, material_description, unit_price, source, material, sheet_name')
-                .eq('template_id', ct.id)
-                .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1))
-          );
+          const localId = ct.id;
+          activeDb.run('BEGIN TRANSACTION');
+          try {
+            activeDb.run(`
+              INSERT OR REPLACE INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, address, inv_number,
+                                     cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            `, [localId, ct.id, ct.user_id, ct.name, ct.inv_date, ct.facility_name, ct.address, ct.inv_number,
+                ct.cost_file_name, ct.job_ticket_file_name, ct.status || 'active', ct.created_at, ct.updated_at]);
 
-          const costStmt = activeDb.prepare(`
-            INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `);
-          let totalCostItemsFetched = 0;
-          for (const { data: costItems, error: costError } of pageResults) {
-            if (costError) { console.error('Cost items fetch error:', costError); continue; }
-            for (const c of costItems || []) {
-              costStmt.run([c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null]);
+            setSyncProgress(prev => ({ ...prev, status: 'fetching_sections' }));
+            const { data: sections, error: sectionsError } = await supabase.from('template_sections')
+              .select('id, template_id, sect, description, full_section, cost_sheet')
+              .eq('template_id', ct.id);
+
+            if (sectionsError) throw sectionsError;
+
+            for (const s of sections || []) {
+              activeDb.run(`INSERT OR REPLACE INTO sections (id, template_id, sect, description, full_section, cost_sheet) VALUES (?, ?, ?, ?, ?, ?)`,
+                [s.id, localId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]);
             }
-            totalCostItemsFetched += (costItems?.length || 0);
-            setSyncProgress(prev => ({ ...prev, costItemsFetched: totalCostItemsFetched }));
-          }
-          costStmt.free();
-          activeDb.run('COMMIT');
-        } catch (txErr) {
-          activeDb.run('ROLLBACK');
-          throw txErr;
-        }
 
-        setSyncProgress(prev => ({ ...prev, status: 'saving' }));
-        synced++;
+            setSyncProgress(prev => ({ ...prev, status: 'fetching_cost_items', costItemsFetched: 0 }));
+            const PAGE_SIZE = 1000;
+            const totalCount = countResult.count || 0;
+            const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+            const pageNumbers = Array.from({ length: Math.max(totalPages, 1) }, (_, pageIndex) => pageIndex);
+
+            const pageResults = await Promise.all(
+              pageNumbers.map(page =>
+                supabase.from('template_cost_items')
+                  .select('id, ndc, material_description, unit_price, source, material, sheet_name')
+                  .eq('template_id', ct.id)
+                  .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1))
+            );
+
+            const costStmt = activeDb.prepare(`
+              INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+
+            let totalCostItemsFetched = 0;
+            for (const { data: costItems, error: costError } of pageResults) {
+              if (costError) throw costError;
+              for (const c of costItems || []) {
+                costStmt.run([c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null]);
+              }
+              totalCostItemsFetched += (costItems?.length || 0);
+              setSyncProgress(prev => ({ ...prev, costItemsFetched: totalCostItemsFetched }));
+            }
+            costStmt.free();
+            activeDb.run('COMMIT');
+          } catch (txErr) {
+            activeDb.run('ROLLBACK');
+            throw txErr;
+          }
+
+          setSyncProgress(prev => ({ ...prev, status: 'saving' }));
+          synced++;
+        } catch (templateErr: any) {
+          const reason = templateErr?.message || 'Unknown sync error';
+          failedTemplates.push({ id: cloudId, reason });
+          console.error(`[OfflineDB] Failed to sync template ${cloudId}:`, templateErr);
+        }
       }
 
-      // Persist to IndexedDB
-      try {
-        const vc = activeDb.exec('SELECT COUNT(*) FROM templates');
-        const vcc = activeDb.exec('SELECT COUNT(*) FROM cost_items');
-        console.log(`[OfflineDB] Pre-save: ${vc[0]?.values[0][0]} templates, ${vcc[0]?.values[0][0]} cost_items`);
-      } catch {}
+      if (synced > 0) {
+        // Persist to IndexedDB
+        try {
+          const vc = activeDb.exec('SELECT COUNT(*) FROM templates');
+          const vcc = activeDb.exec('SELECT COUNT(*) FROM cost_items');
+          console.log(`[OfflineDB] Pre-save: ${vc[0]?.values[0][0]} templates, ${vcc[0]?.values[0][0]} cost_items`);
+        } catch {}
 
-      await _saveDatabase(activeDb);
+        await _saveDatabase(activeDb);
 
-      try {
-        const savedCheck = await loadFromIndexedDB<Uint8Array>(DB_KEY);
-        console.log(`[OfflineDB] Post-save IndexedDB: ${savedCheck ? `${(savedCheck.byteLength / 1024).toFixed(0)} KB` : 'FAILED'}`);
-      } catch {}
+        try {
+          const savedCheck = await loadFromIndexedDB<Uint8Array>(DB_KEY);
+          console.log(`[OfflineDB] Post-save IndexedDB: ${savedCheck ? `${(savedCheck.byteLength / 1024).toFixed(0)} KB` : 'FAILED'}`);
+        } catch {}
 
-      await updateSyncMeta({ lastSyncedAt: new Date().toISOString() });
-      _notify(); // notify all subscribers
+        await updateSyncMeta({ lastSyncedAt: new Date().toISOString() });
+        _notify(); // notify all subscribers
 
-      // Save offline manifest to localStorage for cold start verification
-      try {
-        const allTemplates = activeDb.exec('SELECT id, name FROM templates');
-        if (allTemplates.length > 0) {
-          const manifest = {
-            templateCount: allTemplates[0].values.length,
-            templateIds: allTemplates[0].values.map(r => r[0]),
-            lastSyncedAt: new Date().toISOString(),
-            offlineReady: true,
-          };
-          localStorage.setItem('offline_manifest', JSON.stringify(manifest));
-          console.log(`[OfflineDB] Offline manifest saved: ${manifest.templateCount} templates`);
+        // Save offline manifest to localStorage for cold start verification
+        try {
+          const allTemplates = activeDb.exec('SELECT id, name FROM templates');
+          if (allTemplates.length > 0) {
+            const manifest = {
+              templateCount: allTemplates[0].values.length,
+              templateIds: allTemplates[0].values.map(r => r[0]),
+              lastSyncedAt: new Date().toISOString(),
+              offlineReady: true,
+            };
+            localStorage.setItem('offline_manifest', JSON.stringify(manifest));
+            console.log(`[OfflineDB] Offline manifest saved: ${manifest.templateCount} templates`);
+          }
+        } catch (manifestErr) {
+          console.warn('[OfflineDB] Failed to save offline manifest:', manifestErr);
         }
-      } catch (manifestErr) {
-        console.warn('[OfflineDB] Failed to save offline manifest:', manifestErr);
       }
 
       setSyncProgress(prev => ({ ...prev, status: 'complete', currentTemplate: null }));
-      return { success: true, synced: synced + (templateIds.length - toAdd.length) };
+
+      const totalSynced = synced + alreadySyncedCount;
+      if (totalSynced === 0 && failedTemplates.length > 0) {
+        return {
+          success: false,
+          synced: 0,
+          error: `Failed to sync ${failedTemplates.length} template(s). First error: ${failedTemplates[0].reason}`,
+        };
+      }
+
+      if (failedTemplates.length > 0) {
+        return {
+          success: true,
+          synced: totalSynced,
+          error: `${failedTemplates.length} template(s) failed to sync. Check console logs for details.`,
+        };
+      }
+
+      return { success: true, synced: totalSynced };
     } catch (err: any) {
       console.error('Sync selected templates error:', err);
       return { success: false, synced: 0, error: err.message };

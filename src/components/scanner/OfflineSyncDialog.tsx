@@ -70,9 +70,10 @@ export function OfflineSyncDialog({
 
   const handleSync = async () => {
     const result = await onSyncTemplates(selectedIds);
-    
-    if (result.success) {
+
+    if (result.success && result.synced > 0) {
       toast.success(`Synced ${result.synced} template(s) for offline use`);
+      if (result.error) toast.error(result.error);
       onOpenChange(false);
     } else {
       toast.error(result.error || 'Sync failed');

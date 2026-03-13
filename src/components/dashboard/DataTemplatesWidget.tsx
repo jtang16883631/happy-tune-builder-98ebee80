@@ -62,8 +62,9 @@ export function DataTemplatesWidget({ userId }: { userId?: string }) {
     setDownloadingId(templateId);
     try {
       const result = await syncSelectedTemplates([templateId]);
-      if (result.success) {
+      if (result.success && result.synced > 0) {
         toast.success('Template downloaded to device');
+        if (result.error) toast.error(result.error);
       } else {
         toast.error(result.error || 'Download failed');
       }
