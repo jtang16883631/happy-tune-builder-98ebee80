@@ -485,7 +485,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
 
         const [templateResult, countResult] = await Promise.all([
           supabase.from('data_templates')
-            .select('id, user_id, name, inv_date, facility_name, inv_number, cost_file_name, job_ticket_file_name, status, created_at, updated_at')
+            .select('id, user_id, name, inv_date, facility_name, address, inv_number, cost_file_name, job_ticket_file_name, status, created_at, updated_at')
             .eq('id', cloudId).single(),
           supabase.from('template_cost_items')
             .select('id', { count: 'exact', head: true })
@@ -501,10 +501,10 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         activeDb.run('BEGIN TRANSACTION');
         try {
           activeDb.run(`
-            INSERT OR REPLACE INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, inv_number,
+            INSERT OR REPLACE INTO templates (id, cloud_id, user_id, name, inv_date, facility_name, address, inv_number,
                                    cost_file_name, job_ticket_file_name, status, created_at, updated_at, is_dirty)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-          `, [localId, ct.id, ct.user_id, ct.name, ct.inv_date, ct.facility_name, ct.inv_number,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+          `, [localId, ct.id, ct.user_id, ct.name, ct.inv_date, ct.facility_name, ct.address, ct.inv_number,
               ct.cost_file_name, ct.job_ticket_file_name, ct.status || 'active', ct.created_at, ct.updated_at]);
 
           setSyncProgress(prev => ({ ...prev, status: 'fetching_sections' }));
