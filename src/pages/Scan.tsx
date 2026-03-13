@@ -3568,6 +3568,7 @@ const Scan = () => {
                               >
                                 <Input
                                   ref={getRef}
+                                  data-scan-cell="true"
                                   value={col.type === 'currency' ? (value !== null && value !== undefined ? Number(value).toFixed(2) : '') : (value?.toString() || '')}
                                   onChange={(e) => {
                                     if (col.isNdcInput) {
