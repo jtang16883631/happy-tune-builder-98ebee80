@@ -18,6 +18,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useCloudTemplates, CloudTemplate, CloudSection, TemplateStatus } from '@/hooks/useCloudTemplates';
 import { useOfflineTemplates, OfflineTemplate } from '@/hooks/useOfflineTemplates';
 import { useLocalFDA, FDADrug } from '@/hooks/useLocalFDA';
+import { useScanUndoRedo } from '@/hooks/useScanUndoRedo';
 import { SyncButton } from '@/components/scanner/SyncButton';
 import { DeviceSyncDialog } from '@/components/scanner/DeviceSyncDialog';
 import { ManageDeviceDialog } from '@/components/scanner/ManageDeviceDialog';
