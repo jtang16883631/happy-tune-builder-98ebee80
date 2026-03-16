@@ -215,7 +215,7 @@ async function cacheLogo(data: Uint8Array): Promise<void> {
 
 export async function fetchLogoImageData(): Promise<Uint8Array | null> {
   try {
-    const response = await fetch('/images/meridian-logo.png');
+    const response = await fetch('./images/meridian-logo.png');
     if (response.ok) {
       const buffer = await response.arrayBuffer();
       const data = new Uint8Array(buffer);
