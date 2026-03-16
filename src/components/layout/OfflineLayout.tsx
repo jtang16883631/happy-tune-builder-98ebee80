@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ClipboardList, Database, CloudOff } from 'lucide-react';
+import { ClipboardList, Database, CloudOff, FileSpreadsheet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { QuickClockPanel } from '@/components/timesheet/QuickClockPanel';
 
@@ -10,6 +10,7 @@ interface OfflineLayoutProps {
 
 const offlineTabs = [
   { href: '/scan', label: 'Audit Projects', icon: ClipboardList },
+  { href: '/compile', label: 'Compile', icon: FileSpreadsheet },
   { href: '/fda', label: 'Master Data', icon: Database },
 ];
 
@@ -38,7 +39,7 @@ export function OfflineLayout({ children }: OfflineLayoutProps) {
           <span className="text-sm font-semibold tracking-wide">MERIDIAN PORTAL — OFFLINE MODE</span>
         </div>
         <div className="flex-1" />
-        <span className="text-xs text-white/50">Only Audit & Master Data are available offline</span>
+        <span className="text-xs text-white/50">Audit, Compile & Master Data available offline</span>
       </header>
 
       {/* Tab bar */}
