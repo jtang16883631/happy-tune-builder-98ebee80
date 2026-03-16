@@ -4,19 +4,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Download, RefreshCw, Sparkles, X, ArrowUpCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 
-// Extend Window interface for Electron API
-declare global {
-  interface Window {
-    electronAPI?: {
-      getAppVersion: () => Promise<string>;
-      checkForUpdates: () => Promise<unknown>;
-      installUpdate: () => Promise<void>;
-      onUpdateStatus: (callback: (message: string) => void) => void;
-      onUpdateDownloaded: (callback: (info: unknown) => void) => void;
-      removeUpdateListeners: () => void;
-    };
-  }
-}
+// ElectronAPI type is declared in vite-env.d.ts
+
 
 // The current build version — must be bumped manually on each release
 const BUILD_VERSION = '1.0.0';
