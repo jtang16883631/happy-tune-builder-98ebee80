@@ -1332,6 +1332,14 @@ const Scan = () => {
   // Handle field change - recalculate Extended when QTY or Unit Cost changes
   // When scannedNdc is changed, clear all previous lookup data so stale info doesn't persist
   const handleFieldChange = (field: keyof ScanRow, value: string | number | null, rowIndex: number) => {
+    // Track undo before mutation
+    const oldValue = scanRows[rowIndex]?.[field] ?? null;
+    if (field === 'scannedNdc') {
+      // For NDC changes, snapshot the whole row since many fields get cleared
+      pushUndo({ rowIndex, field, oldValue: oldValue as any, newValue: value, oldRow: { ...scanRows[rowIndex] } });
+    } else {
+      pushUndo({ rowIndex, field, oldValue: oldValue as any, newValue: value });
+    }
     setScanRows(prev => {
       const updated = [...prev];
       let row = { ...updated[rowIndex], [field]: value };
