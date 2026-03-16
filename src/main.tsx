@@ -4,7 +4,7 @@ import App from "./App.tsx";
 import "./index.css";
 
 // === Build-timestamp cache-busting ===
-const CURRENT_BUILD = __BUILD_TIMESTAMP__;
+const CURRENT_BUILD = (globalThis as any).__BUILD_TIMESTAMP__ ?? String(Date.now());
 const STORED_BUILD = localStorage.getItem('build_timestamp');
 
 if (STORED_BUILD && STORED_BUILD !== CURRENT_BUILD) {
