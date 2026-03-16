@@ -102,7 +102,7 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
   const isOnline = useOnlineStatus();
   const { unreadCount } = useUnreadMessages();
 
-  const OFFLINE_ROUTES = ['/scan', '/fda'];
+  const OFFLINE_ROUTES = ['/scan', '/fda', '/compile'];
   const isOfflineRoute = OFFLINE_ROUTES.includes(location.pathname);
 
   // Only treat as "no role" if auth is done AND roles have been loaded AND still empty AND we're online
@@ -341,10 +341,11 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
           <p className="text-[10px] text-white/30 text-center mt-2 select-none">
             Build: {(() => {
               try {
-                const ts = Number((globalThis as any).__BUILD_TIMESTAMP__ ?? '0');
+                // @ts-ignore - __BUILD_TIMESTAMP__ is replaced by Vite define at build time
+                const ts = Number(typeof __BUILD_TIMESTAMP__ !== 'undefined' ? __BUILD_TIMESTAMP__ : '0');
                 const d = new Date(ts);
                 return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-              } catch { return String((globalThis as any).__BUILD_TIMESTAMP__ ?? 'unknown'); }
+              } catch { return 'unknown'; }
             })()}
           </p>
         </div>
