@@ -102,7 +102,7 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
   const isOnline = useOnlineStatus();
   const { unreadCount } = useUnreadMessages();
 
-  const OFFLINE_ROUTES = ['/scan', '/fda'];
+  const OFFLINE_ROUTES = ['/scan', '/fda', '/compile'];
   const isOfflineRoute = OFFLINE_ROUTES.includes(location.pathname);
 
   // Only treat as "no role" if auth is done AND roles have been loaded AND still empty AND we're online
