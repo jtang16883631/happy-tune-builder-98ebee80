@@ -112,8 +112,8 @@ function useOAuthHandler() {
   return isProcessing;
 }
 
-// Routes that work offline without auth - Master Data (FDA) and Audit Projects (Scan)
-const OFFLINE_ALLOWED_ROUTES = ['/scan', '/fda', '/auth'];
+// Routes that work offline without auth - Master Data (FDA), Audit Projects (Scan), and Compile
+const OFFLINE_ALLOWED_ROUTES = ['/scan', '/fda', '/compile', '/auth'];
 
 function ProtectedRoute({ 
   children, 
