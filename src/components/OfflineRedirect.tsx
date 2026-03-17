@@ -73,8 +73,8 @@ function useOnlineStatusFull(): { isOnline: boolean; isChecking: boolean } {
     if (!force && now - lastCheckAtRef.current < 1500) return;
     lastCheckAtRef.current = now;
 
-    // Quick shortcut: if browser claims offline, treat as offline immediately.
-    if (!navigator.onLine) {
+    // Quick shortcut: if force offline or browser claims offline, treat as offline immediately.
+    if (localStorage.getItem('force_offline_mode') === 'true' || !navigator.onLine) {
       failureCountRef.current = 3;
       setIsOnline(false);
       if (!hasCompletedFirstCheck.current) {
