@@ -14,10 +14,30 @@ export function OfflineRedirect() {
     if (isChecking) return;
     // Only redirect when offline
     if (isOnline) return;
-    if (OFFLINE_ROUTES.includes(location.pathname)) return;
 
     const hasCachedSession = !!localStorage.getItem('cached_user_id');
-    if (hasCachedSession) {
+    let hasOfflineTemplates = false;
+    try {
+      const manifestRaw = localStorage.getItem('offline_manifest');
+      if (manifestRaw) {
+        const manifest = JSON.parse(manifestRaw);
+        hasOfflineTemplates = Boolean(manifest?.offlineReady && manifest?.templateCount > 0);
+      }
+    } catch {
+      // Ignore parse errors and fall back to session-only behavior
+    }
+
+    const hasOfflineAccess = hasCachedSession || hasOfflineTemplates;
+
+    // Cold-start offline should never get stuck on /auth if local data exists.
+    if (location.pathname === '/auth' && hasOfflineAccess) {
+      navigate('/scan', { replace: true });
+      return;
+    }
+
+    if (OFFLINE_ROUTES.includes(location.pathname)) return;
+
+    if (hasOfflineAccess) {
       navigate('/scan', { replace: true });
     } else {
       navigate('/auth', { replace: true });

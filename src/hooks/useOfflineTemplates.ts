@@ -714,6 +714,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
             const manifest = {
               templateCount: allTemplates[0].values.length,
               templateIds: allTemplates[0].values.map(r => r[0]),
+              lastTemplateId: toAdd[toAdd.length - 1] ?? templateIds[templateIds.length - 1] ?? null,
               lastSyncedAt: new Date().toISOString(),
               offlineReady: true,
             };
@@ -1148,6 +1149,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       const sourceDb = new _sqlRef.Database(data as any);
 
       let imported = 0;
+      let lastImportedLocalId: string | null = null;
       const total = selectedIds.length;
 
       for (let i = 0; i < selectedIds.length; i++) {
@@ -1196,6 +1198,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
           }
         }
 
+        lastImportedLocalId = newLocalId;
         imported++;
         onProgress?.(Math.round(((i + 1) / total) * 100));
       }
@@ -1211,6 +1214,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
           const manifest = {
             templateCount: allTemplates[0].values.length,
             templateIds: allTemplates[0].values.map(r => r[0]),
+            lastTemplateId: imported > 0 ? lastImportedLocalId : null,
             lastSyncedAt: new Date().toISOString(),
             offlineReady: true,
           };

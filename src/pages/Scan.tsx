@@ -338,6 +338,7 @@ const Scan = () => {
 
   const [scanRows, setScanRows] = useState<ScanRow[]>([createEmptyRow()]);
   const [activeRowIndex, setActiveRowIndex] = useState(0);
+  const coldStartRestoreAttemptedRef = useRef(false);
   const [activeColKey, setActiveColKey] = useState<string | null>(null);
   const { pushUndo, undo, redo, clear: clearUndoHistory } = useScanUndoRedo();
   
@@ -688,6 +689,18 @@ const Scan = () => {
     setScanRows([createEmptyRow()]); // Start with empty row
     setActiveRowIndex(0);
     clearUndoHistory();
+
+    try {
+      const manifestRaw = localStorage.getItem('offline_manifest');
+      const manifest = manifestRaw ? JSON.parse(manifestRaw) : {};
+      localStorage.setItem('offline_manifest', JSON.stringify({
+        ...manifest,
+        lastTemplateId: template.id,
+        offlineReady: true,
+      }));
+    } catch {
+      // Ignore manifest parse/write issues
+    }
     
     // Load sections and cost sheets for this template
     await Promise.all([
@@ -695,6 +708,42 @@ const Scan = () => {
       loadAvailableCostSheets(template.id),
     ]);
   };
+
+  useEffect(() => {
+    if (isOnline || offlineLoading || selectedTemplate || templates.length === 0) return;
+    if (coldStartRestoreAttemptedRef.current) return;
+    coldStartRestoreAttemptedRef.current = true;
+
+    let preferredTemplateId: string | null = null;
+
+    try {
+      const manifestRaw = localStorage.getItem('offline_manifest');
+      if (manifestRaw) {
+        const manifest = JSON.parse(manifestRaw);
+        preferredTemplateId = manifest?.lastTemplateId ?? null;
+      }
+    } catch {
+      // Ignore parse errors
+    }
+
+    if (!preferredTemplateId) {
+      try {
+        const savedLocation = localStorage.getItem('last_scan_location');
+        if (savedLocation) {
+          preferredTemplateId = JSON.parse(savedLocation).templateId ?? null;
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    if (!preferredTemplateId) return;
+
+    const templateToRestore = templates.find(t => t.id === preferredTemplateId);
+    if (templateToRestore) {
+      void handleSelectTemplate(templateToRestore);
+    }
+  }, [isOnline, offlineLoading, selectedTemplate, templates, handleSelectTemplate]);
 
   // Add new section
   const handleAddSection = async () => {
