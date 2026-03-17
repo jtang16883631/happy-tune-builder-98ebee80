@@ -635,9 +635,8 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
 
             // Use parallel .range() fetching with retry
             let offset = 0;
-            let done = false;
-            while (!done) {
-              const rangePromises = [];
+            while (true) {
+              const rangePromises: Array<ReturnType<typeof fetchRangeWithRetry>> = [];
               for (let p = 0; p < CONCURRENCY; p++) {
                 const from = offset + p * BATCH_SIZE;
                 const to = from + BATCH_SIZE - 1;
@@ -649,25 +648,29 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
 
               const results = await Promise.all(rangePromises);
 
+              // Sort results by their starting offset so we process in order
+              results.sort((a, b) => a.from - b.from);
+
               let batchTotal = 0;
+              let highestFullBatchFrom = -1;
               for (const res of results) {
                 if (res.error) throw res.error;
-                if (!res.data || res.data.length === 0) {
-                  done = true;
-                  continue;
-                }
+                if (!res.data || res.data.length === 0) continue;
                 for (const c of res.data) {
                   costStmt.run([c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null, c.billing_date ?? null, c.manufacturer ?? null, c.generic ?? null, c.strength ?? null, c.size ?? null, c.dose ?? null]);
                 }
                 batchTotal += res.data.length;
-                if (res.data.length < BATCH_SIZE) done = true;
+                if (res.data.length === BATCH_SIZE) {
+                  highestFullBatchFrom = res.from;
+                }
               }
 
               totalCostItemsFetched += batchTotal;
               offset += CONCURRENCY * BATCH_SIZE;
               setSyncProgress(prev => ({ ...prev, costItemsFetched: totalCostItemsFetched }));
 
-              if (batchTotal === 0) break;
+              // Stop only when NO batch in this cycle returned a full page
+              if (batchTotal === 0 || highestFullBatchFrom < 0) break;
             }
             costStmt.free();
             console.log(`[OfflineDB] Fetched ${totalCostItemsFetched} cost items for ${ct.name} (expected ${totalExpected})`);
