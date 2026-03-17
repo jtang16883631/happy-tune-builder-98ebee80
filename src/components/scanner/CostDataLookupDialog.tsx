@@ -63,13 +63,7 @@ const ALL_COLUMNS: ColumnDef[] = [
   { key: 'dose', label: 'Dose', minWidth: 50, defaultWidth: 60 },
 ];
 
-const OFFLINE_COLUMNS: ColumnDef[] = [
-  { key: 'ndc', label: 'NDC', minWidth: 80, defaultWidth: 140 },
-  { key: 'material_description', label: 'Product Description', minWidth: 150, defaultWidth: 350 },
-  { key: 'unit_price', label: 'Invoice Price', minWidth: 80, defaultWidth: 110 },
-  { key: 'source', label: 'Source', minWidth: 60, defaultWidth: 120 },
-  { key: 'material', label: 'ABC 6', minWidth: 60, defaultWidth: 100 },
-];
+const OFFLINE_COLUMNS: ColumnDef[] = ALL_COLUMNS;
 
 const MIN_WIDTH = 400;
 const MIN_HEIGHT = 300;
