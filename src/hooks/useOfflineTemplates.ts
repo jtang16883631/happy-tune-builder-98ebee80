@@ -152,6 +152,41 @@ const loadFromIndexedDB = async <T>(key: string): Promise<T | null> => {
 
 const generateId = () => crypto.randomUUID();
 
+const ensureOfflineSchema = async (database: Database, persist = false): Promise<void> => {
+  database.run(SCHEMA_SQL);
+
+  try {
+    const costItemsInfo = database.exec(`PRAGMA table_info(cost_items)`);
+    const existingColumns = new Set((costItemsInfo[0]?.values ?? []).map((row: any[]) => String(row[1])));
+    const missingColumns = [
+      'billing_date TEXT',
+      'manufacturer TEXT',
+      'generic TEXT',
+      'strength TEXT',
+      'size TEXT',
+      'dose TEXT',
+    ].filter(def => !existingColumns.has(def.split(' ')[0]));
+
+    for (const columnDef of missingColumns) {
+      database.run(`ALTER TABLE cost_items ADD COLUMN ${columnDef}`);
+    }
+
+    const templateInfo = database.exec(`PRAGMA table_info(templates)`);
+    const templateColumns = new Set((templateInfo[0]?.values ?? []).map((row: any[]) => String(row[1])));
+    if (!templateColumns.has('address')) {
+      database.run(`ALTER TABLE templates ADD COLUMN address TEXT`);
+    }
+
+    if (persist && (missingColumns.length > 0 || !templateColumns.has('address'))) {
+      await _saveDatabase(database);
+      console.log('[OfflineDB] Schema repaired for existing local database');
+    }
+  } catch (schemaErr) {
+    console.error('[OfflineDB] Schema repair failed:', schemaErr);
+    throw schemaErr;
+  }
+};
+
 // ─── Module-level singleton ───────────────────────────────────────
 // All hook instances share a single SQLite database to prevent race
 // conditions where multiple instances overwrite each other's data.
