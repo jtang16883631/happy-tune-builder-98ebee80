@@ -152,6 +152,41 @@ const loadFromIndexedDB = async <T>(key: string): Promise<T | null> => {
 
 const generateId = () => crypto.randomUUID();
 
+const ensureOfflineSchema = async (database: Database, persist = false): Promise<void> => {
+  database.run(SCHEMA_SQL);
+
+  try {
+    const costItemsInfo = database.exec(`PRAGMA table_info(cost_items)`);
+    const existingColumns = new Set((costItemsInfo[0]?.values ?? []).map((row: any[]) => String(row[1])));
+    const missingColumns = [
+      'billing_date TEXT',
+      'manufacturer TEXT',
+      'generic TEXT',
+      'strength TEXT',
+      'size TEXT',
+      'dose TEXT',
+    ].filter(def => !existingColumns.has(def.split(' ')[0]));
+
+    for (const columnDef of missingColumns) {
+      database.run(`ALTER TABLE cost_items ADD COLUMN ${columnDef}`);
+    }
+
+    const templateInfo = database.exec(`PRAGMA table_info(templates)`);
+    const templateColumns = new Set((templateInfo[0]?.values ?? []).map((row: any[]) => String(row[1])));
+    if (!templateColumns.has('address')) {
+      database.run(`ALTER TABLE templates ADD COLUMN address TEXT`);
+    }
+
+    if (persist && (missingColumns.length > 0 || !templateColumns.has('address'))) {
+      await _saveDatabase(database);
+      console.log('[OfflineDB] Schema repaired for existing local database');
+    }
+  } catch (schemaErr) {
+    console.error('[OfflineDB] Schema repair failed:', schemaErr);
+    throw schemaErr;
+  }
+};
+
 // ─── Module-level singleton ───────────────────────────────────────
 // All hook instances share a single SQLite database to prevent race
 // conditions where multiple instances overwrite each other's data.
@@ -233,54 +268,7 @@ async function _doInit(): Promise<Database | null> {
 
       if (savedDb) {
         _db = new SQL.Database(savedDb);
-        // Run v1 migration if needed
-        const migrationDone = await loadFromIndexedDB<boolean>('migration_v1_done');
-        if (!migrationDone) {
-          try {
-            _db.run(`CREATE TABLE IF NOT EXISTS templates_new (
-              id TEXT PRIMARY KEY, cloud_id TEXT, user_id TEXT, name TEXT NOT NULL,
-              inv_date TEXT, facility_name TEXT, inv_number TEXT, cost_file_name TEXT,
-              job_ticket_file_name TEXT, status TEXT DEFAULT 'active',
-              created_at TEXT NOT NULL, updated_at TEXT NOT NULL, is_dirty INTEGER DEFAULT 0
-            )`);
-            _db.run(`INSERT OR IGNORE INTO templates_new SELECT * FROM templates`);
-            _db.run(`DROP TABLE templates`);
-            _db.run(`ALTER TABLE templates_new RENAME TO templates`);
-            _db.run(`CREATE INDEX IF NOT EXISTS idx_templates_date ON templates(inv_date DESC)`);
-            _db.run(`CREATE INDEX IF NOT EXISTS idx_templates_cloud ON templates(cloud_id)`);
-            await _saveDatabase();
-            await saveToIndexedDB('migration_v1_done', true);
-            console.log('[OfflineDB] Migration v1 complete');
-          } catch {
-            await saveToIndexedDB('migration_v1_done', true);
-          }
-        }
-        // Run v2 migration: add address column
-        const migrationV2Done = await loadFromIndexedDB<boolean>('migration_v2_done');
-        if (!migrationV2Done) {
-          try {
-            _db.run(`ALTER TABLE templates ADD COLUMN address TEXT`);
-            await _saveDatabase();
-            console.log('[OfflineDB] Migration v2 complete (added address column)');
-          } catch {
-            // Column may already exist
-          }
-          await saveToIndexedDB('migration_v2_done', true);
-        }
-        // Run v3 migration: add extended cost columns to cost_items
-        const migrationV3Done = await loadFromIndexedDB<boolean>('migration_v3_done');
-        if (!migrationV3Done) {
-          try {
-            const colsToAdd = ['billing_date TEXT', 'manufacturer TEXT', 'generic TEXT', 'strength TEXT', 'size TEXT', 'dose TEXT'];
-            for (const col of colsToAdd) {
-              try { _db.run(`ALTER TABLE cost_items ADD COLUMN ${col}`); } catch { /* column may exist */ }
-            }
-            await _saveDatabase();
-            console.log('[OfflineDB] Migration v3 complete (added extended cost columns)');
-          } catch {}
-          await saveToIndexedDB('migration_v3_done', true);
-        }
-        _db.run(SCHEMA_SQL);
+        await ensureOfflineSchema(_db, true);
 
         try {
           const tc = _db.exec('SELECT COUNT(*) FROM templates');
@@ -311,7 +299,7 @@ async function _doInit(): Promise<Database | null> {
         } catch {}
       } else {
         _db = new SQL.Database();
-        _db.run(SCHEMA_SQL);
+        await ensureOfflineSchema(_db);
         console.log('[OfflineDB] Created fresh database (not persisted until data is added)');
         
         try {
@@ -550,6 +538,9 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     success: boolean; synced: number; error?: string;
   }> => {
     const activeDb = db || await _ensureDb();
+    if (activeDb) {
+      await ensureOfflineSchema(activeDb, true);
+    }
     if (!activeDb || !user || !isOnline) {
       const reason = !activeDb ? 'Local database not ready — please reload' : !user ? 'Not authenticated' : 'No internet connection';
       return { success: false, synced: 0, error: reason };
@@ -725,6 +716,9 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
   // ── Pull all from cloud ───────────────────────────────────────
 
   const pullFromCloud = useCallback(async (): Promise<{ success: boolean; pulled: number; error?: string }> => {
+    if (db) {
+      await ensureOfflineSchema(db, true);
+    }
     if (!db || !user || !isOnline) {
       const reason = !db ? 'Local database not ready' : !user ? 'Not authenticated' : 'No internet connection';
       return { success: false, pulled: 0, error: reason };
