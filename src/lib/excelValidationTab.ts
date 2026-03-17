@@ -275,6 +275,10 @@ export function createValidationWorksheet(
   ]);
 
   // Data rows - align all three sections
+  // Calculate totals for "Sum of Entries" - single cell showing total of all # of Entries
+  const totalEmpEntries = employeeAnalytics.reduce((sum, e) => sum + e.entryCount, 0);
+  const totalSecEntries = sectionAnalytics.reduce((sum, s) => sum + s.entryCount, 0);
+
   const maxRows = Math.max(balanceChecks.length, employeeAnalytics.length, sectionAnalytics.length);
   
   for (let i = 0; i < maxRows; i++) {
@@ -298,7 +302,7 @@ export function createValidationWorksheet(
       empRow?.firstRecordTime || '',
       empRow?.lastRecordTime || '',
       empRow?.entryCount ?? '',
-      empRow?.sumOfEntries ?? '',
+      i === 0 ? totalEmpEntries : '', // Sum of Entries: single total cell on first row only
       // Section analytics columns (O-V)
       '',
       secRow?.section || '',
@@ -307,7 +311,7 @@ export function createValidationWorksheet(
       secRow?.timeOut || '',
       secRow?.minHours ?? '',
       secRow?.entryCount ?? '',
-      secRow?.sumOfEntries ?? '',
+      i === 0 ? totalSecEntries : '', // Sum of Entries: single total cell on first row only
     ]);
   }
 
