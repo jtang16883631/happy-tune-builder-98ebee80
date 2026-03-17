@@ -1027,8 +1027,8 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
           );
           for (const { data: items } of pageResults) {
             for (const c of items ?? []) {
-              exportDb.run(`INSERT INTO cost_items VALUES (?,?,?,?,?,?,?,?)`,
-                [generateId(), exportId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null]);
+              exportDb.run(`INSERT INTO cost_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                [generateId(), exportId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null, c.billing_date ?? null, c.manufacturer ?? null, c.generic ?? null, c.strength ?? null, c.size ?? null, c.dose ?? null]);
               costItemCount++;
             }
           }
