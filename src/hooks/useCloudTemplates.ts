@@ -80,8 +80,7 @@ export function useCloudTemplates() {
         from += pageSize;
       }
 
-      if (fetchError) throw fetchError;
-      setTemplates((data || []) as CloudTemplate[]);
+      setTemplates(allTemplates as CloudTemplate[]);
       setError(null);
     } catch (err: any) {
       console.error('Error fetching templates:', err);
