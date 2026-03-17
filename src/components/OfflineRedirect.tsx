@@ -42,7 +42,8 @@ function useOnlineStatusFull(): { isOnline: boolean; isChecking: boolean } {
   const hasCompletedFirstCheck = useRef<boolean>(false);
 
   const checkBackendReachable = useCallback(async (): Promise<boolean> => {
-    // Quick shortcut: if browser claims offline, trust it immediately.
+    // Quick shortcut: if force offline or browser claims offline, trust it immediately.
+    if (localStorage.getItem('force_offline_mode') === 'true') return false;
     if (!navigator.onLine) return false;
 
     const baseUrl = import.meta.env.VITE_SUPABASE_URL;
