@@ -267,6 +267,19 @@ async function _doInit(): Promise<Database | null> {
           }
           await saveToIndexedDB('migration_v2_done', true);
         }
+        // Run v3 migration: add extended cost columns to cost_items
+        const migrationV3Done = await loadFromIndexedDB<boolean>('migration_v3_done');
+        if (!migrationV3Done) {
+          try {
+            const colsToAdd = ['billing_date TEXT', 'manufacturer TEXT', 'generic TEXT', 'strength TEXT', 'size TEXT', 'dose TEXT'];
+            for (const col of colsToAdd) {
+              try { _db.run(`ALTER TABLE cost_items ADD COLUMN ${col}`); } catch { /* column may exist */ }
+            }
+            await _saveDatabase();
+            console.log('[OfflineDB] Migration v3 complete (added extended cost columns)');
+          } catch {}
+          await saveToIndexedDB('migration_v3_done', true);
+        }
         _db.run(SCHEMA_SQL);
 
         try {
