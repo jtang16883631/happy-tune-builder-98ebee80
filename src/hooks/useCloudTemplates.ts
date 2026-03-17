@@ -66,7 +66,7 @@ export function useCloudTemplates() {
       // Fetch all templates (Supabase defaults to 1000 row limit)
       let allTemplates: any[] = [];
       let from = 0;
-      const pageSize = 2000;
+      const pageSize = 1000;
       while (true) {
         const { data, error: fetchError } = await supabase
           .from('data_templates')
