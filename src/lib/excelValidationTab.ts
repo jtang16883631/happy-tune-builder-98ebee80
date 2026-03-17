@@ -146,8 +146,9 @@ export function buildValidationData(
         empData.timeStrings.push(time);
       }
       empData.entryCount += 1;
-      if (typeof extended === 'number') {
-        empData.sumOfEntries += extended;
+      const qty = record.qty ?? 0;
+      if (typeof qty === 'number') {
+        empData.sumOfEntries += qty;
       }
 
       // Also aggregate for employee analytics
