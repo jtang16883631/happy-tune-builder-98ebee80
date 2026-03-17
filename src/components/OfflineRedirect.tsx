@@ -31,8 +31,10 @@ export function OfflineRedirect() {
 // Internal full hook – returns { isOnline, isChecking }
 // -----------------------------------------------------------------------
 function useOnlineStatusFull(): { isOnline: boolean; isChecking: boolean } {
+  // Force offline mode — user toggled this to avoid unstable WiFi interruptions
+  const forceOffline = localStorage.getItem('force_offline_mode') === 'true';
   // If navigator.onLine is false at mount time, skip async checking entirely.
-  const navigatorOffline = !navigator.onLine;
+  const navigatorOffline = !navigator.onLine || forceOffline;
   const [isOnline, setIsOnline] = useState<boolean>(false);
   const [isChecking, setIsChecking] = useState<boolean>(!navigatorOffline);
   const lastCheckAtRef = useRef<number>(0);
