@@ -930,7 +930,8 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         CREATE TABLE sections (id TEXT PRIMARY KEY, template_id TEXT NOT NULL, sect TEXT NOT NULL,
           description TEXT, full_section TEXT, cost_sheet TEXT);
         CREATE TABLE cost_items (id TEXT PRIMARY KEY, template_id TEXT NOT NULL, ndc TEXT,
-          material_description TEXT, unit_price REAL, source TEXT, material TEXT, sheet_name TEXT);
+          material_description TEXT, unit_price REAL, source TEXT, material TEXT, sheet_name TEXT,
+          billing_date TEXT, manufacturer TEXT, generic TEXT, strength TEXT, size TEXT, dose TEXT);
       `);
 
       let sectionCount = 0, costItemCount = 0;
@@ -942,8 +943,8 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         const sectResult = db.exec(`SELECT id, template_id, sect, description, full_section, cost_sheet FROM sections WHERE template_id = ?`, [t.id]);
         if (sectResult.length > 0) { for (const row of sectResult[0].values) { exportDb.run(`INSERT INTO sections VALUES (?,?,?,?,?,?)`, row as any[]); sectionCount++; } }
 
-        const costResult = db.exec(`SELECT id, template_id, ndc, material_description, unit_price, source, material, sheet_name FROM cost_items WHERE template_id = ?`, [t.id]);
-        if (costResult.length > 0) { for (const row of costResult[0].values) { exportDb.run(`INSERT INTO cost_items VALUES (?,?,?,?,?,?,?,?)`, row as any[]); costItemCount++; } }
+        const costResult = db.exec(`SELECT id, template_id, ndc, material_description, unit_price, source, material, sheet_name, billing_date, manufacturer, generic, strength, size, dose FROM cost_items WHERE template_id = ?`, [t.id]);
+        if (costResult.length > 0) { for (const row of costResult[0].values) { exportDb.run(`INSERT INTO cost_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, row as any[]); costItemCount++; } }
       }
 
       const dbData = exportDb.export();
