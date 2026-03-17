@@ -1022,7 +1022,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
           }
 
           const BATCH_SIZE = 500;
-          let lastId = '';
+          let lastId = '00000000-0000-0000-0000-000000000000';
 
           while (true) {
             const { data: items, error: itemsError } = await supabase
