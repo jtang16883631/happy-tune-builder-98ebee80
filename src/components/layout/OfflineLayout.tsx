@@ -2,7 +2,6 @@ import { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ClipboardList, Database, CloudOff, FileSpreadsheet, Wifi } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { QuickClockPanel } from '@/components/timesheet/QuickClockPanel';
 import { Button } from '@/components/ui/button';
 import { isForceOfflineMode, setForceOfflineMode } from '@/components/OfflineRedirect';
 
@@ -23,14 +22,6 @@ const offlineTabs = [
  */
 export function OfflineLayout({ children }: OfflineLayoutProps) {
   const location = useLocation();
-  const cachedUserId = localStorage.getItem('cached_user_id');
-  const cachedUserRole: string | null = (() => {
-    try {
-      const raw = cachedUserId ? localStorage.getItem(`cached_roles:${cachedUserId}`) : null;
-      const roles: string[] = raw ? JSON.parse(raw) : [];
-      return roles[0] ?? null;
-    } catch { return null; }
-  })();
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -81,12 +72,6 @@ export function OfflineLayout({ children }: OfflineLayoutProps) {
         })}
       </nav>
 
-      {/* Quick Clock Panel (offline) */}
-      {cachedUserId && (
-        <div className="px-6 pt-4">
-          <QuickClockPanel userId={cachedUserId} userRole={cachedUserRole} />
-        </div>
-      )}
 
       {/* Content */}
       <main className="flex-1 p-6 w-full">
