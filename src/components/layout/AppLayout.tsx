@@ -332,6 +332,19 @@ export function AppLayout({ children, fullWidth = false, defaultCollapsed = fals
           <Button
             variant="ghost"
             size="sm"
+            onClick={() => {
+              setForceOfflineMode(true);
+              window.location.reload();
+            }}
+            className="w-full justify-start gap-2 text-white/70 hover:text-white hover:bg-white/10"
+            title="Switch to offline mode for uninterrupted scanning on unstable WiFi"
+          >
+            <WifiOff className="h-4 w-4" />
+            Force Offline Mode
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => signOut()}
             className="w-full justify-start gap-2 text-white/70 hover:text-white hover:bg-white/10"
           >
