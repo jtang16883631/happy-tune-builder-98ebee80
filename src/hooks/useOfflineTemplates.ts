@@ -1368,8 +1368,33 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
         const likeQuery = `%${query}%`;
         let sql = `SELECT rowid as id, ndc, material_description, unit_price, source, material, sheet_name, billing_date, manufacturer, generic, strength, size, dose
                    FROM cost_items WHERE template_id = ?
-                   AND (ndc LIKE ? OR material_description LIKE ? OR material LIKE ? OR manufacturer LIKE ? OR generic LIKE ?)`;
-        const params: any[] = [templateId, likeQuery, likeQuery, likeQuery, likeQuery, likeQuery];
+                   AND (
+                     ndc LIKE ? OR
+                     material_description LIKE ? OR
+                     material LIKE ? OR
+                     manufacturer LIKE ? OR
+                     generic LIKE ? OR
+                     strength LIKE ? OR
+                     size LIKE ? OR
+                     dose LIKE ? OR
+                     source LIKE ? OR
+                     billing_date LIKE ? OR
+                     sheet_name LIKE ?
+                   )`;
+        const params: any[] = [
+          templateId,
+          likeQuery,
+          likeQuery,
+          likeQuery,
+          likeQuery,
+          likeQuery,
+          likeQuery,
+          likeQuery,
+          likeQuery,
+          likeQuery,
+          likeQuery,
+          likeQuery,
+        ];
         if (sheetName) {
           sql += ` AND sheet_name = ?`;
           params.push(sheetName);
