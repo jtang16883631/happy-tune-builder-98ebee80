@@ -338,6 +338,7 @@ const Scan = () => {
 
   const [scanRows, setScanRows] = useState<ScanRow[]>([createEmptyRow()]);
   const [activeRowIndex, setActiveRowIndex] = useState(0);
+  const coldStartRestoreAttemptedRef = useRef(false);
   const [activeColKey, setActiveColKey] = useState<string | null>(null);
   const { pushUndo, undo, redo, clear: clearUndoHistory } = useScanUndoRedo();
   
