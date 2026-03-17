@@ -603,8 +603,8 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
             }
 
             setSyncProgress(prev => ({ ...prev, status: 'fetching_cost_items', costItemsFetched: 0 }));
-            const BATCH_SIZE = 2000;
-            const CONCURRENCY = 3;
+            const BATCH_SIZE = 1000;
+            const CONCURRENCY = 6;
             const MAX_RETRIES = 3;
             const totalExpected = countResult.count ?? 0;
             let totalCostItemsFetched = 0;
