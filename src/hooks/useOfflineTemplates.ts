@@ -931,11 +931,13 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
             await supabase.from('template_sections').insert(sectionInserts);
           }
 
-          const costResult = db.exec(`SELECT ndc, material_description, unit_price, source, material, sheet_name FROM cost_items WHERE template_id = ?`, [template.id]);
+          const costResult = db.exec(`SELECT ndc, material_description, unit_price, source, material, sheet_name, billing_date, manufacturer, generic, strength, size, dose FROM cost_items WHERE template_id = ?`, [template.id]);
           if (costResult.length > 0) {
             const costInserts = costResult[0].values.map((c: any[]) => ({
               template_id: newTemplate.id, ndc: c[0], material_description: c[1], unit_price: c[2],
-              source: c[3], material: c[4], sheet_name: c[5] ?? null,
+              source: c[3], material: c[4], sheet_name: c[5] ?? null, billing_date: c[6] ?? null,
+              manufacturer: c[7] ?? null, generic: c[8] ?? null, strength: c[9] ?? null,
+              size: c[10] ?? null, dose: c[11] ?? null,
             }));
             const batchSize = 500;
             for (let i = 0; i < costInserts.length; i += batchSize) {

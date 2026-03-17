@@ -1366,8 +1366,8 @@ export function useDataTemplates() {
         for (const item of costItems) {
           if (!item.ndc) continue;
           tempDb.run(`
-            INSERT INTO cost_items (template_id, ndc, material_description, unit_price, source, material, sheet_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO cost_items (template_id, ndc, material_description, unit_price, source, material, sheet_name, billing_date, manufacturer, generic, strength, size, dose)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `, [
             localId,
             truncate(item.ndc, 50),
@@ -1375,7 +1375,13 @@ export function useDataTemplates() {
             item.unit_price,
             truncate(item.source, 50),
             truncate(item.material, 50),
-            truncate(item.sheet_name, 50)
+            truncate(item.sheet_name, 50),
+            truncate(item.billing_date, 50),
+            truncate(item.manufacturer, 100),
+            truncate(item.generic, 200),
+            truncate(item.strength, 50),
+            truncate(item.size, 50),
+            truncate(item.dose, 50),
           ]);
         }
       }
