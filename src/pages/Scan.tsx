@@ -2116,7 +2116,7 @@ const Scan = () => {
         validationData.sectionAnalytics,
         validationData.totalSheets,
         validationData.inBalance,
-        11, // Summary sheet section data starts at row 11 in new layout
+        17, // Summary sheet section data starts at row 17 in styled layout
         sectionSheetNames // Pass sheet names for Master formula references
       );
       

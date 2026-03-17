@@ -162,8 +162,9 @@ export function buildValidationData(
         globalEmpData.timeStrings.push(time);
       }
       globalEmpData.entryCount += 1;
-      if (typeof extended === 'number') {
-        globalEmpData.sumOfEntries += extended;
+      const globalQty = record.qty ?? 0;
+      if (typeof globalQty === 'number') {
+        globalEmpData.sumOfEntries += globalQty;
       }
     });
 
