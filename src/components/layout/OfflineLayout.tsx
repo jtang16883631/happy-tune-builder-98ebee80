@@ -72,12 +72,6 @@ export function OfflineLayout({ children }: OfflineLayoutProps) {
         })}
       </nav>
 
-      {/* Quick Clock Panel (offline) */}
-      {cachedUserId && (
-        <div className="px-6 pt-4">
-          <QuickClockPanel userId={cachedUserId} userRole={cachedUserRole} />
-        </div>
-      )}
 
       {/* Content */}
       <main className="flex-1 p-6 w-full">
