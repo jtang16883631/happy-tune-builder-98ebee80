@@ -22,14 +22,6 @@ const offlineTabs = [
  */
 export function OfflineLayout({ children }: OfflineLayoutProps) {
   const location = useLocation();
-  const cachedUserId = localStorage.getItem('cached_user_id');
-  const cachedUserRole: string | null = (() => {
-    try {
-      const raw = cachedUserId ? localStorage.getItem(`cached_roles:${cachedUserId}`) : null;
-      const roles: string[] = raw ? JSON.parse(raw) : [];
-      return roles[0] ?? null;
-    } catch { return null; }
-  })();
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
