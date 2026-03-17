@@ -756,23 +756,28 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
                 [s.id, localId, s.sect, s.description, s.full_section, s.cost_sheet ?? null]);
             }
 
-            const PAGE_SIZE = 1000;
-            const totalCount = countResult.count || 0;
-            const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-            const pageNumbers = Array.from({ length: Math.max(totalPages, 1) }, (_, i) => i);
-            const pageResults = await Promise.all(
-              pageNumbers.map(page =>
-                supabase.from('template_cost_items')
-                  .select('id, ndc, material_description, unit_price, source, material, sheet_name, billing_date, manufacturer, generic, strength, size, dose')
-                  .eq('template_id', ct.id)
-                  .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1))
-            );
+            const BATCH_SIZE = 500;
+            let lastId = '';
             const costStmt = db.prepare(`INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name, billing_date, manufacturer, generic, strength, size, dose) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-            for (const { data: costItems, error: costError } of pageResults) {
-              if (costError) continue;
-              for (const c of costItems || []) {
+
+            while (true) {
+              const { data: costItems, error: costError } = await supabase
+                .from('template_cost_items')
+                .select('id, ndc, material_description, unit_price, source, material, sheet_name, billing_date, manufacturer, generic, strength, size, dose')
+                .eq('template_id', ct.id)
+                .gt('id', lastId)
+                .order('id', { ascending: true })
+                .limit(BATCH_SIZE);
+
+              if (costError) throw costError;
+              if (!costItems || costItems.length === 0) break;
+
+              for (const c of costItems) {
                 costStmt.run([c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null, c.billing_date ?? null, c.manufacturer ?? null, c.generic ?? null, c.strength ?? null, c.size ?? null, c.dose ?? null]);
               }
+
+              lastId = costItems[costItems.length - 1].id;
+              if (costItems.length < BATCH_SIZE) break;
             }
             costStmt.free();
             db.run('COMMIT');
