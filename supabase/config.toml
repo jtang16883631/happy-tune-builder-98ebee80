@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.bulk-export-cost-items]
 verify_jwt = false
+
+[functions.build-offline-package]
+verify_jwt = false
