@@ -16,61 +16,138 @@ export interface ImportJobStatus {
 }
 
 /**
- * Upload a cost Excel file to storage and kick off server-side import.
- * Returns the job_id for polling.
+ * Parse Excel client-side, create import job, send parsed rows in chunks
+ * to the backend for bulk SQL insert, then call finalize for merge + package build.
  */
 async function startCostImportJob(
   templateId: string,
   userId: string,
   costFile: File,
-  costFileName: string
+  costFileName: string,
+  onChunkProgress?: (sent: number, total: number) => void
 ): Promise<{ jobId: string } | { error: string }> {
-  const filePath = `cost-imports/${templateId}/${Date.now()}-${costFileName}`;
+  const XLSX = await import('xlsx');
+  const CHUNK_SIZE = 10000; // rows per request
 
-  // 1. Upload file to storage
-  const { error: uploadErr } = await supabase.storage
-    .from('uploads')
-    .upload(filePath, costFile, { upsert: true });
+  // 1. Parse Excel client-side
+  console.log(`[CostImport] Parsing ${costFileName} client-side...`);
+  const arrayBuffer = await costFile.arrayBuffer();
+  const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
 
-  if (uploadErr) {
-    return { error: `Upload failed: ${uploadErr.message}` };
+  const allRows: any[] = [];
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) continue;
+    const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null });
+    if (rows.length <= 1) continue;
+
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row || !row[0] || String(row[0]).trim().length === 0) continue;
+
+      let billingDate: string | null = null;
+      if (row[5] != null && String(row[5]).trim()) {
+        if (typeof row[5] === 'number') {
+          const d = new Date((row[5] - 25569) * 86400 * 1000);
+          billingDate = d.toISOString().split('T')[0];
+        } else {
+          const parsed = new Date(String(row[5]));
+          billingDate = isNaN(parsed.getTime()) ? String(row[5]).substring(0, 50) : parsed.toISOString().split('T')[0];
+        }
+      }
+
+      allRows.push({
+        ndc: row[0] != null ? String(row[0]).trim().substring(0, 50) : null,
+        material_description: row[1] != null ? String(row[1]).trim().substring(0, 255) : null,
+        unit_price: row[2] != null ? parseFloat(String(row[2])) : null,
+        source: row[3] != null ? String(row[3]).trim().substring(0, 255) : null,
+        material: row[4] != null ? String(row[4]).trim().substring(0, 50) : null,
+        billing_date: billingDate,
+        manufacturer: row[6] != null ? String(row[6]).trim().substring(0, 255) : null,
+        generic: row[7] != null ? String(row[7]).trim().substring(0, 255) : null,
+        strength: row[8] != null ? String(row[8]).trim().substring(0, 100) : null,
+        size: row[9] != null ? String(row[9]).trim().substring(0, 50) : null,
+        dose: row[10] != null ? String(row[10]).trim().substring(0, 100) : null,
+        sheet_name: sheetName.substring(0, 50),
+      });
+    }
   }
 
-  // 2. Create import job record
+  console.log(`[CostImport] Parsed ${allRows.length} rows from ${workbook.SheetNames.length} sheets`);
+
+  if (allRows.length === 0) {
+    return { error: 'No data rows found in the Excel file' };
+  }
+
+  // 2. Create import job record (no file upload needed)
   const { data: job, error: jobErr } = await supabase
     .from('import_jobs')
     .insert({
       template_id: templateId,
       user_id: userId,
-      file_path: filePath,
+      file_path: `client-parsed/${templateId}/${Date.now()}`,
       cost_file_name: costFileName,
       status: 'pending',
+      total_rows: allRows.length,
     })
     .select('id')
     .single();
 
   if (jobErr || !job) {
-    // Cleanup uploaded file
-    await supabase.storage.from('uploads').remove([filePath]);
     return { error: `Job creation failed: ${jobErr?.message || 'Unknown'}` };
   }
 
-  // 3. Invoke edge function (fire-and-forget — we poll status)
+  // 3. Send rows in chunks
   const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) {
     return { error: 'No active session' };
   }
 
-  fetch(`https://${projectId}.supabase.co/functions/v1/process-cost-import`, {
+  const totalChunks = Math.ceil(allRows.length / CHUNK_SIZE);
+  const baseUrl = `https://${projectId}.supabase.co/functions/v1/process-cost-import`;
+  const headers = {
+    'Authorization': `Bearer ${session.access_token}`,
+    'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    'Content-Type': 'application/json',
+  };
+
+  for (let i = 0; i < totalChunks; i++) {
+    const chunk = allRows.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+    onChunkProgress?.(i * CHUNK_SIZE, allRows.length);
+
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        job_id: job.id,
+        action: 'append',
+        rows: chunk,
+        chunk_index: i,
+        total_chunks: totalChunks,
+      }),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text();
+      console.error(`[CostImport] Chunk ${i + 1}/${totalChunks} failed:`, errBody);
+      return { error: `Chunk upload failed: ${errBody}` };
+    }
+  }
+
+  onChunkProgress?.(allRows.length, allRows.length);
+  console.log(`[CostImport] All ${totalChunks} chunks sent, finalizing...`);
+
+  // 4. Call finalize (merge + package build) — fire-and-forget for speed
+  fetch(baseUrl, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${session.access_token}`,
-      'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ job_id: job.id }),
-  }).catch(err => console.warn('[CostImport] Edge function invoke error:', err));
+    headers,
+    body: JSON.stringify({
+      job_id: job.id,
+      action: 'finalize',
+      total_rows: allRows.length,
+    }),
+  }).catch(err => console.warn('[CostImport] Finalize invoke error:', err));
 
   return { jobId: job.id };
 }
