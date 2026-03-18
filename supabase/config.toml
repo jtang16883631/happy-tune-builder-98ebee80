@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.build-offline-package]
 verify_jwt = false
+
+[functions.process-cost-import]
+verify_jwt = false

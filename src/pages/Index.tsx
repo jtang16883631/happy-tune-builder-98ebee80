@@ -303,7 +303,8 @@ const Index = () => {
 
         const result = await importTemplate(
           group.name,
-          costSheets,
+          group.costFile!,     // raw File for server-side upload
+          costSheets,          // kept for backward compat / fallback
           jobTicketData.rawData,
           group.costFile!.name,
           group.jobTicketFile!.name,
@@ -428,7 +429,7 @@ const Index = () => {
       let failCount = 0;
 
       for (const templateId of Array.from(selectedTemplates)) {
-        const result = await updateCostData(templateId, costSheets, file.name);
+        const result = await updateCostData(templateId, file, file.name);
         if (result.success) {
           successCount++;
         } else {

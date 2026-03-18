@@ -472,6 +472,130 @@ export type Database = {
           },
         ]
       }
+      import_jobs: {
+        Row: {
+          avg_batch_ms: number | null
+          completed_at: string | null
+          cost_file_name: string | null
+          created_at: string
+          error_message: string | null
+          file_path: string
+          id: string
+          processed_rows: number | null
+          rows_per_sec: number | null
+          started_at: string | null
+          status: string
+          template_id: string
+          total_rows: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avg_batch_ms?: number | null
+          completed_at?: string | null
+          cost_file_name?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_path: string
+          id?: string
+          processed_rows?: number | null
+          rows_per_sec?: number | null
+          started_at?: string | null
+          status?: string
+          template_id: string
+          total_rows?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avg_batch_ms?: number | null
+          completed_at?: string | null
+          cost_file_name?: string | null
+          created_at?: string
+          error_message?: string | null
+          file_path?: string
+          id?: string
+          processed_rows?: number | null
+          rows_per_sec?: number | null
+          started_at?: string | null
+          status?: string
+          template_id?: string
+          total_rows?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "import_jobs_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "data_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      import_staging_cost_items: {
+        Row: {
+          billing_date: string | null
+          dose: string | null
+          generic: string | null
+          id: string
+          job_id: string
+          manufacturer: string | null
+          material: string | null
+          material_description: string | null
+          ndc: string | null
+          sheet_name: string | null
+          size: string | null
+          source: string | null
+          strength: string | null
+          template_id: string
+          unit_price: number | null
+        }
+        Insert: {
+          billing_date?: string | null
+          dose?: string | null
+          generic?: string | null
+          id?: string
+          job_id: string
+          manufacturer?: string | null
+          material?: string | null
+          material_description?: string | null
+          ndc?: string | null
+          sheet_name?: string | null
+          size?: string | null
+          source?: string | null
+          strength?: string | null
+          template_id: string
+          unit_price?: number | null
+        }
+        Update: {
+          billing_date?: string | null
+          dose?: string | null
+          generic?: string | null
+          id?: string
+          job_id?: string
+          manufacturer?: string | null
+          material?: string | null
+          material_description?: string | null
+          ndc?: string | null
+          sheet_name?: string | null
+          size?: string | null
+          source?: string | null
+          strength?: string | null
+          template_id?: string
+          unit_price?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "import_staging_cost_items_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "import_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       live_tracker_jobs: {
         Row: {
           assigned_to: string | null

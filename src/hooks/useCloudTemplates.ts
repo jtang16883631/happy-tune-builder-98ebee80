@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -23,6 +23,90 @@ async function triggerOfflinePackageBuild(templateId: string) {
       else console.warn(`[OfflinePackage] Build failed for ${templateId}: ${r.status}`);
     }).catch(err => console.warn('[OfflinePackage] Build trigger error:', err));
   } catch { /* ignore */ }
+}
+
+export interface ImportJobStatus {
+  id: string;
+  status: 'pending' | 'processing' | 'merging' | 'complete' | 'failed';
+  total_rows: number;
+  processed_rows: number;
+  rows_per_sec: number;
+  avg_batch_ms: number;
+  error_message: string | null;
+}
+
+/**
+ * Upload a cost Excel file to storage and kick off server-side import.
+ * Returns the job_id for polling.
+ */
+async function startCostImportJob(
+  templateId: string,
+  userId: string,
+  costFile: File,
+  costFileName: string
+): Promise<{ jobId: string } | { error: string }> {
+  const filePath = `cost-imports/${templateId}/${Date.now()}-${costFileName}`;
+
+  // 1. Upload file to storage
+  const { error: uploadErr } = await supabase.storage
+    .from('uploads')
+    .upload(filePath, costFile, { upsert: true });
+
+  if (uploadErr) {
+    return { error: `Upload failed: ${uploadErr.message}` };
+  }
+
+  // 2. Create import job record
+  const { data: job, error: jobErr } = await supabase
+    .from('import_jobs')
+    .insert({
+      template_id: templateId,
+      user_id: userId,
+      file_path: filePath,
+      cost_file_name: costFileName,
+      status: 'pending',
+    })
+    .select('id')
+    .single();
+
+  if (jobErr || !job) {
+    // Cleanup uploaded file
+    await supabase.storage.from('uploads').remove([filePath]);
+    return { error: `Job creation failed: ${jobErr?.message || 'Unknown'}` };
+  }
+
+  // 3. Invoke edge function (fire-and-forget — we poll status)
+  const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    return { error: 'No active session' };
+  }
+
+  fetch(`https://${projectId}.supabase.co/functions/v1/process-cost-import`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${session.access_token}`,
+      'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ job_id: job.id }),
+  }).catch(err => console.warn('[CostImport] Edge function invoke error:', err));
+
+  return { jobId: job.id };
+}
+
+/**
+ * Poll import job status
+ */
+async function pollImportJob(jobId: string): Promise<ImportJobStatus | null> {
+  const { data, error } = await supabase
+    .from('import_jobs')
+    .select('id, status, total_rows, processed_rows, rows_per_sec, avg_batch_ms, error_message')
+    .eq('id', jobId)
+    .single();
+
+  if (error || !data) return null;
+  return data as ImportJobStatus;
 }
 
 export type TemplateStatus = 'active' | 'working' | 'completed';
@@ -255,23 +339,19 @@ export function useCloudTemplates() {
     return { invDate, invNumber, facilityName, address, sections };
   };
 
-  // Import a template - supports multi-sheet cost data
-  // costSheets is an array of { rows, sheetName } to support multiple cost data tabs (GPO, 340B, etc.)
-  // Column A (index 0) = NDC
-  // Column B (index 1) = material_description (Med Desc)
-  // Column C (index 2) = unit_price (Pack Cost)
-  // Column D (index 3) = source (SOURCE)
-  // Column E (index 4) = material (Item Number)
+  // Import a template - uploads cost file to storage for server-side processing
+  // costFile is the raw Excel File object; jobTicketRawData is still parsed client-side for metadata
   const importTemplate = useCallback(
     async (
       templateName: string,
+      costFile: File | null,
       costSheets: { rows: any[]; sheetName: string }[],
       jobTicketRawData: any[][],
       costFileName: string,
       jobTicketFileName: string,
       skipRefetch: boolean = false,
-      onProgress?: (p: { stage: 'template' | 'sections' | 'cost'; inserted: number; total: number }) => void
-    ): Promise<{ success: boolean; error?: string; templateId?: string }> => {
+      onProgress?: (p: { stage: 'template' | 'sections' | 'cost' | 'uploading' | 'server'; inserted: number; total: number; jobId?: string }) => void
+    ): Promise<{ success: boolean; error?: string; templateId?: string; jobId?: string }> => {
       if (!user) return { success: false, error: 'Not authenticated' };
 
       try {
@@ -327,104 +407,27 @@ export function useCloudTemplates() {
           if (sectionsError) console.error('Error inserting sections:', sectionsError);
         }
 
-        // Helper to truncate strings to avoid exceeding database limits
-        const truncate = (val: any, maxLen: number = 255): string | null => {
-          if (val == null) return null;
-          const str = String(val).trim();
-          return str.length > maxLen ? str.substring(0, maxLen) : str;
-        };
+        // If we have a cost file, upload it and start server-side import
+        if (costFile) {
+          onProgress?.({ stage: 'uploading', inserted: 0, total: 1 });
 
-        // Build all cost items from all sheets
-        const allCostItems: any[] = [];
-        
-        for (const { rows, sheetName } of costSheets) {
-          const columnKeys = rows.length > 0 ? Object.keys(rows[0]) : [];
-          
-          for (const row of rows) {
-            const ndcValue = columnKeys[0] ? row[columnKeys[0]] : null;
-            if (!ndcValue || String(ndcValue).trim().length === 0) continue;
+          const result = await startCostImportJob(templateId, user.id, costFile, costFileName);
 
-            // Column order: A=NDC, B=Description, C=Price, D=Source, E=Material(ABC6),
-            // F=BillingDate, G=Manufacturer, H=Generic, I=Strength, J=Size, K=Dose
-            const colA = columnKeys[0] ? row[columnKeys[0]] : null;
-            const colB = columnKeys[1] ? row[columnKeys[1]] : null;
-            const colC = columnKeys[2] ? row[columnKeys[2]] : null;
-            const colD = columnKeys[3] ? row[columnKeys[3]] : null;
-            const colE = columnKeys[4] ? row[columnKeys[4]] : null;
-            const colF = columnKeys[5] ? row[columnKeys[5]] : null;
-            const colG = columnKeys[6] ? row[columnKeys[6]] : null;
-            const colH = columnKeys[7] ? row[columnKeys[7]] : null;
-            const colI = columnKeys[8] ? row[columnKeys[8]] : null;
-            const colJ = columnKeys[9] ? row[columnKeys[9]] : null;
-            const colK = columnKeys[10] ? row[columnKeys[10]] : null;
-
-            // Parse billing date (may be Excel serial number or date string)
-            let billingDate: string | null = null;
-            if (colF != null && String(colF).trim()) {
-              const raw = colF;
-              if (typeof raw === 'number') {
-                const d = new Date((raw - 25569) * 86400 * 1000);
-                billingDate = d.toISOString().split('T')[0];
-              } else {
-                const parsed = new Date(String(raw));
-                billingDate = isNaN(parsed.getTime()) ? truncate(String(raw), 50) : parsed.toISOString().split('T')[0];
-              }
-            }
-
-            allCostItems.push({
-              template_id: templateId,
-              ndc: truncate(colA, 50),
-              material_description: truncate(colB, 255),
-              unit_price: colC ? parseFloat(String(colC)) : null,
-              source: truncate(colD, 255),
-              material: truncate(colE, 50),
-              billing_date: billingDate,
-              manufacturer: truncate(colG, 255),
-              generic: truncate(colH, 255),
-              strength: truncate(colI, 100),
-              size: truncate(colJ, 50),
-              dose: truncate(colK, 100),
-              sheet_name: truncate(sheetName ?? 'Sheet1', 50),
-            });
+          if ('error' in result) {
+            // Fallback: cost upload failed but template+sections are created
+            console.error('Cost import job failed to start:', result.error);
+            if (!skipRefetch) await fetchTemplates();
+            return { success: true, templateId, error: `Template created but cost import failed: ${result.error}` };
           }
+
+          onProgress?.({ stage: 'server', inserted: 0, total: 0, jobId: result.jobId });
+
+          if (!skipRefetch) await fetchTemplates();
+          return { success: true, templateId, jobId: result.jobId };
         }
 
-        const totalItems = allCostItems.length;
-        onProgress?.({ stage: 'cost', inserted: 0, total: totalItems });
-
-        // Use smaller batch size (500) for safety and parallel insertion (4 concurrent batches)
-        const batchSize = 500;
-        const concurrency = 4;
-        const batches: any[][] = [];
-        
-        for (let i = 0; i < allCostItems.length; i += batchSize) {
-          batches.push(allCostItems.slice(i, i + batchSize));
-        }
-
-        let insertedCount = 0;
-        
-        // Process batches in parallel chunks — each batch reports its own progress
-        for (let i = 0; i < batches.length; i += concurrency) {
-          const chunk = batches.slice(i, i + concurrency);
-          const promises = chunk.map(async (batch) => {
-            const { error: costError } = await supabase.from('template_cost_items').insert(batch);
-            if (costError) throw costError;
-            insertedCount += batch.length;
-            onProgress?.({ stage: 'cost', inserted: Math.min(insertedCount, totalItems), total: totalItems });
-            return batch.length;
-          });
-          
-          await Promise.all(promises);
-        }
-
-        onProgress?.({ stage: 'cost', inserted: totalItems, total: totalItems });
-
-        // Only refetch if not in bulk import mode
-        if (!skipRefetch) {
-          await fetchTemplates();
-        }
-        // Pre-build offline package (fire-and-forget)
-        triggerOfflinePackageBuild(templateId);
+        // No cost file — just template + sections
+        if (!skipRefetch) await fetchTemplates();
         return { success: true, templateId };
       } catch (err: any) {
         console.error('Import template error:', err);
@@ -509,112 +512,29 @@ export function useCloudTemplates() {
     [user, fetchTemplates]
   );
 
-  // Update cost data for a template - replaces all cost items (supports multi-sheet)
+  // Update cost data for a template - uploads file for server-side processing
   const updateCostData = useCallback(
     async (
       templateId: string,
-      costSheets: { rows: any[]; sheetName: string }[],
+      costFile: File,
       costFileName: string
-    ): Promise<{ success: boolean; error?: string }> => {
+    ): Promise<{ success: boolean; error?: string; jobId?: string }> => {
       if (!user) return { success: false, error: 'Not authenticated' };
 
       try {
-        // Delete existing cost items for this template
-        const { error: deleteError } = await supabase
-          .from('template_cost_items')
-          .delete()
-          .eq('template_id', templateId);
+        const result = await startCostImportJob(templateId, user.id, costFile, costFileName);
 
-        if (deleteError) throw deleteError;
-
-        // Helper to truncate strings
-        const truncate = (val: any, maxLen: number = 255): string | null => {
-          if (val == null) return null;
-          const str = String(val).trim();
-          return str.length > maxLen ? str.substring(0, maxLen) : str;
-        };
-
-        // Build all cost items from all sheets
-        const allCostItems: any[] = [];
-        
-        for (const { rows, sheetName } of costSheets) {
-          const columnKeys = rows.length > 0 ? Object.keys(rows[0]) : [];
-          
-          for (const row of rows) {
-            const ndcValue = columnKeys[0] ? row[columnKeys[0]] : null;
-            if (!ndcValue || String(ndcValue).trim().length === 0) continue;
-
-            // Column order: A=NDC, B=Description, C=Price, D=Source, E=Material(ABC6),
-            // F=BillingDate, G=Manufacturer, H=Generic, I=Strength, J=Size, K=Dose
-            const colA = columnKeys[0] ? row[columnKeys[0]] : null;
-            const colB = columnKeys[1] ? row[columnKeys[1]] : null;
-            const colC = columnKeys[2] ? row[columnKeys[2]] : null;
-            const colD = columnKeys[3] ? row[columnKeys[3]] : null;
-            const colE = columnKeys[4] ? row[columnKeys[4]] : null;
-            const colF = columnKeys[5] ? row[columnKeys[5]] : null;
-            const colG = columnKeys[6] ? row[columnKeys[6]] : null;
-            const colH = columnKeys[7] ? row[columnKeys[7]] : null;
-            const colI = columnKeys[8] ? row[columnKeys[8]] : null;
-            const colJ = columnKeys[9] ? row[columnKeys[9]] : null;
-            const colK = columnKeys[10] ? row[columnKeys[10]] : null;
-
-            // Parse billing date (may be Excel serial number or date string)
-            let billingDate: string | null = null;
-            if (colF != null && String(colF).trim()) {
-              const raw = colF;
-              if (typeof raw === 'number') {
-                const d = new Date((raw - 25569) * 86400 * 1000);
-                billingDate = d.toISOString().split('T')[0];
-              } else {
-                const parsed = new Date(String(raw));
-                billingDate = isNaN(parsed.getTime()) ? truncate(String(raw), 50) : parsed.toISOString().split('T')[0];
-              }
-            }
-
-            allCostItems.push({
-              template_id: templateId,
-              ndc: truncate(colA, 50),
-              material_description: truncate(colB, 255),
-              unit_price: colC ? parseFloat(String(colC)) : null,
-              source: truncate(colD, 255),
-              material: truncate(colE, 50),
-              billing_date: billingDate,
-              manufacturer: truncate(colG, 255),
-              generic: truncate(colH, 255),
-              strength: truncate(colI, 100),
-              size: truncate(colJ, 50),
-              dose: truncate(colK, 100),
-              sheet_name: truncate(sheetName ?? 'Sheet1', 50),
-            });
-          }
+        if ('error' in result) {
+          return { success: false, error: result.error };
         }
 
-        // Insert in batches of 500
-        const batchSize = 500;
-        for (let i = 0; i < allCostItems.length; i += batchSize) {
-          const batch = allCostItems.slice(i, i + batchSize);
-          const { error: costError } = await supabase.from('template_cost_items').insert(batch);
-          if (costError) throw costError;
-        }
-
-        // Update template's cost_file_name
-        const { error: updateError } = await supabase
-          .from('data_templates')
-          .update({ cost_file_name: costFileName, updated_at: new Date().toISOString() })
-          .eq('id', templateId);
-
-        if (updateError) console.error('Error updating template:', updateError);
-
-        await fetchTemplates();
-        // Pre-build offline package (fire-and-forget)
-        triggerOfflinePackageBuild(templateId);
-        return { success: true };
+        return { success: true, jobId: result.jobId };
       } catch (err: any) {
         console.error('Update cost data error:', err);
         return { success: false, error: err.message };
       }
     },
-    [user, fetchTemplates]
+    [user]
   );
 
   // Delete related rows in batches to avoid statement timeout
@@ -798,6 +718,7 @@ export function useCloudTemplates() {
     getCostItemByNDC,
     updateTemplateStatus,
     buildOfflinePackage,
+    pollImportJob,
     refetch: fetchTemplates,
   };
 }
