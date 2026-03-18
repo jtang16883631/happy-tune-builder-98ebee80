@@ -653,74 +653,66 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
             }
 
             setSyncProgress(prev => ({ ...prev, status: 'fetching_cost_items', costItemsFetched: 0 }));
-            const BATCH_SIZE = 1000;
-            const CONCURRENCY = 6;
-            const MAX_RETRIES = 3;
+            const INITIAL_BATCH = 1000;
+            const MIN_BATCH = 250;
+            const MAX_RETRIES = 4;
             const totalExpected = countResult.count ?? 0;
             let totalCostItemsFetched = 0;
+            let cursorBatch = INITIAL_BATCH;
+            let lastCursorId = '00000000-0000-0000-0000-000000000000';
 
             const costStmt = activeDb.prepare(`
               INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name, billing_date, manufacturer, generic, strength, size, dose)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
 
-            // Helper to fetch a single range with retry
-            const fetchRangeWithRetry = async (from: number, to: number, attempt = 0): Promise<{ from: number; data: any[] | null; error: any }> => {
+            // Cursor-based fetch: uses .gt('id', lastId) instead of .range(offset)
+            // This avoids 57014 timeouts on large tables where high offsets are expensive
+            const fetchCursorPage = async (
+              afterId: string,
+              batchSize: number,
+              attempt = 0,
+            ): Promise<{ data: any[]; batchSize: number }> => {
               const res = await supabase
                 .from('template_cost_items')
                 .select('id, ndc, material_description, unit_price, source, material, sheet_name, billing_date, manufacturer, generic, strength, size, dose')
                 .eq('template_id', ct.id)
+                .gt('id', afterId)
                 .order('id', { ascending: true })
-                .range(from, to);
-              if (res.error && attempt < MAX_RETRIES) {
-                const isRetryable = res.error.code === '57014' || res.error.message?.includes('timeout') || res.error.message?.includes('connection');
-                if (isRetryable) {
-                  console.log(`[OfflineDB] Retry ${attempt + 1} for range ${from}-${to} (${res.error.code})`);
+                .limit(batchSize);
+
+              if (res.error) {
+                const msg = (res.error.message ?? '').toLowerCase();
+                const retryable = res.error.code === '57014' || msg.includes('timeout') || msg.includes('connection');
+                if (retryable && attempt < MAX_RETRIES) {
+                  const nextBatch = res.error.code === '57014'
+                    ? Math.max(MIN_BATCH, Math.floor(batchSize / 2))
+                    : batchSize;
+                  console.log(`[OfflineDB] Cursor retry ${attempt + 1} after ${afterId} batch=${nextBatch} (${res.error.code})`);
                   await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-                  return fetchRangeWithRetry(from, to, attempt + 1);
+                  return fetchCursorPage(afterId, nextBatch, attempt + 1);
                 }
+                throw res.error;
               }
-              return { from, data: res.data, error: res.error };
+
+              return { data: res.data ?? [], batchSize };
             };
 
-            // Use parallel .range() fetching with retry
-            let offset = 0;
             while (true) {
-              const rangePromises: Array<ReturnType<typeof fetchRangeWithRetry>> = [];
-              for (let p = 0; p < CONCURRENCY; p++) {
-                const from = offset + p * BATCH_SIZE;
-                const to = from + BATCH_SIZE - 1;
-                if (totalExpected > 0 && from >= totalExpected) break;
-                rangePromises.push(fetchRangeWithRetry(from, to));
+              const page = await fetchCursorPage(lastCursorId, cursorBatch);
+              if (page.data.length === 0) break;
+
+              for (const c of page.data) {
+                costStmt.run([c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null, c.billing_date ?? null, c.manufacturer ?? null, c.generic ?? null, c.strength ?? null, c.size ?? null, c.dose ?? null]);
               }
 
-              if (rangePromises.length === 0) break;
-
-              const results = await Promise.all(rangePromises);
-
-              // Sort results by their starting offset so we process in order
-              results.sort((a, b) => a.from - b.from);
-
-              let batchTotal = 0;
-              let highestFullBatchFrom = -1;
-              for (const res of results) {
-                if (res.error) throw res.error;
-                if (!res.data || res.data.length === 0) continue;
-                for (const c of res.data) {
-                  costStmt.run([c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null, c.billing_date ?? null, c.manufacturer ?? null, c.generic ?? null, c.strength ?? null, c.size ?? null, c.dose ?? null]);
-                }
-                batchTotal += res.data.length;
-                if (res.data.length === BATCH_SIZE) {
-                  highestFullBatchFrom = res.from;
-                }
-              }
-
-              totalCostItemsFetched += batchTotal;
-              offset += CONCURRENCY * BATCH_SIZE;
+              totalCostItemsFetched += page.data.length;
+              cursorBatch = page.batchSize; // keep reduced batch if it was lowered
+              lastCursorId = page.data[page.data.length - 1].id;
               setSyncProgress(prev => ({ ...prev, costItemsFetched: totalCostItemsFetched }));
 
-              // Stop only when NO batch in this cycle returned a full page
-              if (batchTotal === 0 || highestFullBatchFrom < 0) break;
+              if (totalExpected > 0 && totalCostItemsFetched >= totalExpected) break;
+              if (page.data.length < cursorBatch) break;
             }
             costStmt.free();
             console.log(`[OfflineDB] Fetched ${totalCostItemsFetched} cost items for ${ct.name} (expected ${totalExpected})`);
