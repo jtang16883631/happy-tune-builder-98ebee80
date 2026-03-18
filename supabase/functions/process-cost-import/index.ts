@@ -4,8 +4,19 @@ import { Pool } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, x-internal-service-key",
 };
+
+const INTERNAL_AUTH_HEADER = "x-internal-service-key";
+const FINALIZE_TIME_BUDGET_MS = 45_000;
+const MERGE_BATCH = 25_000;
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
 
 function sqlVal(val: string | null): string {
   if (val == null) return "NULL";
@@ -23,6 +34,47 @@ function truncate(val: any, maxLen = 255): string | null {
   return str.length > maxLen ? str.substring(0, maxLen) : str || null;
 }
 
+async function queueFinalizeResume(params: {
+  supabaseUrl: string;
+  anonKey: string;
+  serviceKey: string;
+  jobId: string;
+  totalRows: number;
+}) {
+  const { supabaseUrl, anonKey, serviceKey, jobId, totalRows } = params;
+  const resumePromise = fetch(`${supabaseUrl}/functions/v1/process-cost-import`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: anonKey,
+      [INTERNAL_AUTH_HEADER]: serviceKey,
+    },
+    body: JSON.stringify({
+      job_id: jobId,
+      action: "finalize",
+      total_rows: totalRows,
+    }),
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        console.error(
+          `[process-cost-import] Resume request failed for ${jobId}:`,
+          await res.text()
+        );
+      }
+    })
+    .catch((err) => {
+      console.error(`[process-cost-import] Resume request error for ${jobId}:`, err.message);
+    });
+
+  const edgeRuntime = (globalThis as any).EdgeRuntime;
+  if (edgeRuntime?.waitUntil) {
+    edgeRuntime.waitUntil(resumePromise);
+  } else {
+    void resumePromise;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -34,27 +86,29 @@ Deno.serve(async (req) => {
   const dbUrl = Deno.env.get("SUPABASE_DB_URL")!;
 
   try {
-    // Auth check
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Missing authorization" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const isInternalRequest = req.headers.get(INTERNAL_AUTH_HEADER) === serviceKey;
 
-    const userClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const {
-      data: { user },
-      error: authError,
-    } = await userClient.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Auth check for user-triggered requests
+    let user: { id: string } | null = null;
+    if (!isInternalRequest) {
+      const authHeader = req.headers.get("Authorization");
+      if (!authHeader) {
+        return jsonResponse({ error: "Missing authorization" }, 401);
+      }
+
+      const userClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
       });
+      const {
+        data: { user: authUser },
+        error: authError,
+      } = await userClient.auth.getUser();
+
+      if (authError || !authUser) {
+        return jsonResponse({ error: "Unauthorized" }, 401);
+      }
+
+      user = { id: authUser.id };
     }
 
     const body = await req.json();
@@ -64,10 +118,7 @@ Deno.serve(async (req) => {
     // finalize: { job_id, action: 'finalize', total_rows }
 
     if (!job_id) {
-      return new Response(JSON.stringify({ error: "job_id required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "job_id required" }, 400);
     }
 
     const admin = createClient(supabaseUrl, serviceKey);
@@ -80,27 +131,18 @@ Deno.serve(async (req) => {
       .single();
 
     if (jobErr || !job) {
-      return new Response(JSON.stringify({ error: "Job not found" }), {
-        status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Job not found" }, 404);
     }
 
-    if (job.user_id !== user.id) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!isInternalRequest && user && job.user_id !== user.id) {
+      return jsonResponse({ error: "Forbidden" }, 403);
     }
 
     // ─── APPEND: bulk insert a chunk of rows into staging ───
     if (action === "append") {
       const { rows, chunk_index, total_chunks } = body;
       if (!Array.isArray(rows) || rows.length === 0) {
-        return new Response(JSON.stringify({ error: "rows array required" }), {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return jsonResponse({ error: "rows array required" }, 400);
       }
 
       // Mark processing on first chunk
@@ -154,101 +196,159 @@ Deno.serve(async (req) => {
         await pool.end();
       }
 
-      return new Response(
-        JSON.stringify({ success: true, chunk_index, rows_inserted: rows.length }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+      return jsonResponse({ success: true, chunk_index, rows_inserted: rows.length });
     }
 
     // ─── FINALIZE: merge staging → cost_items, build offline package ───
     if (action === "finalize") {
-      const { total_rows } = body;
+      const totalRows = Number(body.total_rows || job.total_rows || 0);
       const startTime = Date.now();
 
       await admin
         .from("import_jobs")
         .update({
           status: "merging",
-          total_rows: total_rows || 0,
+          total_rows: totalRows,
           updated_at: new Date().toISOString(),
         })
         .eq("id", job_id);
 
       const pool = new Pool(dbUrl, 1);
       const conn = await pool.connect();
-      const MERGE_BATCH = 50000;
       const escapedTemplateId = job.template_id.replace(/'/g, "''");
       const escapedJobId = job_id.replace(/'/g, "''");
 
+      let totalInserted = 0;
+      let stagingRemaining = 0;
+
       try {
-        // Set generous statement timeout per batch (2 minutes each)
-        await conn.queryArray(`SET statement_timeout = '120s'`);
+        await conn.queryArray(`SET statement_timeout = '90s'`);
 
-        // ── Chunked DELETE of old cost items ──
-        console.log(`[process-cost-import] Merging: deleting old cost items for template ${job.template_id}`);
-        let totalDeleted = 0;
-        while (true) {
-          const delResult = await conn.queryArray(
-            `WITH to_delete AS (
-              SELECT ctid FROM public.template_cost_items
-              WHERE template_id = '${escapedTemplateId}'
-              LIMIT ${MERGE_BATCH}
-            )
-            DELETE FROM public.template_cost_items
-            WHERE ctid IN (SELECT ctid FROM to_delete)`
-          );
-          const deleted = delResult?.rowCount ?? 0;
-          totalDeleted += deleted;
-          if (deleted > 0) {
-            console.log(`[process-cost-import] Deleted batch: ${deleted} (total: ${totalDeleted})`);
+        const stagingBeforeResult = await conn.queryArray(
+          `SELECT COUNT(*)::bigint FROM public.import_staging_cost_items WHERE job_id = '${escapedJobId}'`
+        );
+        const stagingBefore = Number(stagingBeforeResult.rows?.[0]?.[0] ?? 0);
+        const shouldDeleteExisting = totalRows > 0 ? stagingBefore >= totalRows : stagingBefore > 0;
+
+        if (shouldDeleteExisting) {
+          console.log(`[process-cost-import] Merging: deleting old cost items for template ${job.template_id}`);
+          let totalDeleted = 0;
+          while (true) {
+            const delResult = await conn.queryArray(
+              `WITH to_delete AS (
+                 SELECT ctid FROM public.template_cost_items
+                 WHERE template_id = '${escapedTemplateId}'
+                 LIMIT ${MERGE_BATCH}
+               ),
+               deleted AS (
+                 DELETE FROM public.template_cost_items
+                 WHERE ctid IN (SELECT ctid FROM to_delete)
+                 RETURNING 1
+               )
+               SELECT COUNT(*)::int FROM deleted`
+            );
+            const deleted = Number(delResult.rows?.[0]?.[0] ?? 0);
+            totalDeleted += deleted;
+            if (deleted > 0) {
+              console.log(`[process-cost-import] Deleted batch: ${deleted} (total: ${totalDeleted})`);
+            }
+            if (deleted < MERGE_BATCH) break;
+            if (Date.now() - startTime >= FINALIZE_TIME_BUDGET_MS) break;
           }
-          if (deleted < MERGE_BATCH) break;
+          console.log(`[process-cost-import] Delete complete: ${totalDeleted} rows removed`);
+        } else {
+          console.log(
+            `[process-cost-import] Resuming merge for ${job.template_id} with ${stagingBefore} staging rows remaining`
+          );
         }
-        console.log(`[process-cost-import] Delete complete: ${totalDeleted} rows removed`);
 
-        // ── Chunked INSERT from staging ──
-        let totalInserted = 0;
-        while (true) {
-          const insResult = await conn.queryArray(
+        while (Date.now() - startTime < FINALIZE_TIME_BUDGET_MS) {
+          const mergeResult = await conn.queryArray(
             `WITH batch AS (
-              SELECT id, template_id, ndc, material_description, unit_price, source, material,
-                     billing_date, manufacturer, generic, strength, size, dose, sheet_name
-              FROM public.import_staging_cost_items
-              WHERE job_id = '${escapedJobId}'
-              LIMIT ${MERGE_BATCH}
-            ),
-            inserted AS (
-              INSERT INTO public.template_cost_items
-                (template_id, ndc, material_description, unit_price, source, material,
-                 billing_date, manufacturer, generic, strength, size, dose, sheet_name)
-              SELECT template_id, ndc, material_description, unit_price, source, material,
-                     billing_date, manufacturer, generic, strength, size, dose, sheet_name
-              FROM batch
-              RETURNING 1
-            )
-            DELETE FROM public.import_staging_cost_items
-            WHERE id IN (SELECT id FROM batch)`
+               SELECT id, template_id, ndc, material_description, unit_price, source, material,
+                      billing_date, manufacturer, generic, strength, size, dose, sheet_name
+               FROM public.import_staging_cost_items
+               WHERE job_id = '${escapedJobId}'
+               ORDER BY id
+               LIMIT ${MERGE_BATCH}
+             ),
+             inserted AS (
+               INSERT INTO public.template_cost_items
+                 (template_id, ndc, material_description, unit_price, source, material,
+                  billing_date, manufacturer, generic, strength, size, dose, sheet_name)
+               SELECT template_id, ndc, material_description, unit_price, source, material,
+                      billing_date, manufacturer, generic, strength, size, dose, sheet_name
+               FROM batch
+               RETURNING 1
+             ),
+             deleted AS (
+               DELETE FROM public.import_staging_cost_items
+               WHERE id IN (SELECT id FROM batch)
+               RETURNING 1
+             )
+             SELECT COUNT(*)::int FROM deleted`
           );
-          const moved = insResult?.rowCount ?? 0;
+
+          const moved = Number(mergeResult.rows?.[0]?.[0] ?? 0);
+          if (moved === 0) break;
+
           totalInserted += moved;
-          if (moved > 0) {
-            console.log(`[process-cost-import] Merged batch: ${moved} (total: ${totalInserted})`);
-          }
+          console.log(`[process-cost-import] Merged batch: ${moved} (total this run: ${totalInserted})`);
+
           if (moved < MERGE_BATCH) break;
         }
 
-        console.log(`[process-cost-import] Merge complete: ${totalInserted} rows inserted`);
-
-        // Final cleanup of any remaining staging rows
-        await conn.queryArray(
-          `DELETE FROM public.import_staging_cost_items WHERE job_id = '${escapedJobId}'`
+        const stagingRemainingResult = await conn.queryArray(
+          `SELECT COUNT(*)::bigint FROM public.import_staging_cost_items WHERE job_id = '${escapedJobId}'`
         );
+        stagingRemaining = Number(stagingRemainingResult.rows?.[0]?.[0] ?? 0);
+        console.log(`[process-cost-import] Merge pass complete: ${totalInserted} rows moved, ${stagingRemaining} remaining`);
       } finally {
         conn.release();
         await pool.end();
+      }
+
+      if (stagingRemaining > 0) {
+        await admin
+          .from("import_jobs")
+          .update({
+            status: "merging",
+            processed_rows: totalRows > 0 ? totalRows - stagingRemaining : job.processed_rows,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", job_id);
+
+        console.log(`[process-cost-import] Re-queueing finalize for ${job_id} (${stagingRemaining} rows remaining)`);
+        await queueFinalizeResume({
+          supabaseUrl,
+          anonKey,
+          serviceKey,
+          jobId: job_id,
+          totalRows,
+        });
+
+        return jsonResponse(
+          {
+            success: true,
+            job_id,
+            resumed: true,
+            remaining_rows: stagingRemaining,
+            merged_rows_this_run: totalInserted,
+          },
+          202
+        );
+      }
+
+      // Final cleanup of any remaining staging rows
+      const cleanupPool = new Pool(dbUrl, 1);
+      const cleanupConn = await cleanupPool.connect();
+      try {
+        await cleanupConn.queryArray(
+          `DELETE FROM public.import_staging_cost_items WHERE job_id = '${escapedJobId}'`
+        );
+      } finally {
+        cleanupConn.release();
+        await cleanupPool.end();
       }
 
       // Update template cost_file_name
@@ -262,25 +362,25 @@ Deno.serve(async (req) => {
           .eq("id", job.template_id);
       }
 
-      // Mark import complete, start building offline package
+      // Mark import complete, then try to build offline package.
       const elapsedImport = (Date.now() - startTime) / 1000;
       await admin
         .from("import_jobs")
         .update({
           status: "complete",
-          processed_rows: total_rows || 0,
-          rows_per_sec: elapsedImport > 0 ? Math.round((total_rows || 0) / elapsedImport) : 0,
+          processed_rows: totalRows,
+          rows_per_sec: elapsedImport > 0 ? Math.round(totalRows / elapsedImport) : 0,
           completed_at: new Date().toISOString(),
           package_status: "building",
+          package_error: null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", job_id);
 
-      // Build offline package
       console.log(`[process-cost-import] Building offline package for template ${job.template_id}`);
 
       try {
-        const PAGE_SIZE = 500;
+        const PAGE_SIZE = 5000;
         let offset = 0;
         const pkgItems: any[] = [];
 
@@ -350,35 +450,20 @@ Deno.serve(async (req) => {
 
       const elapsedTotal = (Date.now() - startTime) / 1000;
       console.log(
-        `[process-cost-import] Job ${job_id} complete: ${total_rows} rows in ${elapsedTotal.toFixed(1)}s`
+        `[process-cost-import] Job ${job_id} complete: ${totalRows} rows in ${elapsedTotal.toFixed(1)}s`
       );
 
-      return new Response(
-        JSON.stringify({
-          success: true,
-          job_id,
-          total_rows,
-          elapsed_sec: elapsedTotal.toFixed(1),
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+      return jsonResponse({
+        success: true,
+        job_id,
+        total_rows: totalRows,
+        elapsed_sec: elapsedTotal.toFixed(1),
+      });
     }
 
-    return new Response(
-      JSON.stringify({ error: "Invalid action. Use 'append' or 'finalize'." }),
-      {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
+    return jsonResponse({ error: "Invalid action. Use 'append' or 'finalize'." }, 400);
   } catch (err: any) {
     console.error(`[process-cost-import] Fatal error:`, err.message);
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: err.message }, 500);
   }
 });
