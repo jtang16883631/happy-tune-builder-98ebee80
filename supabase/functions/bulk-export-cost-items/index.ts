@@ -53,7 +53,13 @@ Deno.serve(async (req) => {
     }
 
     // Use service role to bypass RLS for server-side bulk read
-    const adminClient = createClient(supabaseUrl, serviceKey);
+    // Set a large default range header to avoid the 1000-row PostgREST default
+    const adminClient = createClient(supabaseUrl, serviceKey, {
+      db: { schema: 'public' },
+      global: {
+        headers: { 'Range': '0-99999' },
+      },
+    });
 
     // Get total count first
     const { count, error: countError } = await adminClient
