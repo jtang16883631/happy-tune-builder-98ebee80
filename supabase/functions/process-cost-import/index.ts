@@ -222,7 +222,7 @@ Deno.serve(async (req) => {
       let stagingRemaining = 0;
 
       try {
-        await conn.queryArray(`SET statement_timeout = '90s'`);
+        await conn.queryArray(`SET statement_timeout = '55s'`);
 
         const stagingBeforeResult = await conn.queryArray(
           `SELECT COUNT(*)::bigint FROM public.import_staging_cost_items WHERE job_id = '${escapedJobId}'`
