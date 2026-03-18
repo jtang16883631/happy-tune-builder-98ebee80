@@ -1,5 +1,4 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import * as XLSX from "npm:xlsx@0.18.5";
 import { Pool } from "https://deno.land/x/postgres@v0.17.0/mod.ts";
 
 const corsHeaders = {
@@ -59,7 +58,10 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { job_id } = body;
+    const { job_id, action } = body;
+    // action: 'append' | 'finalize'
+    // append: { job_id, action: 'append', rows: [...], chunk_index, total_chunks }
+    // finalize: { job_id, action: 'finalize', total_rows }
 
     if (!job_id) {
       return new Response(JSON.stringify({ error: "job_id required" }), {
@@ -91,134 +93,39 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Update status to processing
-    await admin
-      .from("import_jobs")
-      .update({
-        status: "processing",
-        started_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", job_id);
-
-    console.log(
-      `[process-cost-import] Starting job ${job_id}, file: ${job.file_path}`
-    );
-
-    // Open direct Postgres connection pool (single connection)
-    const pool = new Pool(dbUrl, 1);
-
-    try {
-      // 1. Download file from storage
-      const { data: fileData, error: dlErr } = await admin.storage
-        .from("uploads")
-        .download(job.file_path);
-
-      if (dlErr || !fileData) {
-        throw new Error(
-          `Failed to download file: ${dlErr?.message || "No data"}`
-        );
-      }
-
-      const arrayBuffer = await fileData.arrayBuffer();
-      console.log(
-        `[process-cost-import] File downloaded: ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)} MB`
-      );
-
-      // 2. Parse Excel server-side
-      const workbook = XLSX.read(new Uint8Array(arrayBuffer), {
-        type: "array",
-      });
-
-      const allItems: {
-        ndc: string | null;
-        material_description: string | null;
-        unit_price: number | null;
-        source: string | null;
-        material: string | null;
-        billing_date: string | null;
-        manufacturer: string | null;
-        generic: string | null;
-        strength: string | null;
-        size: string | null;
-        dose: string | null;
-        sheet_name: string | null;
-      }[] = [];
-
-      for (const sheetName of workbook.SheetNames) {
-        const sheet = workbook.Sheets[sheetName];
-        if (!sheet) continue;
-
-        const rows: any[][] = XLSX.utils.sheet_to_json(sheet, {
-          header: 1,
-          defval: null,
+    // ─── APPEND: bulk insert a chunk of rows into staging ───
+    if (action === "append") {
+      const { rows, chunk_index, total_chunks } = body;
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return new Response(JSON.stringify({ error: "rows array required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
-        if (rows.length <= 1) continue;
-
-        for (let r = 1; r < rows.length; r++) {
-          const row = rows[r];
-          if (!row || !row[0] || String(row[0]).trim().length === 0) continue;
-
-          let billingDate: string | null = null;
-          if (row[5] != null && String(row[5]).trim()) {
-            if (typeof row[5] === "number") {
-              const d = new Date((row[5] - 25569) * 86400 * 1000);
-              billingDate = d.toISOString().split("T")[0];
-            } else {
-              const parsed = new Date(String(row[5]));
-              billingDate = isNaN(parsed.getTime())
-                ? truncate(String(row[5]), 50)
-                : parsed.toISOString().split("T")[0];
-            }
-          }
-
-          allItems.push({
-            ndc: truncate(row[0], 50),
-            material_description: truncate(row[1], 255),
-            unit_price: row[2] != null ? parseFloat(String(row[2])) : null,
-            source: truncate(row[3], 255),
-            material: truncate(row[4], 50),
-            billing_date: billingDate,
-            manufacturer: truncate(row[6], 255),
-            generic: truncate(row[7], 255),
-            strength: truncate(row[8], 100),
-            size: truncate(row[9], 50),
-            dose: truncate(row[10], 100),
-            sheet_name: truncate(sheetName, 50),
-          });
-        }
       }
 
-      const totalRows = allItems.length;
-      console.log(
-        `[process-cost-import] Parsed ${totalRows} rows from ${workbook.SheetNames.length} sheets`
-      );
+      // Mark processing on first chunk
+      if (chunk_index === 0) {
+        await admin
+          .from("import_jobs")
+          .update({
+            status: "processing",
+            started_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", job_id);
+      }
 
-      await admin
-        .from("import_jobs")
-        .update({
-          total_rows: totalRows,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", job_id);
-
-      // 3. Bulk INSERT into staging via direct Postgres
-      const BATCH_SIZE = 5000;
-      let processedRows = 0;
-      const startTime = Date.now();
-      let totalBatchMs = 0;
-      let batchCount = 0;
-
+      const pool = new Pool(dbUrl, 1);
       const conn = await pool.connect();
       try {
-        for (let i = 0; i < allItems.length; i += BATCH_SIZE) {
-          const batch = allItems.slice(i, i + BATCH_SIZE);
-          const batchStart = Date.now();
-
+        // Batch insert into staging
+        const BATCH_SIZE = 5000;
+        for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+          const batch = rows.slice(i, i + BATCH_SIZE);
           const valueRows = batch
             .map(
-              (item) =>
-                `(${sqlVal(job_id)},${sqlVal(job.template_id)},${sqlVal(item.ndc)},${sqlVal(item.material_description)},${sqlNum(item.unit_price)},${sqlVal(item.source)},${sqlVal(item.material)},${sqlVal(item.billing_date)},${sqlVal(item.manufacturer)},${sqlVal(item.generic)},${sqlVal(item.strength)},${sqlVal(item.size)},${sqlVal(item.dose)},${sqlVal(item.sheet_name)})`
+              (item: any) =>
+                `(${sqlVal(job_id)},${sqlVal(job.template_id)},${sqlVal(truncate(item.ndc, 50))},${sqlVal(truncate(item.material_description, 255))},${sqlNum(item.unit_price)},${sqlVal(truncate(item.source, 255))},${sqlVal(truncate(item.material, 50))},${sqlVal(truncate(item.billing_date, 50))},${sqlVal(truncate(item.manufacturer, 255))},${sqlVal(truncate(item.generic, 255))},${sqlVal(truncate(item.strength, 100))},${sqlVal(truncate(item.size, 50))},${sqlVal(truncate(item.dose, 100))},${sqlVal(truncate(item.sheet_name, 50))})`
             )
             .join(",\n");
 
@@ -227,46 +134,53 @@ Deno.serve(async (req) => {
              (job_id, template_id, ndc, material_description, unit_price, source, material, billing_date, manufacturer, generic, strength, size, dose, sheet_name)
              VALUES ${valueRows}`
           );
-
-          const batchMs = Date.now() - batchStart;
-          totalBatchMs += batchMs;
-          batchCount++;
-          processedRows += batch.length;
-
-          const elapsedSec = (Date.now() - startTime) / 1000;
-          const rowsPerSec =
-            elapsedSec > 0 ? Math.round(processedRows / elapsedSec) : 0;
-          const avgBatchMs = Math.round(totalBatchMs / batchCount);
-
-          if (
-            batchCount % 5 === 0 ||
-            i + BATCH_SIZE >= allItems.length
-          ) {
-            await admin
-              .from("import_jobs")
-              .update({
-                processed_rows: processedRows,
-                rows_per_sec: rowsPerSec,
-                avg_batch_ms: avgBatchMs,
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", job_id);
-
-            console.log(
-              `[process-cost-import] Staged ${processedRows}/${totalRows} (${rowsPerSec} rows/sec, ${avgBatchMs}ms/batch)`
-            );
-          }
         }
 
-        // 4. Merge: delete old cost items + copy from staging
+        // Update progress
+        const currentProcessed = (job.processed_rows || 0) + rows.length;
         await admin
           .from("import_jobs")
           .update({
-            status: "merging",
+            processed_rows: currentProcessed,
             updated_at: new Date().toISOString(),
           })
           .eq("id", job_id);
 
+        console.log(
+          `[process-cost-import] Chunk ${chunk_index + 1}/${total_chunks}: staged ${rows.length} rows (total: ${currentProcessed})`
+        );
+      } finally {
+        conn.release();
+        await pool.end();
+      }
+
+      return new Response(
+        JSON.stringify({ success: true, chunk_index, rows_inserted: rows.length }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    // ─── FINALIZE: merge staging → cost_items, build offline package ───
+    if (action === "finalize") {
+      const { total_rows } = body;
+      const startTime = Date.now();
+
+      await admin
+        .from("import_jobs")
+        .update({
+          status: "merging",
+          total_rows: total_rows || 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", job_id);
+
+      const pool = new Pool(dbUrl, 1);
+      const conn = await pool.connect();
+
+      try {
         console.log(
           `[process-cost-import] Merging: deleting old cost items for template ${job.template_id}`
         );
@@ -283,19 +197,18 @@ Deno.serve(async (req) => {
            WHERE job_id = '${job_id.replace(/'/g, "''")}'`
         );
 
-        console.log(
-          `[process-cost-import] Merge complete: ${totalRows} rows`
-        );
+        console.log(`[process-cost-import] Merge complete`);
 
-        // 5. Cleanup staging
+        // Cleanup staging
         await conn.queryArray(
           `DELETE FROM public.import_staging_cost_items WHERE job_id = '${job_id.replace(/'/g, "''")}'`
         );
       } finally {
         conn.release();
+        await pool.end();
       }
 
-      // 6. Update template cost_file_name
+      // Update template cost_file_name
       if (job.cost_file_name) {
         await admin
           .from("data_templates")
@@ -306,22 +219,21 @@ Deno.serve(async (req) => {
           .eq("id", job.template_id);
       }
 
-      // 7. Mark import complete, start building offline package
+      // Mark import complete, start building offline package
       const elapsedImport = (Date.now() - startTime) / 1000;
       await admin
         .from("import_jobs")
         .update({
           status: "complete",
-          processed_rows: totalRows,
-          rows_per_sec: Math.round(totalRows / elapsedImport),
-          avg_batch_ms: batchCount > 0 ? Math.round(totalBatchMs / batchCount) : 0,
+          processed_rows: total_rows || 0,
+          rows_per_sec: elapsedImport > 0 ? Math.round((total_rows || 0) / elapsedImport) : 0,
           completed_at: new Date().toISOString(),
           package_status: "building",
           updated_at: new Date().toISOString(),
         })
         .eq("id", job_id);
 
-      // 8. Build offline package inline
+      // Build offline package
       console.log(`[process-cost-import] Building offline package for template ${job.template_id}`);
 
       try {
@@ -343,7 +255,7 @@ Deno.serve(async (req) => {
           if (data.length < PAGE_SIZE) break;
         }
 
-        console.log(`[process-cost-import] Package: ${pkgItems.length} items fetched, compressing...`);
+        console.log(`[process-cost-import] Package: ${pkgItems.length} items, compressing...`);
 
         const jsonPayload = JSON.stringify({ items: pkgItems, count: pkgItems.length });
         const encoder = new TextEncoder();
@@ -388,21 +300,21 @@ Deno.serve(async (req) => {
           .eq("id", job_id);
       }
 
-      // 9. Cleanup uploaded file
-      await admin.storage.from("uploads").remove([job.file_path]);
+      // Cleanup uploaded file if any
+      if (job.file_path) {
+        await admin.storage.from("uploads").remove([job.file_path]).catch(() => {});
+      }
 
       const elapsedTotal = (Date.now() - startTime) / 1000;
       console.log(
-        `[process-cost-import] Job ${job_id} fully complete: ${totalRows} rows in ${elapsedTotal.toFixed(1)}s`
+        `[process-cost-import] Job ${job_id} complete: ${total_rows} rows in ${elapsedTotal.toFixed(1)}s`
       );
-
-      await pool.end();
 
       return new Response(
         JSON.stringify({
           success: true,
           job_id,
-          total_rows: totalRows,
+          total_rows,
           elapsed_sec: elapsedTotal.toFixed(1),
         }),
         {
@@ -410,39 +322,15 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
-    } catch (processErr: any) {
-      console.error(
-        `[process-cost-import] Processing error:`,
-        processErr.message
-      );
-
-      await admin
-        .from("import_staging_cost_items")
-        .delete()
-        .eq("job_id", job_id)
-        .catch(() => {});
-
-      await admin
-        .from("import_jobs")
-        .update({
-          status: "failed",
-          error_message: processErr.message,
-          package_status: "none",
-          completed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", job_id);
-
-      await pool.end().catch(() => {});
-
-      return new Response(
-        JSON.stringify({ error: processErr.message, job_id }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
     }
+
+    return new Response(
+      JSON.stringify({ error: "Invalid action. Use 'append' or 'finalize'." }),
+      {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
   } catch (err: any) {
     console.error(`[process-cost-import] Fatal error:`, err.message);
     return new Response(JSON.stringify({ error: err.message }), {
