@@ -303,7 +303,8 @@ const Index = () => {
 
         const result = await importTemplate(
           group.name,
-          costSheets,
+          group.costFile!,     // raw File for server-side upload
+          costSheets,          // kept for backward compat / fallback
           jobTicketData.rawData,
           group.costFile!.name,
           group.jobTicketFile!.name,
