@@ -244,48 +244,24 @@ const Index = () => {
   const handleUpdateCostData = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || selectedTemplates.size === 0) return;
-
     setIsUpdatingCost(true);
-
     try {
-      const costSheets = await parseExcelFileAllSheets(file);
-      const detectedSheets = Array.from(
-        new Set(costSheets.map((s) => s.sheetName).filter((n): n is string => Boolean(n)))
-      );
-      toast({
-        title: 'Detected cost tabs',
-        description: detectedSheets.length ? detectedSheets.join(', ') : 'No tabs detected in this file',
-      });
-
       let successCount = 0;
       let failCount = 0;
-
       for (const templateId of Array.from(selectedTemplates)) {
         const result = await updateCostData(templateId, file, file.name);
-        if (result.success) {
-          successCount++;
-        } else {
-          failCount++;
-        }
+        if (result.success) { successCount++; } else { failCount++; }
       }
-
       toast({
-        title: 'Cost data updated',
-        description: `${successCount} template(s) updated${failCount > 0 ? `, ${failCount} failed` : ''}.`,
+        title: 'Cost data update started',
+        description: `${successCount} template(s) queued for processing${failCount > 0 ? `, ${failCount} failed` : ''}.`,
       });
-
       setSelectedTemplates(new Set());
     } catch (err: any) {
-      toast({
-        title: 'Update failed',
-        description: err.message,
-        variant: 'destructive',
-      });
+      toast({ title: 'Update failed', description: err.message, variant: 'destructive' });
     } finally {
       setIsUpdatingCost(false);
-      if (costUpdateInputRef.current) {
-        costUpdateInputRef.current.value = '';
-      }
+      if (costUpdateInputRef.current) costUpdateInputRef.current.value = '';
     }
   };
 
