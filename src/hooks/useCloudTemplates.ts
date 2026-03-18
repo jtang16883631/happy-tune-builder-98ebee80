@@ -781,6 +781,10 @@ export function useCloudTemplates() {
     }
   }, []);
 
+  const buildOfflinePackage = useCallback(async (templateId: string) => {
+    triggerOfflinePackageBuild(templateId);
+  }, []);
+
   return {
     templates,
     isLoading,
@@ -793,6 +797,7 @@ export function useCloudTemplates() {
     getSections,
     getCostItemByNDC,
     updateTemplateStatus,
+    buildOfflinePackage,
     refetch: fetchTemplates,
   };
 }
