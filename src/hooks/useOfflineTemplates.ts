@@ -664,34 +664,107 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
             const BULK_THRESHOLD = 10000;
 
             if (totalExpected >= BULK_THRESHOLD) {
-              // ── Fast path: edge function bulk export (single gzipped request) ──
-              console.log(`[OfflineDB] Using bulk export for ${totalExpected} cost items`);
-              const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-              const { data: { session } } = await supabase.auth.getSession();
-              const token = session?.access_token;
+              // ── Fast path: download pre-built package from storage ──
+              console.log(`[OfflineDB] Trying pre-built package for ${totalExpected} cost items`);
+              
+              let usedPackage = false;
+              try {
+                const { data: downloadData, error: dlError } = await supabase.storage
+                  .from('offline-packages')
+                  .download(`${ct.id}/cost-items.json.gz`);
 
-              const bulkUrl = `https://${projectId}.supabase.co/functions/v1/bulk-export-cost-items?template_id=${ct.id}`;
-              const resp = await fetch(bulkUrl, {
-                headers: {
-                  'Authorization': `Bearer ${token}`,
-                  'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-                },
-              });
+                if (!dlError && downloadData) {
+                  // Decompress gzip
+                  const compressedBytes = new Uint8Array(await downloadData.arrayBuffer());
+                  const decompressStream = new ReadableStream({
+                    start(controller) {
+                      controller.enqueue(compressedBytes);
+                      controller.close();
+                    },
+                  }).pipeThrough(new DecompressionStream('gzip'));
+                  const decompressedText = await new Response(decompressStream).text();
+                  const parsed = JSON.parse(decompressedText);
+                  const items = parsed.items || [];
+                  console.log(`[OfflineDB] Pre-built package: ${items.length} items`);
 
-              if (!resp.ok) {
-                const errText = await resp.text();
-                throw new Error(`Bulk export failed (${resp.status}): ${errText}`);
+                  for (const c of items) {
+                    costStmt.run([c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null, c.billing_date ?? null, c.manufacturer ?? null, c.generic ?? null, c.strength ?? null, c.size ?? null, c.dose ?? null]);
+                  }
+                  totalCostItemsFetched = items.length;
+                  setSyncProgress(prev => ({ ...prev, costItemsFetched: totalCostItemsFetched }));
+                  usedPackage = true;
+                } else {
+                  console.log(`[OfflineDB] No pre-built package found, falling back to pagination`);
+                }
+              } catch (pkgErr: any) {
+                console.warn(`[OfflineDB] Package download failed, falling back:`, pkgErr.message);
               }
 
-              const bulkData = await resp.json();
-              const items = bulkData.items || [];
-              console.log(`[OfflineDB] Bulk export received ${items.length} items`);
+              if (!usedPackage) {
+                // Trigger a build for next time (fire-and-forget)
+                try {
+                  const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+                  const { data: { session } } = await supabase.auth.getSession();
+                  if (session?.access_token) {
+                    fetch(`https://${projectId}.supabase.co/functions/v1/build-offline-package?template_id=${ct.id}`, {
+                      headers: {
+                        'Authorization': `Bearer ${session.access_token}`,
+                        'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+                      },
+                    }).catch(() => {});
+                  }
+                } catch { /* ignore */ }
 
-              for (const c of items) {
-                costStmt.run([c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null, c.billing_date ?? null, c.manufacturer ?? null, c.generic ?? null, c.strength ?? null, c.size ?? null, c.dose ?? null]);
+                // Fall back to cursor-based pagination
+                console.log(`[OfflineDB] Falling back to cursor pagination for ${totalExpected} items`);
+                const INITIAL_BATCH = 1000;
+                const MIN_BATCH = 250;
+                const MAX_RETRIES = 4;
+                let cursorBatch = INITIAL_BATCH;
+                let lastCursorId = '00000000-0000-0000-0000-000000000000';
+
+                const fetchCursorPage = async (
+                  afterId: string,
+                  batchSize: number,
+                  attempt = 0,
+                ): Promise<{ data: any[]; batchSize: number }> => {
+                  const res = await supabase
+                    .from('template_cost_items')
+                    .select('id, ndc, material_description, unit_price, source, material, sheet_name, billing_date, manufacturer, generic, strength, size, dose')
+                    .eq('template_id', ct.id)
+                    .gt('id', afterId)
+                    .order('id', { ascending: true })
+                    .limit(batchSize);
+
+                  if (res.error) {
+                    const msg = (res.error.message ?? '').toLowerCase();
+                    const retryable = res.error.code === '57014' || msg.includes('timeout') || msg.includes('connection');
+                    if (retryable && attempt < MAX_RETRIES) {
+                      const nextBatch = res.error.code === '57014'
+                        ? Math.max(MIN_BATCH, Math.floor(batchSize / 2))
+                        : batchSize;
+                      console.warn(`[OfflineDB] Retrying (attempt ${attempt + 1}) with batch ${nextBatch}`);
+                      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+                      return fetchCursorPage(afterId, nextBatch, attempt + 1);
+                    }
+                    throw res.error;
+                  }
+                  return { data: res.data ?? [], batchSize };
+                };
+
+                while (true) {
+                  const { data: page, batchSize: usedBatch } = await fetchCursorPage(lastCursorId, cursorBatch);
+                  if (!page || page.length === 0) break;
+                  cursorBatch = usedBatch;
+                  for (const c of page) {
+                    costStmt.run([c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null, c.billing_date ?? null, c.manufacturer ?? null, c.generic ?? null, c.strength ?? null, c.size ?? null, c.dose ?? null]);
+                  }
+                  totalCostItemsFetched += page.length;
+                  lastCursorId = page[page.length - 1].id;
+                  setSyncProgress(prev => ({ ...prev, costItemsFetched: totalCostItemsFetched }));
+                  if (page.length < cursorBatch) break;
+                }
               }
-              totalCostItemsFetched = items.length;
-              setSyncProgress(prev => ({ ...prev, costItemsFetched: totalCostItemsFetched }));
             } else {
               // ── Standard path: cursor-based pagination for smaller templates ──
               const INITIAL_BATCH = 1000;
