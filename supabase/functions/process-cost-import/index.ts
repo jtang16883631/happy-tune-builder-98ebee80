@@ -181,6 +181,9 @@ Deno.serve(async (req) => {
       const conn = await pool.connect();
 
       try {
+        // Set a generous statement timeout for large merges (5 minutes)
+        await conn.queryArray(`SET statement_timeout = '300s'`);
+
         console.log(
           `[process-cost-import] Merging: deleting old cost items for template ${job.template_id}`
         );
@@ -188,6 +191,8 @@ Deno.serve(async (req) => {
         await conn.queryArray(
           `DELETE FROM public.template_cost_items WHERE template_id = '${job.template_id.replace(/'/g, "''")}'`
         );
+
+        console.log(`[process-cost-import] Delete complete, inserting from staging...`);
 
         await conn.queryArray(
           `INSERT INTO public.template_cost_items
