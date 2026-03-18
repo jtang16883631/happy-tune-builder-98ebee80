@@ -74,8 +74,10 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Cursor-paginate server-side in large batches (no PostgREST timeout here)
-    const BATCH_SIZE = 5000;
+    // Cursor-paginate server-side
+    // PostgREST may cap rows at max_rows (often 1000), so we use that as batch size
+    // and only break when we get zero results
+    const BATCH_SIZE = 1000;
     let lastId = "00000000-0000-0000-0000-000000000000";
     const allItems: any[] = [];
 
@@ -100,6 +102,7 @@ Deno.serve(async (req) => {
       allItems.push(...data);
       lastId = data[data.length - 1].id;
 
+      // Only break when we got fewer rows than requested — meaning we've reached the end
       if (data.length < BATCH_SIZE) break;
     }
 
