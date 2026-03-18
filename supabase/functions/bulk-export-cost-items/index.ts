@@ -74,11 +74,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Cursor-paginate server-side
-    // PostgREST may cap rows at max_rows (often 1000), so we use that as batch size
-    // and only break when we get zero results
-    const BATCH_SIZE = 1000;
-    let lastId = "00000000-0000-0000-0000-000000000000";
+    // Offset-based pagination using .range()
+    const PAGE_SIZE = 500;
+    let offset = 0;
     const allItems: any[] = [];
 
     while (true) {
@@ -86,9 +84,7 @@ Deno.serve(async (req) => {
         .from("template_cost_items")
         .select("id, ndc, material_description, unit_price, source, material, sheet_name, billing_date, manufacturer, generic, strength, size, dose")
         .eq("template_id", templateId)
-        .gt("id", lastId)
-        .order("id", { ascending: true })
-        .limit(BATCH_SIZE);
+        .range(offset, offset + PAGE_SIZE - 1);
 
       if (error) {
         return new Response(JSON.stringify({ error: error.message }), {
@@ -100,10 +96,9 @@ Deno.serve(async (req) => {
       if (!data || data.length === 0) break;
 
       allItems.push(...data);
-      lastId = data[data.length - 1].id;
+      offset += data.length;
 
-      // Only break when we got fewer rows than requested — meaning we've reached the end
-      if (data.length < BATCH_SIZE) break;
+      if (data.length < PAGE_SIZE) break;
     }
 
     const jsonPayload = JSON.stringify({ items: allItems, count: allItems.length });
