@@ -615,9 +615,10 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       }),
     });
 
+    // Don't throw on errors — the resume is best-effort and the polling loop will retry
     if (!response.ok) {
-      const message = await response.text();
-      throw new Error(message || 'Failed to resume cost import');
+      const message = await response.text().catch(() => 'Unknown error');
+      console.warn(`[OfflineDB] Resume request returned ${response.status}: ${message}`);
     }
   }, []);
 
