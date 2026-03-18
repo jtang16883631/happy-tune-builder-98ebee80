@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.send-announcement-email]
 verify_jwt = false
+
+[functions.bulk-export-cost-items]
+verify_jwt = false
