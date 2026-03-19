@@ -8,8 +8,8 @@ const corsHeaders = {
 };
 
 const INTERNAL_AUTH_HEADER = "x-internal-service-key";
-const FINALIZE_TIME_BUDGET_MS = 40_000;
-const MERGE_BATCH = 5_000;
+const FINALIZE_TIME_BUDGET_MS = 20_000;
+const MERGE_BATCH = 2_000;
 const FINALIZE_LOCK_NAMESPACE = "process-cost-import-finalize";
 
 function jsonResponse(body: unknown, status = 200) {
@@ -229,7 +229,7 @@ Deno.serve(async (req) => {
       let stagingRemaining = 0;
 
       try {
-        await conn.queryArray(`SET statement_timeout = '55s'`);
+        await conn.queryArray(`SET statement_timeout = '15s'`);
 
         const lockResult = await conn.queryArray(
           `SELECT pg_try_advisory_lock(${finalizeLockKeySql})`
