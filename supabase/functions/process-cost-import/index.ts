@@ -10,6 +10,7 @@ const corsHeaders = {
 const INTERNAL_AUTH_HEADER = "x-internal-service-key";
 const FINALIZE_TIME_BUDGET_MS = 40_000;
 const MERGE_BATCH = 5_000;
+const FINALIZE_LOCK_NAMESPACE = "process-cost-import-finalize";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -32,6 +33,10 @@ function truncate(val: any, maxLen = 255): string | null {
   if (val == null) return null;
   const str = String(val).trim();
   return str.length > maxLen ? str.substring(0, maxLen) : str || null;
+}
+
+function advisoryLockSql(key: string): string {
+  return `hashtext('${key.replace(/'/g, "''")}')`;
 }
 
 async function queueFinalizeResume(params: {
@@ -217,18 +222,54 @@ Deno.serve(async (req) => {
       const conn = await pool.connect();
       const escapedTemplateId = job.template_id.replace(/'/g, "''");
       const escapedJobId = job_id.replace(/'/g, "''");
+      const finalizeLockKeySql = advisoryLockSql(`${FINALIZE_LOCK_NAMESPACE}:${job_id}`);
 
+      let lockAcquired = false;
       let totalInserted = 0;
       let stagingRemaining = 0;
 
       try {
         await conn.queryArray(`SET statement_timeout = '55s'`);
 
+        const lockResult = await conn.queryArray(
+          `SELECT pg_try_advisory_lock(${finalizeLockKeySql})`
+        );
+        lockAcquired = Boolean(lockResult.rows?.[0]?.[0]);
+
+        if (!lockAcquired) {
+          console.log(`[process-cost-import] Finalize already running for ${job_id}, skipping duplicate request`);
+          return jsonResponse(
+            {
+              success: true,
+              job_id,
+              busy: true,
+              message: "Finalize already in progress",
+            },
+            202
+          );
+        }
+
         const stagingBeforeResult = await conn.queryArray(
           `SELECT COUNT(*)::bigint FROM public.import_staging_cost_items WHERE job_id = '${escapedJobId}'`
         );
         const stagingBefore = Number(stagingBeforeResult.rows?.[0]?.[0] ?? 0);
+        const existingCostItemsResult = await conn.queryArray(
+          `SELECT COUNT(*)::bigint FROM public.template_cost_items WHERE template_id = '${escapedTemplateId}'`
+        );
+        const existingCostItems = Number(existingCostItemsResult.rows?.[0]?.[0] ?? 0);
         const shouldDeleteExisting = totalRows > 0 ? stagingBefore >= totalRows : stagingBefore > 0;
+
+        if (
+          totalRows > 0 &&
+          stagingBefore > 0 &&
+          existingCostItems > 0 &&
+          stagingBefore < totalRows &&
+          existingCostItems + stagingBefore !== totalRows
+        ) {
+          console.warn(
+            `[process-cost-import] Existing cost item count (${existingCostItems}) plus staging rows (${stagingBefore}) does not match expected total (${totalRows}) for template ${job.template_id}. This usually means overlapping finalize requests previously inserted duplicate rows.`
+          );
+        }
 
         if (shouldDeleteExisting) {
           console.log(`[process-cost-import] Merging: deleting old cost items for template ${job.template_id}`);
@@ -271,14 +312,16 @@ Deno.serve(async (req) => {
                WHERE job_id = '${escapedJobId}'
                ORDER BY id
                LIMIT ${MERGE_BATCH}
+               FOR UPDATE SKIP LOCKED
              ),
              inserted AS (
                INSERT INTO public.template_cost_items
-                 (template_id, ndc, material_description, unit_price, source, material,
+                 (id, template_id, ndc, material_description, unit_price, source, material,
                   billing_date, manufacturer, generic, strength, size, dose, sheet_name)
-               SELECT template_id, ndc, material_description, unit_price, source, material,
+               SELECT id, template_id, ndc, material_description, unit_price, source, material,
                       billing_date, manufacturer, generic, strength, size, dose, sheet_name
                FROM batch
+               ON CONFLICT (id) DO NOTHING
                RETURNING 1
              ),
              deleted AS (
@@ -304,6 +347,11 @@ Deno.serve(async (req) => {
         stagingRemaining = Number(stagingRemainingResult.rows?.[0]?.[0] ?? 0);
         console.log(`[process-cost-import] Merge pass complete: ${totalInserted} rows moved, ${stagingRemaining} remaining`);
       } finally {
+        if (lockAcquired) {
+          await conn.queryArray(`SELECT pg_advisory_unlock(${finalizeLockKeySql})`).catch((err) => {
+            console.error(`[process-cost-import] Failed to release finalize lock for ${job_id}:`, err.message);
+          });
+        }
         conn.release();
         await pool.end();
       }
