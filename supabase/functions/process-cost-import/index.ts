@@ -229,7 +229,7 @@ Deno.serve(async (req) => {
       let stagingRemaining = 0;
 
       try {
-        await conn.queryArray(`SET statement_timeout = '55s'`);
+        await conn.queryArray(`SET statement_timeout = '15s'`);
 
         const lockResult = await conn.queryArray(
           `SELECT pg_try_advisory_lock(${finalizeLockKeySql})`
