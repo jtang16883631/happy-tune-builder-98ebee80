@@ -376,13 +376,35 @@ async function _saveDatabase(database?: Database) {
   const bytesForIndexedDb = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   const sizeKB = (bytes.byteLength / 1024).toFixed(0);
 
-  // Use Electron file system if available, otherwise IndexedDB
+  // DUAL-WRITE: always save to BOTH Electron file AND IndexedDB for redundancy.
+  // This ensures cold-start offline works even if one storage backend fails.
   if (_isElectron()) {
-    console.log(`[OfflineDB] Saving ${sizeKB} KB to local file…`);
+    console.log(`[OfflineDB] Dual-write: saving ${sizeKB} KB to local file + IndexedDB…`);
+
+    // 1. Save to Electron file system (primary)
     const saved = await _electronSave(bytes);
-    if (!saved) {
-      console.error('[OfflineDB] SAVE TO LOCAL FILE FAILED! Falling back to IndexedDB…');
+    if (saved) {
+      // Verify by reading back the file size
+      try {
+        const readBack = await _electronLoad();
+        if (!readBack || readBack.byteLength !== bytes.byteLength) {
+          console.error(`[OfflineDB] Electron save verification FAILED! Wrote ${bytes.byteLength} but read back ${readBack?.byteLength ?? 0}`);
+        } else {
+          console.log(`[OfflineDB] Electron save verified: ${(readBack.byteLength / 1024).toFixed(0)} KB`);
+        }
+      } catch (verifyErr) {
+        console.error('[OfflineDB] Electron save verification error:', verifyErr);
+      }
+    } else {
+      console.error('[OfflineDB] SAVE TO LOCAL FILE FAILED!');
+    }
+
+    // 2. Always also save to IndexedDB (backup) — non-blocking
+    try {
       await saveToIndexedDB(DB_KEY, bytesForIndexedDb);
+      console.log(`[OfflineDB] IndexedDB backup saved: ${sizeKB} KB`);
+    } catch (idbErr) {
+      console.warn('[OfflineDB] IndexedDB backup save failed (non-critical):', idbErr);
     }
   } else {
     console.log(`[OfflineDB] Saving ${sizeKB} KB to IndexedDB…`);

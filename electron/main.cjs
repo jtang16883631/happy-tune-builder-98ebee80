@@ -119,9 +119,14 @@ ipcMain.handle("offline-save-db", async (_event, fileName, dataBase64) => {
     const filePath = path.join(getOfflineDir(), fileName);
     const buffer = Buffer.from(dataBase64, "base64");
     fs.writeFileSync(filePath, buffer);
-    const stats = fs.statSync(filePath);
-    console.log(`[OfflineFS] Saved ${fileName} (${(stats.size / 1024).toFixed(0)} KB)`);
-    return { success: true, size: stats.size };
+    // Read-back verification: ensure what we wrote is intact
+    const readBack = fs.readFileSync(filePath);
+    if (readBack.length !== buffer.length) {
+      console.error(`[OfflineFS] VERIFICATION FAILED! Wrote ${buffer.length} bytes but read back ${readBack.length}`);
+      return { success: false, error: `Write verification failed: ${buffer.length} vs ${readBack.length}` };
+    }
+    console.log(`[OfflineFS] Saved & verified ${fileName} (${(readBack.length / 1024).toFixed(0)} KB)`);
+    return { success: true, size: readBack.length };
   } catch (err) {
     console.error("[OfflineFS] Save error:", err);
     return { success: false, error: err.message };
