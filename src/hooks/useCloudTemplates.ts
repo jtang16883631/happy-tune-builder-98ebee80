@@ -27,7 +27,7 @@ async function startCostImportJob(
   onChunkProgress?: (sent: number, total: number) => void
 ): Promise<{ jobId: string } | { error: string }> {
   const XLSX = await import('xlsx');
-  const CHUNK_SIZE = 10000; // rows per request
+  const CHUNK_SIZE = 25000; // rows per request (larger = fewer HTTP round-trips)
 
   // 1. Parse Excel client-side
   console.log(`[CostImport] Parsing ${costFileName} client-side...`);
@@ -105,6 +105,7 @@ async function startCostImportJob(
   }
 
   const totalChunks = Math.ceil(allRows.length / CHUNK_SIZE);
+  const PARALLEL_CHUNKS = 4; // send up to 4 chunks simultaneously
   const baseUrl = `https://${projectId}.supabase.co/functions/v1/process-cost-import`;
   const headers = {
     'Authorization': `Bearer ${session.access_token}`,
@@ -112,31 +113,47 @@ async function startCostImportJob(
     'Content-Type': 'application/json',
   };
 
-  for (let i = 0; i < totalChunks; i++) {
-    const chunk = allRows.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-    onChunkProgress?.(i * CHUNK_SIZE, allRows.length);
+  // Send chunks in parallel batches instead of one-by-one
+  for (let batchStart = 0; batchStart < totalChunks; batchStart += PARALLEL_CHUNKS) {
+    const batchEnd = Math.min(batchStart + PARALLEL_CHUNKS, totalChunks);
+    const batchIndices = Array.from({ length: batchEnd - batchStart }, (_, k) => batchStart + k);
 
-    const res = await fetch(baseUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        job_id: job.id,
-        action: 'append',
-        rows: chunk,
-        chunk_index: i,
-        total_chunks: totalChunks,
-      }),
-    });
+    onChunkProgress?.(batchStart * CHUNK_SIZE, allRows.length);
 
-    if (!res.ok) {
-      const errBody = await res.text();
-      console.error(`[CostImport] Chunk ${i + 1}/${totalChunks} failed:`, errBody);
-      return { error: `Chunk upload failed: ${errBody}` };
+    const results = await Promise.all(
+      batchIndices.map(async (i) => {
+        const chunk = allRows.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        const res = await fetch(baseUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            job_id: job.id,
+            action: 'append',
+            rows: chunk,
+            chunk_index: i,
+            total_chunks: totalChunks,
+          }),
+        });
+        if (!res.ok) {
+          const errBody = await res.text();
+          return { error: `Chunk ${i + 1}/${totalChunks} failed: ${errBody}` };
+        }
+        return { ok: true };
+      })
+    );
+
+    // Check if any chunk in this batch failed
+    const failed = results.find(r => 'error' in r);
+    if (failed && 'error' in failed) {
+      console.error(`[CostImport] Parallel batch failed:`, failed.error);
+      return { error: failed.error };
     }
+
+    console.log(`[CostImport] Batch ${Math.floor(batchStart / PARALLEL_CHUNKS) + 1}/${Math.ceil(totalChunks / PARALLEL_CHUNKS)}: chunks ${batchStart + 1}-${batchEnd} done`);
   }
 
   onChunkProgress?.(allRows.length, allRows.length);
-  console.log(`[CostImport] All ${totalChunks} chunks sent, finalizing...`);
+  console.log(`[CostImport] All ${totalChunks} chunks sent (${PARALLEL_CHUNKS} parallel), finalizing...`);
 
   // 4. Call finalize (merge + package build) — fire-and-forget for speed
   fetch(baseUrl, {
