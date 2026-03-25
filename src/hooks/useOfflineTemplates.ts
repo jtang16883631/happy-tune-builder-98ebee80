@@ -1238,17 +1238,17 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
 
         if (expectedPackageItems > 0) {
           onStatus?.(`Downloading ${tData.name} cost items...`);
-          const items = await downloadOfflinePackageItems(cloudId);
+          const pkg = await downloadOfflinePackageItems(cloudId);
 
-          if (items.length === 0) {
+          if (pkg.items.length === 0) {
             throw new Error(`Export package for ${tData.name} is empty.`);
           }
 
-          if (items.length < expectedPackageItems) {
-            throw new Error(`Export package for ${tData.name} is incomplete (${items.length}/${expectedPackageItems}).`);
+          if (pkg.items.length < pkg.count) {
+            throw new Error(`Export package for ${tData.name} is incomplete (${pkg.items.length}/${pkg.count}).`);
           }
 
-          for (const c of items) {
+          for (const c of pkg.items) {
             exportDb.run(`INSERT INTO cost_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
               [generateId(), exportId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null, c.billing_date ?? null, c.manufacturer ?? null, c.generic ?? null, c.strength ?? null, c.size ?? null, c.dose ?? null]);
             costItemCount++;
