@@ -5,6 +5,10 @@ const NotFound = () => {
   const location = useLocation();
 
   useEffect(() => {
+    // Suppress 404 log for OAuth redirect paths (tokens temporarily appear as routes)
+    if (location.pathname.includes('access_token=') || location.pathname.includes('refresh_token=')) {
+      return;
+    }
     console.error("404 Error: User attempted to access non-existent route:", location.pathname);
   }, [location.pathname]);
 

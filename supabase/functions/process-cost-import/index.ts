@@ -145,7 +145,7 @@ Deno.serve(async (req) => {
 
     // ─── APPEND: bulk insert a chunk of rows into staging ───
     if (action === "append") {
-      const { rows, chunk_index, total_chunks } = body;
+      const { rows, columns, chunk_index, total_chunks } = body;
       if (!Array.isArray(rows) || rows.length === 0) {
         return jsonResponse({ error: "rows array required" }, 400);
       }
@@ -162,17 +162,35 @@ Deno.serve(async (req) => {
           .eq("id", job_id);
       }
 
+      // Build column index map for compact array format
+      const FIELD_NAMES = ['ndc','material_description','unit_price','source','material','billing_date','manufacturer','generic','strength','size','dose','sheet_name'];
+      const isCompact = Array.isArray(columns);
+      let colMap: number[] = [];
+      if (isCompact) {
+        // Map each FIELD_NAME to its index in the incoming columns array
+        colMap = FIELD_NAMES.map(f => (columns as string[]).indexOf(f));
+      }
+
+      // Helper to extract field value from a row (compact array or object)
+      const getField = (item: any, fieldName: string, fieldIdx: number): any => {
+        if (isCompact) {
+          const idx = colMap[fieldIdx];
+          return idx >= 0 ? item[idx] : null;
+        }
+        return item[fieldName];
+      };
+
       const pool = new Pool(dbUrl, 1);
       const conn = await pool.connect();
       try {
-        // Batch insert into staging
-        const BATCH_SIZE = 5000;
+        // Batch insert into staging — 10K rows per INSERT for fewer SQL round-trips
+        const BATCH_SIZE = 10000;
         for (let i = 0; i < rows.length; i += BATCH_SIZE) {
           const batch = rows.slice(i, i + BATCH_SIZE);
           const valueRows = batch
             .map(
               (item: any) =>
-                `(${sqlVal(job_id)},${sqlVal(job.template_id)},${sqlVal(truncate(item.ndc, 50))},${sqlVal(truncate(item.material_description, 255))},${sqlNum(item.unit_price)},${sqlVal(truncate(item.source, 255))},${sqlVal(truncate(item.material, 50))},${sqlVal(truncate(item.billing_date, 50))},${sqlVal(truncate(item.manufacturer, 255))},${sqlVal(truncate(item.generic, 255))},${sqlVal(truncate(item.strength, 100))},${sqlVal(truncate(item.size, 50))},${sqlVal(truncate(item.dose, 100))},${sqlVal(truncate(item.sheet_name, 50))})`
+                `(${sqlVal(job_id)},${sqlVal(job.template_id)},${sqlVal(truncate(getField(item, 'ndc', 0), 50))},${sqlVal(truncate(getField(item, 'material_description', 1), 255))},${sqlNum(getField(item, 'unit_price', 2))},${sqlVal(truncate(getField(item, 'source', 3), 255))},${sqlVal(truncate(getField(item, 'material', 4), 50))},${sqlVal(truncate(getField(item, 'billing_date', 5), 50))},${sqlVal(truncate(getField(item, 'manufacturer', 6), 255))},${sqlVal(truncate(getField(item, 'generic', 7), 255))},${sqlVal(truncate(getField(item, 'strength', 8), 100))},${sqlVal(truncate(getField(item, 'size', 9), 50))},${sqlVal(truncate(getField(item, 'dose', 10), 100))},${sqlVal(truncate(getField(item, 'sheet_name', 11), 50))})`
             )
             .join(",\n");
 

@@ -27,14 +27,18 @@ async function startCostImportJob(
   onChunkProgress?: (sent: number, total: number) => void
 ): Promise<{ jobId: string } | { error: string }> {
   const XLSX = await import('xlsx');
-  const CHUNK_SIZE = 25000; // rows per request (larger = fewer HTTP round-trips)
+  const CHUNK_SIZE = 50000; // rows per request — larger = fewer HTTP round-trips
+  const PARALLEL_CHUNKS = 8; // send up to 8 chunks simultaneously
 
   // 1. Parse Excel client-side
   console.log(`[CostImport] Parsing ${costFileName} client-side...`);
   const arrayBuffer = await costFile.arrayBuffer();
   const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
 
-  const allRows: any[] = [];
+  // Column order for compact array format (must match edge function)
+  const COLUMNS = ['ndc','material_description','unit_price','source','material','billing_date','manufacturer','generic','strength','size','dose','sheet_name'];
+
+  const allRows: any[][] = []; // compact: each row is a positional array
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) continue;
@@ -56,20 +60,21 @@ async function startCostImportJob(
         }
       }
 
-      allRows.push({
-        ndc: row[0] != null ? String(row[0]).trim().substring(0, 50) : null,
-        material_description: row[1] != null ? String(row[1]).trim().substring(0, 255) : null,
-        unit_price: row[2] != null ? parseFloat(String(row[2])) : null,
-        source: row[3] != null ? String(row[3]).trim().substring(0, 255) : null,
-        material: row[4] != null ? String(row[4]).trim().substring(0, 50) : null,
-        billing_date: billingDate,
-        manufacturer: row[6] != null ? String(row[6]).trim().substring(0, 255) : null,
-        generic: row[7] != null ? String(row[7]).trim().substring(0, 255) : null,
-        strength: row[8] != null ? String(row[8]).trim().substring(0, 100) : null,
-        size: row[9] != null ? String(row[9]).trim().substring(0, 50) : null,
-        dose: row[10] != null ? String(row[10]).trim().substring(0, 100) : null,
-        sheet_name: sheetName.substring(0, 50),
-      });
+      // Compact array: positional values matching COLUMNS order
+      allRows.push([
+        row[0] != null ? String(row[0]).trim().substring(0, 50) : null,
+        row[1] != null ? String(row[1]).trim().substring(0, 255) : null,
+        row[2] != null ? parseFloat(String(row[2])) : null,
+        row[3] != null ? String(row[3]).trim().substring(0, 255) : null,
+        row[4] != null ? String(row[4]).trim().substring(0, 50) : null,
+        billingDate,
+        row[6] != null ? String(row[6]).trim().substring(0, 255) : null,
+        row[7] != null ? String(row[7]).trim().substring(0, 255) : null,
+        row[8] != null ? String(row[8]).trim().substring(0, 100) : null,
+        row[9] != null ? String(row[9]).trim().substring(0, 50) : null,
+        row[10] != null ? String(row[10]).trim().substring(0, 100) : null,
+        sheetName.substring(0, 50),
+      ]);
     }
   }
 
@@ -97,7 +102,7 @@ async function startCostImportJob(
     return { error: `Job creation failed: ${jobErr?.message || 'Unknown'}` };
   }
 
-  // 3. Send rows in chunks
+  // 3. Send rows in chunks using compact array format
   const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) {
@@ -105,7 +110,6 @@ async function startCostImportJob(
   }
 
   const totalChunks = Math.ceil(allRows.length / CHUNK_SIZE);
-  const PARALLEL_CHUNKS = 4; // send up to 4 chunks simultaneously
   const baseUrl = `https://${projectId}.supabase.co/functions/v1/process-cost-import`;
   const headers = {
     'Authorization': `Bearer ${session.access_token}`,
@@ -113,7 +117,7 @@ async function startCostImportJob(
     'Content-Type': 'application/json',
   };
 
-  // Send chunks in parallel batches instead of one-by-one
+  // Send chunks in parallel batches
   for (let batchStart = 0; batchStart < totalChunks; batchStart += PARALLEL_CHUNKS) {
     const batchEnd = Math.min(batchStart + PARALLEL_CHUNKS, totalChunks);
     const batchIndices = Array.from({ length: batchEnd - batchStart }, (_, k) => batchStart + k);
@@ -129,6 +133,7 @@ async function startCostImportJob(
           body: JSON.stringify({
             job_id: job.id,
             action: 'append',
+            columns: COLUMNS,
             rows: chunk,
             chunk_index: i,
             total_chunks: totalChunks,
@@ -155,16 +160,35 @@ async function startCostImportJob(
   onChunkProgress?.(allRows.length, allRows.length);
   console.log(`[CostImport] All ${totalChunks} chunks sent (${PARALLEL_CHUNKS} parallel), finalizing...`);
 
-  // 4. Call finalize (merge + package build) — fire-and-forget for speed
-  fetch(baseUrl, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      job_id: job.id,
-      action: 'finalize',
-      total_rows: allRows.length,
-    }),
-  }).catch(err => console.warn('[CostImport] Finalize invoke error:', err));
+  // 4. Call finalize (merge + package build) — retry up to 3 times with backoff
+  const finalizeBody = JSON.stringify({
+    job_id: job.id,
+    action: 'finalize',
+    total_rows: allRows.length,
+  });
+
+  (async () => {
+    const MAX_RETRIES = 3;
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      try {
+        // Wait before retrying to let DB recover from chunk upload load
+        if (attempt > 0) {
+          const delay = 2000 * Math.pow(2, attempt - 1); // 2s, 4s
+          console.log(`[CostImport] Finalize retry ${attempt + 1}/${MAX_RETRIES} in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+        }
+        const res = await fetch(baseUrl, { method: 'POST', headers, body: finalizeBody });
+        if (res.ok || res.status === 202) {
+          console.log(`[CostImport] Finalize request accepted (attempt ${attempt + 1})`);
+          return;
+        }
+        console.warn(`[CostImport] Finalize attempt ${attempt + 1} failed: ${res.status}`);
+      } catch (err: any) {
+        console.warn(`[CostImport] Finalize attempt ${attempt + 1} error:`, err.message);
+      }
+    }
+    console.error('[CostImport] Finalize failed after all retries. Data is in staging — can be re-triggered.');
+  })();
 
   return { jobId: job.id };
 }
@@ -617,8 +641,17 @@ export function useCloudTemplates() {
         });
 
         if (error) {
-          console.error('[deleteTemplate] Edge function error:', error);
-          return { success: false, error: error.message || 'Delete failed' };
+          // Extract actual error message from the edge function response body
+          let errorMsg = error.message || 'Delete failed';
+          try {
+            // FunctionsHttpError has a context with the response body
+            if ('context' in error && (error as any).context?.body) {
+              const body = JSON.parse((error as any).context.body);
+              if (body?.error) errorMsg = body.error;
+            }
+          } catch { /* ignore parse errors */ }
+          console.error('[deleteTemplate] Edge function error:', errorMsg);
+          return { success: false, error: errorMsg };
         }
 
         if (data?.error) {

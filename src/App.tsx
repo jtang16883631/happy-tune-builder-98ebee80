@@ -61,6 +61,10 @@ function handleOAuthRedirectSync(): boolean {
     if (accessToken && refreshToken) {
       console.log('[OAuth] Found valid tokens, setting session...');
       
+      // IMPORTANT: Clean the hash immediately so HashRouter doesn't see
+      // the token-laden URL as a route path (which causes a 404 flash)
+      window.location.hash = '#/';
+      
       // Set session asynchronously but flag that we're handling it
       supabase.auth.setSession({
         access_token: accessToken,
@@ -69,10 +73,8 @@ function handleOAuthRedirectSync(): boolean {
         if (error) {
           console.error('[OAuth] Session error:', error);
         } else {
-          console.log('[OAuth] Session set successfully, redirecting...');
+          console.log('[OAuth] Session set successfully');
         }
-        // Clean the URL and reload regardless of success
-        window.location.href = window.location.origin + window.location.pathname + '#/';
       });
       
       return true; // Signal that we're handling OAuth
