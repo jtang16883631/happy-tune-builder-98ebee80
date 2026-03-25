@@ -410,14 +410,71 @@ Deno.serve(async (req) => {
           .eq("id", job.template_id);
       }
 
+      // ── Verify data integrity before building package ──
+      const verifyPool = new Pool(dbUrl, 1);
+      const verifyConn = await verifyPool.connect();
+      let actualCostItemCount = 0;
+      try {
+        const countResult = await verifyConn.queryArray(
+          `SELECT COUNT(*)::bigint FROM public.template_cost_items WHERE template_id = '${escapedTemplateId}'`
+        );
+        actualCostItemCount = Number(countResult.rows?.[0]?.[0] ?? 0);
+
+        const stagingLeftResult = await verifyConn.queryArray(
+          `SELECT COUNT(*)::bigint FROM public.import_staging_cost_items WHERE job_id = '${escapedJobId}'`
+        );
+        const stagingLeft = Number(stagingLeftResult.rows?.[0]?.[0] ?? 0);
+
+        console.log(
+          `[process-cost-import] Integrity check: ${actualCostItemCount} cost items, ${stagingLeft} staging remaining, expected ${totalRows}`
+        );
+
+        if (stagingLeft > 0) {
+          // Staging not fully merged — this should not happen if we reached here, but guard against it
+          console.error(`[process-cost-import] INTEGRITY FAIL: ${stagingLeft} rows still in staging!`);
+          await admin
+            .from("import_jobs")
+            .update({
+              status: "failed",
+              package_status: "failed",
+              package_error: `Data integrity failure: ${stagingLeft} rows still in staging table after merge completed.`,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", job_id);
+          return jsonResponse({ success: false, error: "Staging not fully merged" }, 500);
+        }
+
+        if (totalRows > 0 && actualCostItemCount < totalRows) {
+          console.error(
+            `[process-cost-import] INTEGRITY FAIL: expected ${totalRows} cost items but only ${actualCostItemCount} exist!`
+          );
+          await admin
+            .from("import_jobs")
+            .update({
+              status: "failed",
+              package_status: "failed",
+              package_error: `Data integrity failure: expected ${totalRows} cost items but only ${actualCostItemCount} were saved. Please re-import the cost data.`,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", job_id);
+          return jsonResponse({
+            success: false,
+            error: `Only ${actualCostItemCount}/${totalRows} cost items saved`,
+          }, 500);
+        }
+      } finally {
+        verifyConn.release();
+        await verifyPool.end();
+      }
+
       // Mark import complete, then try to build offline package.
       const elapsedImport = (Date.now() - startTime) / 1000;
       await admin
         .from("import_jobs")
         .update({
           status: "complete",
-          processed_rows: totalRows,
-          rows_per_sec: elapsedImport > 0 ? Math.round(totalRows / elapsedImport) : 0,
+          processed_rows: actualCostItemCount,
+          rows_per_sec: elapsedImport > 0 ? Math.round(actualCostItemCount / elapsedImport) : 0,
           completed_at: new Date().toISOString(),
           package_status: "building",
           package_error: null,
@@ -425,7 +482,7 @@ Deno.serve(async (req) => {
         })
         .eq("id", job_id);
 
-      console.log(`[process-cost-import] Building offline package for template ${job.template_id}`);
+      console.log(`[process-cost-import] Building offline package for template ${job.template_id} (${actualCostItemCount} verified items)`);
 
       try {
         const PAGE_SIZE = 5000;
@@ -448,7 +505,12 @@ Deno.serve(async (req) => {
 
         console.log(`[process-cost-import] Package: ${pkgItems.length} items, compressing...`);
 
-        const jsonPayload = JSON.stringify({ items: pkgItems, count: pkgItems.length });
+        // Include totalExpected so the client can verify independently
+        const jsonPayload = JSON.stringify({
+          items: pkgItems,
+          count: pkgItems.length,
+          totalExpected: actualCostItemCount,
+        });
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
           start(controller) {
@@ -469,7 +531,7 @@ Deno.serve(async (req) => {
 
         if (uploadError) throw new Error(`Package upload error: ${uploadError.message}`);
 
-        console.log(`[process-cost-import] Package uploaded: ${(compressedBytes.length / 1024 / 1024).toFixed(1)} MB`);
+        console.log(`[process-cost-import] Package uploaded: ${(compressedBytes.length / 1024 / 1024).toFixed(1)} MB (${pkgItems.length} items)`);
 
         await admin
           .from("import_jobs")

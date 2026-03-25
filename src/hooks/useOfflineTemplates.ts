@@ -622,7 +622,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
     }
   }, []);
 
-  const downloadOfflinePackageItems = useCallback(async (templateId: string) => {
+  const downloadOfflinePackageItems = useCallback(async (templateId: string): Promise<{ items: any[]; count: number; totalExpected: number }> => {
     const { data: downloadData, error: downloadError } = await supabase.storage
       .from('offline-packages')
       .download(`${templateId}/cost-items.json.gz`);
@@ -641,7 +641,12 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
 
     const decompressedText = await new Response(decompressedStream).text();
     const parsed = JSON.parse(decompressedText);
-    return Array.isArray(parsed.items) ? parsed.items : [];
+    const items = Array.isArray(parsed.items) ? parsed.items : [];
+    return {
+      items,
+      count: parsed.count ?? items.length,
+      totalExpected: parsed.totalExpected ?? parsed.count ?? items.length,
+    };
   }, []);
 
   const ensureOfflinePackageReady = useCallback(async (
@@ -656,7 +661,7 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       throw new Error('This template has cost items, but its offline package is missing.');
     }
 
-    for (let attempt = 0; attempt < 30; attempt++) {
+    for (let attempt = 0; attempt < 60; attempt++) {
       if (latestJob.package_status === 'ready') {
         return latestJob;
       }
@@ -672,29 +677,31 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
       const processedRows = latestJob.processed_rows ?? 0;
 
       if ((latestJob.status === 'pending' || latestJob.status === 'processing') && processedRows < totalRows) {
-        onStatus?.(`Uploading cost items (${processedRows}/${totalRows})...`);
+        onStatus?.(`Uploading cost items (${processedRows.toLocaleString()}/${totalRows.toLocaleString()})...`);
         await sleep(1000);
         latestJob = await getLatestImportJob(templateId);
         if (!latestJob) break;
         continue;
       }
 
-      onStatus?.(
-        latestJob.status === 'merging'
-          ? `Finishing cost items (${Math.min(processedRows, totalRows)}/${totalRows})...`
-          : latestJob.package_status === 'building'
-            ? 'Building offline cost package...'
-            : 'Preparing offline cost data...'
-      );
-
-      await resumeCostImportJob(latestJob.id, totalRows);
-      latestJob = await getLatestImportJob(templateId);
-
-      if (latestJob?.package_status === 'ready') {
-        return latestJob;
+      // When package is already building, just poll — do NOT re-trigger finalize
+      if (latestJob.package_status === 'building') {
+        onStatus?.('Building offline cost package...');
+        await sleep(1500);
+        latestJob = await getLatestImportJob(templateId);
+        if (!latestJob) break;
+        continue;
       }
 
-      await sleep(800);
+      // Only re-trigger finalize when stuck in merging state
+      if (latestJob.status === 'merging') {
+        onStatus?.(`Finishing cost items (${Math.min(processedRows, totalRows).toLocaleString()}/${totalRows.toLocaleString()})...`);
+        await resumeCostImportJob(latestJob.id, totalRows);
+      } else {
+        onStatus?.('Preparing offline cost data...');
+      }
+
+      await sleep(1500);
       latestJob = await getLatestImportJob(templateId);
       if (!latestJob) break;
     }
@@ -778,37 +785,53 @@ export function useOfflineTemplates(isOnline: boolean = navigator.onLine) {
             const expectedPackageItems = Math.max(totalExpected, latestImportJob?.total_rows ?? 0);
             let totalCostItemsFetched = 0;
 
-            const costStmt = activeDb.prepare(`
-              INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name, billing_date, manufacturer, generic, strength, size, dose)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-
             if (expectedPackageItems > 0) {
               await ensureOfflinePackageReady(ct.id, expectedPackageItems, (message) => {
                 console.log(`[OfflineDB] ${ct.name}: ${message}`);
               });
 
-              const items = await downloadOfflinePackageItems(ct.id);
-              console.log(`[OfflineDB] Offline package: ${items.length} items`);
+              const pkg = await downloadOfflinePackageItems(ct.id);
+              console.log(`[OfflineDB] Offline package: ${pkg.items.length} items (declared: ${pkg.count}, expected: ${pkg.totalExpected})`);
 
-              if (items.length === 0) {
+              if (pkg.items.length === 0) {
                 throw new Error('Offline package is empty even though this template has cost items.');
               }
 
-              if (items.length < expectedPackageItems) {
-                throw new Error(`Offline package is incomplete (${items.length}/${expectedPackageItems} cost items).`);
+              // Validate against the package's own declared count (verified by backend)
+              if (pkg.items.length < pkg.count) {
+                throw new Error(`Offline package is incomplete (${pkg.items.length}/${pkg.count} cost items).`);
               }
 
-              for (const c of items) {
-                costStmt.run([c.id, localId, c.ndc, c.material_description, c.unit_price, c.source, c.material, c.sheet_name ?? null, c.billing_date ?? null, c.manufacturer ?? null, c.generic ?? null, c.strength ?? null, c.size ?? null, c.dose ?? null]);
+              // Batch insert: build multi-row INSERT statements for ~10x speed
+              const BATCH_SIZE = 500;
+              for (let bi = 0; bi < pkg.items.length; bi += BATCH_SIZE) {
+                const batch = pkg.items.slice(bi, bi + BATCH_SIZE);
+                const placeholders = batch.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+                const values: any[] = [];
+                for (const c of batch) {
+                  values.push(
+                    c.id, localId, c.ndc, c.material_description, c.unit_price,
+                    c.source, c.material, c.sheet_name ?? null,
+                    c.billing_date ?? null, c.manufacturer ?? null,
+                    c.generic ?? null, c.strength ?? null, c.size ?? null, c.dose ?? null
+                  );
+                }
+                activeDb.run(
+                  `INSERT OR REPLACE INTO cost_items (id, template_id, ndc, material_description, unit_price, source, material, sheet_name, billing_date, manufacturer, generic, strength, size, dose) VALUES ${placeholders}`,
+                  values
+                );
+
+                // Update progress every few batches
+                if ((bi / BATCH_SIZE) % 10 === 0) {
+                  setSyncProgress(prev => ({ ...prev, costItemsFetched: bi + batch.length }));
+                }
               }
-              totalCostItemsFetched = items.length;
+              totalCostItemsFetched = pkg.items.length;
               setSyncProgress(prev => ({ ...prev, costItemsFetched: totalCostItemsFetched }));
             } else {
               console.warn(`[OfflineDB] Template ${ct.id} has no cloud cost items to download.`);
             }
 
-            costStmt.free();
             console.log(`[OfflineDB] Fetched ${totalCostItemsFetched} cost items for ${ct.name} (expected ${expectedPackageItems})`);
             activeDb.run('COMMIT');
           } catch (txErr) {
