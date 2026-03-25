@@ -632,33 +632,80 @@ export function useCloudTemplates() {
     [user]
   );
 
-  // Delete a template via backend function
+  // Delete a template via backend RPC directly from the client
   const deleteTemplate = useCallback(
     async (templateId: string): Promise<{ success: boolean; error?: string }> => {
       try {
-        const { data, error } = await supabase.functions.invoke('delete-template', {
-          body: { templateId },
+        console.log(`[deleteTemplate] Starting delete for template ${templateId}`);
+        const chunkSize = 10000;
+
+        // 1. Chunk-delete scan_records
+        for (let i = 0; i < 200; i++) {
+          const { data, error } = await supabase.rpc('delete_template_chunk', {
+            _template_id: templateId,
+            _table_name: 'scan_records',
+            _chunk_size: chunkSize,
+          });
+          if (error) throw new Error(`scan_records error: ${error.message}`);
+          if (!data || (data as number) < chunkSize) break;
+        }
+
+        // 2. Chunk-delete cost_items
+        for (let i = 0; i < 200; i++) {
+          const { data, error } = await supabase.rpc('delete_template_chunk', {
+            _template_id: templateId,
+            _table_name: 'template_cost_items',
+            _chunk_size: chunkSize,
+          });
+          if (error) throw new Error(`template_cost_items error: ${error.message}`);
+          if (!data || (data as number) < chunkSize) break;
+        }
+
+        // 3. Clean up import staging data before deleting template to avoid CASCADE timeout
+        const { data: importJobs, error: jobsErr } = await supabase
+          .from('import_jobs')
+          .select('id')
+          .eq('template_id', templateId);
+        
+        if (jobsErr) throw new Error(`import_jobs query error: ${jobsErr.message}`);
+
+        if (importJobs && importJobs.length > 0) {
+          for (const job of importJobs) {
+            for (let i = 0; i < 200; i++) {
+              const { count, error: stageErr } = await supabase
+                .from('import_staging_cost_items')
+                .delete({ count: 'exact' })
+                .eq('job_id', job.id)
+                .limit(chunkSize);
+              if (stageErr) throw new Error(`staging delete error: ${stageErr.message}`);
+              if (!count || count < chunkSize) break;
+            }
+          }
+          const { error: delJobsErr } = await supabase
+            .from('import_jobs')
+            .delete()
+            .eq('template_id', templateId);
+          if (delJobsErr) throw new Error(`import_jobs delete error: ${delJobsErr.message}`);
+        }
+
+        // 4. Delete small tables
+        await supabase.rpc('delete_template_chunk', {
+          _template_id: templateId,
+          _table_name: 'template_sections',
+        });
+        await supabase.rpc('delete_template_chunk', {
+          _template_id: templateId,
+          _table_name: 'template_issues',
         });
 
-        if (error) {
-          // Extract actual error message from the edge function response body
-          let errorMsg = error.message || 'Delete failed';
-          try {
-            // FunctionsHttpError has a context with the response body
-            if ('context' in error && (error as any).context?.body) {
-              const body = JSON.parse((error as any).context.body);
-              if (body?.error) errorMsg = body.error;
-            }
-          } catch { /* ignore parse errors */ }
-          console.error('[deleteTemplate] Edge function error:', errorMsg);
-          return { success: false, error: errorMsg };
-        }
+        // 5. Delete the template itself
+        const { error: delTemplateErr } = await supabase.rpc('delete_template_chunk', {
+          _template_id: templateId,
+          _table_name: 'data_templates',
+        });
+        if (delTemplateErr) throw new Error(`data_templates error: ${delTemplateErr.message}`);
 
-        if (data?.error) {
-          return { success: false, error: data.error };
-        }
-
-        console.log('[deleteTemplate] Deleted:', data?.deleted);
+        console.log('[deleteTemplate] Finished successfully');
         await fetchTemplates();
         return { success: true };
       } catch (err: any) {
